@@ -1,0 +1,18 @@
+HTTP/1.1 400 Bad Request
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
+Referrer-Policy: strict-origin-when-cross-origin
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Permissions-Policy: camera=(), microphone=(), geolocation=()
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Cache-Control: no-store, no-cache, must-revalidate, private
+Pragma: no-cache
+Expires: 0
+Content-Type: application/json; charset=utf-8
+Content-Length: 83
+ETag: W/"53-Um43Kplp89+mP3lv8aJ+cQXvZwo"
+Date: Mon, 16 Mar 2026 17:48:40 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+

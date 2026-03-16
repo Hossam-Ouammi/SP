@@ -1,25 +1,4 @@
-async function envoyerRequete(url, options = {}) {
-  const reponse = await fetch(url, {
-    credentials: "same-origin",
-    headers: {
-      ...(options.body instanceof FormData
-        ? {}
-        : { "Content-Type": "application/json" }),
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
-
-  const donnees = await reponse.json().catch(() => ({}));
-
-  if (!reponse.ok) {
-    const erreur = new Error(donnees.message || "Une erreur est survenue.");
-    erreur.status = reponse.status;
-    throw erreur;
-  }
-
-  return donnees;
-}
+import { envoyerRequete } from "./http.js";
 
 export async function recupererSeances() {
   const resultat = await envoyerRequete("/api/seances");

@@ -1,7 +1,7 @@
 function verifierAuthentification(req, res, next) {
   if (!req.session.utilisateur) {
     return res.status(401).json({
-      message: "Vous devez vous connecter pour acceder a cette ressource.",
+      message: "Vous devez vous connecter pour accéder à cette ressource.",
     });
   }
 
@@ -14,7 +14,7 @@ function verifierAccesMonetisation(req, res, next) {
 
   if (emailUtilisateur !== "hossam@test.com") {
     return res.status(403).json({
-      message: "Vous n'avez pas acces a cette ressource.",
+      message: "Vous n'avez pas accès à cette ressource.",
     });
   }
 

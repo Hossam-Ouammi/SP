@@ -1,5 +1,4 @@
 const fs = require("fs/promises");
-const path = require("path");
 
 const {
   listerToutesLesSeances,
@@ -11,6 +10,7 @@ const {
 } = require("../models/seance.model");
 const { recupererPhotosParSeance } = require("../models/photo.model");
 const { creerEntreeHistorique } = require("../models/historique.model");
+const { resoudreCheminScreenshot } = require("../utils/screenshot-storage");
 
 const statutsSeanceValides = ["planifiee", "faite", "annulee", "reportee"];
 const statutsCreationValides = ["planifiee", "faite"];
@@ -39,6 +39,10 @@ const libellesStatutHistorique = {
 
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
+}
+
+function estIdentifiantValide(valeur) {
+  return Number.isInteger(Number(valeur)) && Number(valeur) > 0;
 }
 
 function convertirHeureEnMinutes(heure) {
@@ -268,9 +272,13 @@ function validerDonneesSeance(donneesSeance) {
   const dureeMinutes = Number(donneesSeance.duree_minutes);
   const heureValide = estHeureDebutSeanceValide(donneesSeance.heure_debut);
   const dureeValide = dureesValides.includes(dureeMinutes);
+  const nomEtudiant = normaliserTexte(donneesSeance.etudiant);
+  const description = normaliserTexte(donneesSeance.description);
 
-  if (!normaliserTexte(donneesSeance.etudiant)) {
+  if (!nomEtudiant) {
     erreurs.push("Le nom de l'étudiant est obligatoire.");
+  } else if (nomEtudiant.length > 120) {
+    erreurs.push("Le nom de l'étudiant est trop long.");
   }
 
   if (!matieresValides.includes(donneesSeance.matiere)) {
@@ -307,6 +315,10 @@ function validerDonneesSeance(donneesSeance) {
 
   if (!statutsSeanceValides.includes(donneesSeance.statut_seance)) {
     erreurs.push("Le statut de la séance est invalide.");
+  }
+
+  if (description.length > 2000) {
+    erreurs.push("La description ne peut pas dépasser 2000 caractères.");
   }
 
   return erreurs;
@@ -381,6 +393,10 @@ async function recupererToutesLesSeances(req, res) {
 }
 
 async function recupererUneSeance(req, res) {
+  if (!estIdentifiantValide(req.params.id)) {
+    return res.status(400).json({ message: "Identifiant de séance invalide." });
+  }
+
   const seance = await trouverSeanceParId(req.params.id);
 
   if (!seance) {
@@ -426,6 +442,10 @@ async function ajouterSeance(req, res) {
 }
 
 async function modifierSeance(req, res) {
+  if (!estIdentifiantValide(req.params.id)) {
+    return res.status(400).json({ message: "Identifiant de séance invalide." });
+  }
+
   const seanceExistante = await trouverSeanceParId(req.params.id);
 
   if (!seanceExistante) {
@@ -466,6 +486,10 @@ async function modifierSeance(req, res) {
 }
 
 async function changerStatutSeance(req, res) {
+  if (!estIdentifiantValide(req.params.id)) {
+    return res.status(400).json({ message: "Identifiant de séance invalide." });
+  }
+
   const { statut_seance: statutSeance } = req.body;
   const seanceExistante = await trouverSeanceParId(req.params.id);
 
@@ -505,6 +529,10 @@ async function changerStatutSeance(req, res) {
 }
 
 async function supprimerUneSeance(req, res) {
+  if (!estIdentifiantValide(req.params.id)) {
+    return res.status(400).json({ message: "Identifiant de séance invalide." });
+  }
+
   const seance = await trouverSeanceParId(req.params.id);
 
   if (!seance) {
@@ -529,12 +557,11 @@ async function supprimerUneSeance(req, res) {
 
   await Promise.all(
     photos.map(async (photo) => {
-      const cheminComplet = path.join(
-        __dirname,
-        "..",
-        "public",
-        photo.chemin_fichier.replace(/^\/+/, "")
-      );
+      const cheminComplet = await resoudreCheminScreenshot(photo);
+
+      if (!cheminComplet) {
+        return;
+      }
 
       try {
         await fs.unlink(cheminComplet);

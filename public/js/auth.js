@@ -1,25 +1,4 @@
-async function envoyerRequete(url, options = {}) {
-  const reponse = await fetch(url, {
-    credentials: "same-origin",
-    headers: {
-      ...(options.body instanceof FormData
-        ? {}
-        : { "Content-Type": "application/json" }),
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
-
-  const donnees = await reponse.json().catch(() => ({}));
-
-  if (!reponse.ok) {
-    const erreur = new Error(donnees.message || "Une erreur est survenue.");
-    erreur.status = reponse.status;
-    throw erreur;
-  }
-
-  return donnees;
-}
+import { envoyerRequete, viderTokenCsrf } from "./http.js";
 
 export async function connecterUtilisateur(username, motDePasse) {
   const resultat = await envoyerRequete("/api/auth/login", {
@@ -47,6 +26,7 @@ export async function deconnecterUtilisateur() {
   await envoyerRequete("/api/auth/logout", {
     method: "POST",
   });
+  viderTokenCsrf();
 }
 
 export async function recupererUtilisateurCourant() {
@@ -55,6 +35,7 @@ export async function recupererUtilisateurCourant() {
     return resultat.utilisateur;
   } catch (erreur) {
     if (erreur.status === 401) {
+      viderTokenCsrf();
       return null;
     }
 

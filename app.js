@@ -10,30 +10,98 @@ const monetisationRoutes = require("./routes/monetisation.routes");
 const seancesRoutes = require("./routes/seances.routes");
 const photosRoutes = require("./routes/photos.routes");
 const { initialiserBaseDeDonnees } = require("./models/db");
+const { recupererSecretSession } = require("./models/session-secret");
+const { SQLiteSessionStore } = require("./models/session.store");
+const {
+  appliquerEnTetesSecurite,
+  desactiverCacheApi,
+  verifierOrigineRequete,
+  verifierProtectionCsrf,
+  attacherTokenCsrf,
+} = require("./middleware/security.middleware");
+const { assurerDossiersScreenshots } = require("./utils/screenshot-storage");
+const {
+  SESSION_COOKIE_NAME,
+  SESSION_MAX_AGE_MS,
+} = require("./config/security.config");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-fs.mkdirSync(path.join(__dirname, "public", "uploads"), { recursive: true });
 fs.mkdirSync(path.join(__dirname, "database"), { recursive: true });
+assurerDossiersScreenshots();
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+
+app.use(appliquerEnTetesSecurite);
+app.use(desactiverCacheApi);
+app.use(express.json({ limit: "100kb" }));
+app.use(express.urlencoded({ extended: false, limit: "100kb" }));
 
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "gestion-seances-secret-local",
+    name: SESSION_COOKIE_NAME,
+    secret: recupererSecretSession(),
+    store: new SQLiteSessionStore(),
     resave: false,
     saveUninitialized: false,
+    rolling: true,
+    unset: "destroy",
+    proxy: true,
     cookie: {
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 8,
+      httpOnly: true,
+      sameSite: "strict",
+      secure: "auto",
+      maxAge: SESSION_MAX_AGE_MS,
     },
   })
 );
 
-app.use("/vendor", express.static(path.join(__dirname, "node_modules")));
-app.use(express.static(path.join(__dirname, "public")));
+app.use(verifierOrigineRequete);
+app.use(verifierProtectionCsrf);
+app.use(attacherTokenCsrf);
+
+app.use(
+  "/vendor/@fullcalendar/core",
+  express.static(path.join(__dirname, "node_modules", "@fullcalendar", "core"), {
+    index: false,
+    fallthrough: true,
+  })
+);
+app.use(
+  "/vendor/@fullcalendar/daygrid",
+  express.static(path.join(__dirname, "node_modules", "@fullcalendar", "daygrid"), {
+    index: false,
+    fallthrough: true,
+  })
+);
+app.use(
+  "/vendor/@fullcalendar/timegrid",
+  express.static(path.join(__dirname, "node_modules", "@fullcalendar", "timegrid"), {
+    index: false,
+    fallthrough: true,
+  })
+);
+app.use(
+  "/vendor/@fullcalendar/interaction",
+  express.static(path.join(__dirname, "node_modules", "@fullcalendar", "interaction"), {
+    index: false,
+    fallthrough: true,
+  })
+);
+
+app.use("/uploads", (req, res) => {
+  res.status(404).end();
+});
+
+app.use(
+  express.static(path.join(__dirname, "public"), {
+    index: false,
+    fallthrough: true,
+    dotfiles: "ignore",
+  })
+);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/historique", historiqueRoutes);

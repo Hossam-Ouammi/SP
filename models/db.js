@@ -4,11 +4,16 @@ const crypto = require("crypto");
 const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
 const { recupererSecretAudit } = require("./audit-secret");
+const {
+  assurerDossiersScreenshots,
+  migrerScreenshotVersStockagePrive,
+} = require("../utils/screenshot-storage");
 
 const databaseDirectory = path.join(__dirname, "..", "database");
 const databasePath = path.join(databaseDirectory, "database.db");
 
 fs.mkdirSync(databaseDirectory, { recursive: true });
+assurerDossiersScreenshots();
 
 const db = new sqlite3.Database(databasePath);
 
@@ -439,6 +444,18 @@ async function initialiserHistoriqueExistant() {
   }
 }
 
+async function migrerScreenshotsVersStockagePrive() {
+  const photos = await all(`
+    SELECT id, chemin_fichier
+    FROM photos
+    ORDER BY id ASC
+  `);
+
+  for (const photo of photos) {
+    await migrerScreenshotVersStockagePrive(photo);
+  }
+}
+
 async function initialiserBaseDeDonnees() {
   await run(`
     CREATE TABLE IF NOT EXISTS utilisateurs (
@@ -500,6 +517,21 @@ async function initialiserBaseDeDonnees() {
     )
   `);
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      sid TEXT PRIMARY KEY,
+      sess TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at
+    ON sessions (expires_at)
+  `);
+
   await ajouterColonneCompteSiNecessaire();
   await ajouterColonneEssaiSiNecessaire();
   await normaliserSeancesExistantes();
@@ -507,6 +539,7 @@ async function initialiserBaseDeDonnees() {
   await normaliserNomsUtilisateurs();
   await initialiserSeancesExemple();
   await initialiserHistoriqueExistant();
+  await migrerScreenshotsVersStockagePrive();
 }
 
 module.exports = {

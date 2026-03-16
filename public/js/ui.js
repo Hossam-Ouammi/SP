@@ -123,8 +123,6 @@ const elements = {
   monetisationAbdoDueTable: document.getElementById("monetisation-abdo-due-table"),
   historyCount: document.getElementById("history-count"),
   historyList: document.getElementById("history-list"),
-  historyIntegrity: document.getElementById("history-integrity"),
-  historyIntegrityHelp: document.getElementById("history-integrity-help"),
   historyDetailEmpty: document.getElementById("history-detail-empty"),
   historyDetail: document.getElementById("history-detail"),
   historyDetailAction: document.getElementById("history-detail-action"),
@@ -634,15 +632,26 @@ function afficherListeHistorique() {
     const entete = document.createElement("div");
     entete.className = "history-item-head";
 
+    const presentationAction = obtenirPresentationActionHistorique(entree);
+    bouton.classList.add(`history-item-tone-${presentationAction.tone}`);
+
+    const zoneTitre = document.createElement("div");
+    zoneTitre.className = "history-item-main";
+
+    const badgeAction = document.createElement("span");
+    badgeAction.className = `history-action-badge history-action-badge-${presentationAction.tone}`;
+    badgeAction.textContent = presentationAction.badgeLabel;
+
     const titre = document.createElement("span");
     titre.className = "history-item-title";
-    titre.textContent = obtenirLibelleActionHistorique(entree);
+    titre.textContent = presentationAction.label;
 
     const heure = document.createElement("span");
     heure.className = "history-item-time";
     heure.textContent = formatDateHeureSecondes(entree.created_at);
 
-    entete.append(titre, heure);
+    zoneTitre.append(badgeAction, titre);
+    entete.append(zoneTitre, heure);
 
     const seance = document.createElement("div");
     seance.className = "history-item-meta";
@@ -677,18 +686,14 @@ async function ouvrirDetailHistorique(entreeId) {
 }
 
 function afficherDetailHistorique(entree) {
+  const presentationAction = obtenirPresentationActionHistorique(entree);
   elements.historyDetailEmpty.classList.add("hidden");
   elements.historyDetail.classList.remove("hidden");
-  elements.historyDetailAction.textContent = obtenirLibelleActionHistorique(entree);
+  elements.historyDetailAction.textContent = presentationAction.label;
+  elements.historyDetailAction.className = `history-action-badge history-action-badge-${presentationAction.tone} history-action-badge-detail`;
   elements.historyDetailSeance.textContent = entree.seance_libelle || "-";
   elements.historyDetailActor.textContent = obtenirNomActeurAffiche(entree.acteur_nom);
   elements.historyDetailDate.textContent = formatDateHeureSecondes(entree.created_at);
-  elements.historyIntegrity.textContent = entree.integrite_valide ? "Vérifié" : "Alerte";
-  elements.historyIntegrity.className = "history-integrity";
-  elements.historyIntegrity.classList.add(entree.integrite_valide ? "valid" : "invalid");
-  elements.historyIntegrityHelp.textContent = entree.integrite_valide
-    ? "Vérifié signifie que cette entrée correspond exactement à ce qui a été enregistré à l'origine."
-    : "Alerte signifie que le système a détecté une différence entre l'entrée enregistrée et sa signature de contrôle.";
 
   const detailsHistorique = normaliserDetailsHistorique(entree);
   elements.historyChangesTitle.textContent = detailsHistorique.titre;
@@ -715,33 +720,12 @@ function viderDetailHistorique() {
   elements.historyDetail.classList.add("hidden");
   elements.historyDetailEmpty.classList.remove("hidden");
   elements.historyDetailAction.textContent = "-";
+  elements.historyDetailAction.className = "";
   elements.historyDetailSeance.textContent = "-";
   elements.historyDetailActor.textContent = "-";
   elements.historyDetailDate.textContent = "-";
   elements.historyChangesTitle.textContent = "Détails";
   elements.historyChangesList.innerHTML = "";
-  elements.historyIntegrity.textContent = "-";
-  elements.historyIntegrityHelp.textContent = "-";
-  elements.historyIntegrity.className = "history-integrity";
-}
-
-function obtenirLibelleActionHistorique(entree) {
-  if (entree?.action_type === "initialisation" || entree?.action_type === "seance_creee") {
-    return "Création de la séance";
-  }
-
-  if (entree?.action_type === "seance_supprimee") {
-    return "Suppression de la séance";
-  }
-
-  if (
-    ["seance_modifiee", "statut_modifie", "screenshots_ajoutes"].includes(entree?.action_type)
-  ) {
-    const nature = obtenirNatureModificationHistorique(entree);
-    return nature ? `Modification de la séance - ${nature}` : "Modification de la séance";
-  }
-
-  return entree?.action_label || "Action";
 }
 
 function obtenirNomActeurAffiche(nomActeur) {
@@ -752,21 +736,72 @@ function obtenirNomActeurAffiche(nomActeur) {
   return nomActeur || "-";
 }
 
+function normaliserCleHistorique(valeur) {
+  return String(valeur || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function obtenirChangementsHistorique(entree) {
+  return Array.isArray(entree?.details?.changements) ? entree.details.changements : [];
+}
+
+function obtenirChangementStatutHistorique(entree) {
+  return obtenirChangementsHistorique(entree).find(
+    (changement) => String(changement?.champ || "").trim() === "statut_seance"
+  );
+}
+
+function obtenirActionStatutHistorique(entree) {
+  const changementStatut = obtenirChangementStatutHistorique(entree);
+  const statutApres = normaliserCleHistorique(changementStatut?.apres);
+
+  if (statutApres === "reportee") {
+    return {
+      label: "Modification de la séance - Reporter",
+      badgeLabel: "Reporter",
+      tone: "postpone",
+    };
+  }
+
+  if (statutApres === "annulee") {
+    return {
+      label: "Modification de la séance - Annuler",
+      badgeLabel: "Annuler",
+      tone: "cancel",
+    };
+  }
+
+  if (statutApres === "faite") {
+    return {
+      label: "Modification de la séance - Marquer faite",
+      badgeLabel: "Faite",
+      tone: "complete",
+    };
+  }
+
+  if (statutApres === "planifiee") {
+    return {
+      label: "Modification de la séance - Planifier",
+      badgeLabel: "Planifier",
+      tone: "update",
+    };
+  }
+
+  return null;
+}
+
 function obtenirNatureModificationHistorique(entree) {
-  if (entree?.action_type === "statut_modifie") {
-    return "Statut";
-  }
-
-  if (entree?.action_type === "screenshots_ajoutes") {
-    return "Screenshots";
-  }
-
-  const changements = Array.isArray(entree?.details?.changements)
-    ? entree.details.changements
-    : [];
+  const changements = obtenirChangementsHistorique(entree);
 
   if (changements.length === 0) {
-    return "";
+    return {
+      label: "Modification de la séance",
+      badgeLabel: "Modifier",
+      tone: "update",
+    };
   }
 
   const champs = new Set(
@@ -774,43 +809,86 @@ function obtenirNatureModificationHistorique(entree) {
       .map((changement) => String(changement?.champ || "").trim())
       .filter(Boolean)
   );
-  const groupes = [];
 
-  if (
-    ["date", "heure_debut", "heure_fin", "duree_minutes"].some((champ) => champs.has(champ))
-  ) {
-    groupes.push("Horaire");
+  if (["date", "heure_debut", "heure_fin", "duree_minutes"].some((champ) => champs.has(champ))) {
+    return {
+      label: "Modification de la séance - Modifier l'horaire",
+      badgeLabel: "Horaire",
+      tone: "postpone",
+    };
   }
 
   if (["etudiant", "matiere", "compte"].some((champ) => champs.has(champ))) {
-    groupes.push("Informations");
+    return {
+      label: "Modification de la séance - Modifier les informations",
+      badgeLabel: "Informations",
+      tone: "update",
+    };
   }
 
   if (champs.has("est_essai")) {
-    groupes.push("Type de séance");
+    return {
+      label: "Modification de la séance - Changer le type",
+      badgeLabel: "Type",
+      tone: "update",
+    };
   }
 
   if (champs.has("description")) {
-    groupes.push("Notes");
+    return {
+      label: "Modification de la séance - Modifier la description",
+      badgeLabel: "Description",
+      tone: "update",
+    };
   }
 
-  if (champs.has("statut_seance")) {
-    groupes.push("Statut");
+  return {
+    label: "Modification de la séance - Mise à jour multiple",
+    badgeLabel: "Mise à jour",
+    tone: "update",
+  };
+}
+
+function obtenirPresentationActionHistorique(entree) {
+  if (entree?.action_type === "initialisation" || entree?.action_type === "seance_creee") {
+    return {
+      label: "Création de la séance",
+      badgeLabel: "Création",
+      tone: "create",
+    };
   }
 
-  if (groupes.length === 0) {
-    return "Mise à jour";
+  if (entree?.action_type === "seance_supprimee") {
+    return {
+      label: "Suppression de la séance",
+      badgeLabel: "Suppression",
+      tone: "delete",
+    };
   }
 
-  if (groupes.length === 1) {
-    return groupes[0];
+  if (entree?.action_type === "screenshots_ajoutes") {
+    return {
+      label: "Ajout de screenshots",
+      badgeLabel: "Screenshots",
+      tone: "upload",
+    };
   }
 
-  if (groupes.length === 2) {
-    return `${groupes[0]} et ${groupes[1]}`;
+  const actionStatut = obtenirActionStatutHistorique(entree);
+
+  if (actionStatut) {
+    return actionStatut;
   }
 
-  return "Plusieurs éléments";
+  if (["seance_modifiee", "statut_modifie"].includes(entree?.action_type)) {
+    return obtenirNatureModificationHistorique(entree);
+  }
+
+  return {
+    label: entree?.action_label || "Action",
+    badgeLabel: "Action",
+    tone: "update",
+  };
 }
 
 function normaliserDetailsHistorique(entree) {
@@ -838,7 +916,7 @@ function normaliserDetailsHistorique(entree) {
   if (Array.isArray(details?.changements) && details.changements.length > 0) {
     return {
       mode: "changement",
-      titre: "Changements",
+      titre: "Changements appliqués",
       lignes: details.changements.map((changement) => ({
         label: changement.label || changement.champ || "Champ",
         avant: changement.avant || "-",
@@ -1299,7 +1377,7 @@ function afficherScreenshots(photos) {
     });
 
     const image = document.createElement("img");
-    image.src = photo.chemin_fichier;
+    image.src = photo.url;
     image.alt = photo.nom_fichier;
     image.loading = "lazy";
 
@@ -1313,10 +1391,10 @@ function afficherScreenshots(photos) {
 
 function ouvrirVisionneuseScreenshot(photo) {
   elements.previewTitle.textContent = "Screenshot";
-  elements.previewImage.src = photo.chemin_fichier;
+  elements.previewImage.src = photo.url;
   elements.previewImage.alt = photo.nom_fichier;
   elements.previewFilename.textContent = photo.nom_fichier;
-  elements.previewDownload.href = photo.chemin_fichier;
+  elements.previewDownload.href = photo.download_url || photo.url;
   elements.previewDownload.download = photo.nom_fichier;
   ouvrirModal(elements.screenshotPreviewModal);
 }

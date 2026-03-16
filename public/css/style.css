@@ -1220,8 +1220,7 @@ button {
   padding: 18px 20px;
 }
 
-.history-count,
-.history-integrity {
+.history-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1234,30 +1233,6 @@ button {
   color: var(--text-muted);
   font-size: 0.85rem;
   font-weight: 700;
-}
-
-.history-integrity.valid {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-  color: #15803d;
-}
-
-.history-integrity.invalid {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #b91c1c;
-}
-
-.history-integrity-wrap {
-  display: grid;
-  gap: 10px;
-}
-
-.history-integrity-help {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  line-height: 1.5;
 }
 
 .history-list {
@@ -1274,6 +1249,36 @@ button {
   border-radius: var(--radius-md);
   background: var(--surface);
   text-align: left;
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.history-item:hover {
+  transform: translateY(-1px);
+}
+
+.history-item-tone-create {
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.history-item-tone-update {
+  box-shadow: inset 3px 0 0 #64748b;
+}
+
+.history-item-tone-complete {
+  box-shadow: inset 3px 0 0 #059669;
+}
+
+.history-item-tone-postpone {
+  box-shadow: inset 3px 0 0 #d97706;
+}
+
+.history-item-tone-cancel,
+.history-item-tone-delete {
+  box-shadow: inset 3px 0 0 #dc2626;
+}
+
+.history-item-tone-upload {
+  box-shadow: inset 3px 0 0 #7c3aed;
 }
 
 .history-item.is-active {
@@ -1288,9 +1293,69 @@ button {
   gap: 12px;
 }
 
+.history-item-main {
+  display: grid;
+  gap: 8px;
+}
+
 .history-item-title {
   font-weight: 700;
   line-height: 1.45;
+}
+
+.history-action-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.history-action-badge-detail {
+  text-align: center;
+}
+
+.history-action-badge-create {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.history-action-badge-update {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.history-action-badge-complete {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.history-action-badge-postpone {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.history-action-badge-cancel,
+.history-action-badge-delete {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.history-action-badge-upload {
+  border-color: #ddd6fe;
+  background: #f5f3ff;
+  color: #6d28d9;
 }
 
 .history-item-time,

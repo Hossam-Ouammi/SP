@@ -5,17 +5,25 @@ const path = require("path");
 const {
   televerserPhotos,
   recupererPhotosDuneSeance,
+  recupererFichierPhoto,
 } = require("../controllers/photos.controller");
 const { verifierAuthentification } = require("../middleware/auth.middleware");
+const {
+  assurerDossiersScreenshots,
+  storageUploadsDirectory,
+  extensionImageAutorisee,
+  mimeTypeImageAutorise,
+} = require("../utils/screenshot-storage");
 
 const router = express.Router();
+assurerDossiersScreenshots();
 
 const stockage = multer.diskStorage({
   destination(req, file, callback) {
-    callback(null, path.join(__dirname, "..", "public", "uploads"));
+    callback(null, storageUploadsDirectory);
   },
   filename(req, file, callback) {
-    const extension = path.extname(file.originalname);
+    const extension = path.extname(file.originalname).toLowerCase();
     const nomSansExtension = path
       .basename(file.originalname, extension)
       .replace(/[^a-zA-Z0-9-_]/g, "-")
@@ -26,10 +34,13 @@ const stockage = multer.diskStorage({
 });
 
 function filtrerImages(req, file, callback) {
-  if (file.mimetype.startsWith("image/")) {
+  if (
+    mimeTypeImageAutorise(file.mimetype) &&
+    extensionImageAutorisee(file.originalname)
+  ) {
     callback(null, true);
   } else {
-    callback(new Error("Seuls les fichiers image sont autorises."));
+    callback(new Error("Seuls les screenshots PNG, JPG, GIF ou WebP sont autorises."));
   }
 }
 
@@ -43,6 +54,7 @@ const upload = multer({
 
 router.use(verifierAuthentification);
 
+router.get("/:photoId/file", recupererFichierPhoto);
 router.get("/seance/:seanceId", recupererPhotosDuneSeance);
 router.post("/seance/:seanceId", upload.array("screenshots", 8), televerserPhotos);
 

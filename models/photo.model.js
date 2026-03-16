@@ -1,4 +1,4 @@
-const { all, run } = require("./db");
+const { all, get, run } = require("./db");
 
 async function creerPhoto({ seanceId, cheminFichier, nomFichier }) {
   return run(
@@ -22,7 +22,19 @@ async function recupererPhotosParSeance(seanceId) {
   );
 }
 
+async function trouverPhotoParId(photoId) {
+  return get(
+    `
+      SELECT id, seance_id, chemin_fichier, nom_fichier
+      FROM photos
+      WHERE id = ?
+    `,
+    [photoId]
+  );
+}
+
 module.exports = {
   creerPhoto,
   recupererPhotosParSeance,
+  trouverPhotoParId,
 };
