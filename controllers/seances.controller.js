@@ -1,0 +1,378 @@
+const fs = require("fs/promises");
+const path = require("path");
+
+const {
+  listerToutesLesSeances,
+  trouverSeanceParId,
+  creerSeance,
+  mettreAJourSeance,
+  mettreAJourStatutSeance,
+  supprimerSeance,
+} = require("../models/seance.model");
+const { recupererPhotosParSeance } = require("../models/photo.model");
+
+const statutsSeanceValides = ["planifiee", "faite", "annulee", "reportee"];
+const statutsCreationValides = ["planifiee", "faite"];
+const matieresValides = ["Maths", "Physique chimie", "Python", "C++"];
+const comptesValides = ["Yassine", "Abdo"];
+const dureesValides = [60, 90, 120];
+const valeursEssaiValides = [0, 1];
+
+function normaliserTexte(valeur) {
+  return typeof valeur === "string" ? valeur.trim() : "";
+}
+
+function convertirHeureEnMinutes(heure) {
+  const [heures, minutes] = heure.split(":").map(Number);
+  return heures * 60 + minutes;
+}
+
+function convertirMinutesEnHeure(minutesTotales) {
+  const heures = String(Math.floor(minutesTotales / 60)).padStart(2, "0");
+  const minutes = String(minutesTotales % 60).padStart(2, "0");
+  return `${heures}:${minutes}`;
+}
+
+function estDateIsoValide(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return false;
+  }
+
+  const dateObjet = new Date(`${date}T12:00:00`);
+  return !Number.isNaN(dateObjet.getTime()) && dateObjet.toISOString().startsWith(date);
+}
+
+function estHeureValide(heure) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(heure);
+}
+
+function estHeureDebutSeanceValide(heure) {
+  return estHeureValide(heure) && /:(00|30)$/.test(heure);
+}
+
+function calculerHeureFin(heureDebut, dureeMinutes) {
+  if (!estHeureValide(heureDebut) || !dureesValides.includes(Number(dureeMinutes))) {
+    return "";
+  }
+
+  const minutesFin = convertirHeureEnMinutes(heureDebut) + Number(dureeMinutes);
+
+  if (minutesFin > 24 * 60) {
+    return "";
+  }
+
+  return convertirMinutesEnHeure(minutesFin);
+}
+
+function calculerDureeMinutes(heureDebut, heureFin) {
+  if (!estHeureValide(heureDebut) || !estHeureValide(heureFin)) {
+    return 0;
+  }
+
+  const duree = convertirHeureEnMinutes(heureFin) - convertirHeureEnMinutes(heureDebut);
+  return duree > 0 ? duree : 0;
+}
+
+function formaterDuree(dureeMinutes) {
+  if (dureeMinutes === 60) {
+    return "1h";
+  }
+
+  if (dureeMinutes === 90) {
+    return "1h30";
+  }
+
+  if (dureeMinutes === 120) {
+    return "2h";
+  }
+
+  return `${dureeMinutes} min`;
+}
+
+function construireLibelleSeance(donneesSeance) {
+  const matiere = normaliserTexte(donneesSeance.matiere) || "Séance";
+  const etudiant = normaliserTexte(donneesSeance.etudiant) || "Sans étudiant";
+  return `${matiere} - ${etudiant}`;
+}
+
+function construireDateHeureLocale(date, heure) {
+  if (!estDateIsoValide(date) || !estHeureValide(heure)) {
+    return null;
+  }
+
+  const [heures, minutes] = heure.split(":").map(Number);
+  const dateLocale = new Date(`${date}T00:00:00`);
+  dateLocale.setHours(heures, minutes, 0, 0);
+  return dateLocale;
+}
+
+function calculerStatutSeanceAffiche(seance) {
+  if (!["planifiee", "reportee"].includes(seance.statut_seance)) {
+    return seance.statut_seance;
+  }
+
+  const dateFin = construireDateHeureLocale(seance.date, seance.heure_fin);
+
+  if (!dateFin) {
+    return seance.statut_seance;
+  }
+
+  return dateFin.getTime() <= Date.now() ? "faite" : seance.statut_seance;
+}
+
+function normaliserValeurEssai(valeur) {
+  if (
+    valeur === true ||
+    valeur === "true" ||
+    valeur === "1" ||
+    valeur === 1 ||
+    valeur === "oui"
+  ) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function validerDonneesSeance(donneesSeance) {
+  const erreurs = [];
+  const dureeMinutes = Number(donneesSeance.duree_minutes);
+  const heureValide = estHeureDebutSeanceValide(donneesSeance.heure_debut);
+  const dureeValide = dureesValides.includes(dureeMinutes);
+
+  if (!normaliserTexte(donneesSeance.etudiant)) {
+    erreurs.push("Le nom de l'étudiant est obligatoire.");
+  }
+
+  if (!matieresValides.includes(donneesSeance.matiere)) {
+    erreurs.push("La matière est invalide.");
+  }
+
+  if (!comptesValides.includes(donneesSeance.compte)) {
+    erreurs.push("Le compte est invalide.");
+  }
+
+  if (!valeursEssaiValides.includes(Number(donneesSeance.est_essai))) {
+    erreurs.push("La valeur de séance d'essai est invalide.");
+  }
+
+  if (!normaliserTexte(donneesSeance.date)) {
+    erreurs.push("La date est obligatoire.");
+  } else if (!estDateIsoValide(donneesSeance.date)) {
+    erreurs.push("La date est invalide.");
+  }
+
+  if (!normaliserTexte(donneesSeance.heure_debut)) {
+    erreurs.push("L'heure de début est obligatoire.");
+  } else if (!heureValide) {
+    erreurs.push("L'heure de début doit être choisie par tranches de 30 minutes.");
+  }
+
+  if (!dureeValide) {
+    erreurs.push("La durée doit être 60, 90 ou 120 minutes.");
+  }
+
+  if (heureValide && dureeValide && !calculerHeureFin(donneesSeance.heure_debut, dureeMinutes)) {
+    erreurs.push("La séance ne peut pas dépasser minuit.");
+  }
+
+  if (!statutsSeanceValides.includes(donneesSeance.statut_seance)) {
+    erreurs.push("Le statut de la séance est invalide.");
+  }
+
+  return erreurs;
+}
+
+function preparerDonneesSeance(donneesSeance) {
+  const etudiant = normaliserTexte(donneesSeance.etudiant);
+  const matiere = normaliserTexte(donneesSeance.matiere);
+  const compte = normaliserTexte(donneesSeance.compte);
+  const estEssai = normaliserValeurEssai(donneesSeance.est_essai);
+  const date = normaliserTexte(donneesSeance.date);
+  const heureDebut = normaliserTexte(donneesSeance.heure_debut);
+  const dureeMinutes = Number(donneesSeance.duree_minutes);
+
+  const donneesPreparees = {
+    etudiant,
+    matiere,
+    compte,
+    est_essai: estEssai,
+    date,
+    heure_debut: heureDebut,
+    duree_minutes: dureeMinutes,
+    heure_fin: heureDebut && dureeMinutes ? calculerHeureFin(heureDebut, dureeMinutes) : "",
+    statut_seance: normaliserTexte(donneesSeance.statut_seance),
+    description: normaliserTexte(donneesSeance.description),
+  };
+
+  return {
+    titre: construireLibelleSeance(donneesPreparees),
+    etudiant: donneesPreparees.etudiant,
+    matiere: donneesPreparees.matiere,
+    compte: donneesPreparees.compte,
+    est_essai: donneesPreparees.est_essai,
+    date: donneesPreparees.date,
+    heure_debut: donneesPreparees.heure_debut,
+    heure_fin: donneesPreparees.heure_fin,
+    duree_minutes: donneesPreparees.duree_minutes,
+    statut_seance: donneesPreparees.statut_seance,
+    prix: 0,
+    statut_paiement: "non_payee",
+    description: donneesPreparees.description,
+  };
+}
+
+function transformerSeancePourClient(seance) {
+  if (!seance) {
+    return seance;
+  }
+
+  const dureeMinutes = calculerDureeMinutes(seance.heure_debut, seance.heure_fin);
+  const statutAffiche = calculerStatutSeanceAffiche(seance);
+  const { titre, prix, statut_paiement, ...seanceTransformee } = seance;
+
+  return {
+    ...seanceTransformee,
+    est_essai: Number(seance.est_essai) === 1,
+    essai_label: Number(seance.est_essai) === 1 ? "Oui" : "Non",
+    statut_seance: statutAffiche,
+    statut_manuel: seance.statut_seance,
+    statut_auto: statutAffiche !== seance.statut_seance,
+    libelle: construireLibelleSeance(seance),
+    duree_minutes: dureeMinutes,
+    duree_label: dureeMinutes ? formaterDuree(dureeMinutes) : "-",
+  };
+}
+
+async function recupererToutesLesSeances(req, res) {
+  const seances = await listerToutesLesSeances();
+  return res.json({
+    seances: seances.map(transformerSeancePourClient),
+  });
+}
+
+async function recupererUneSeance(req, res) {
+  const seance = await trouverSeanceParId(req.params.id);
+
+  if (!seance) {
+    return res.status(404).json({ message: "Séance introuvable." });
+  }
+
+  return res.json({ seance: transformerSeancePourClient(seance) });
+}
+
+async function ajouterSeance(req, res) {
+  const donneesSeance = preparerDonneesSeance(req.body);
+  const erreurs = validerDonneesSeance(donneesSeance);
+
+  if (erreurs.length > 0) {
+    return res.status(400).json({ message: erreurs.join(" ") });
+  }
+
+  if (!statutsCreationValides.includes(donneesSeance.statut_seance)) {
+    return res.status(400).json({
+      message: "À la création, le statut doit être planifiée ou faite.",
+    });
+  }
+
+  const nouvelleSeance = await creerSeance({
+    ...donneesSeance,
+    cree_par: req.utilisateur.id,
+    modifie_par: req.utilisateur.id,
+  });
+
+  return res.status(201).json({
+    message: "Séance créée avec succès.",
+    seance: transformerSeancePourClient(nouvelleSeance),
+  });
+}
+
+async function modifierSeance(req, res) {
+  const seanceExistante = await trouverSeanceParId(req.params.id);
+
+  if (!seanceExistante) {
+    return res.status(404).json({ message: "Séance introuvable." });
+  }
+
+  const donneesSeance = preparerDonneesSeance(req.body);
+  const erreurs = validerDonneesSeance(donneesSeance);
+
+  if (erreurs.length > 0) {
+    return res.status(400).json({ message: erreurs.join(" ") });
+  }
+
+  const seanceMiseAJour = await mettreAJourSeance(req.params.id, {
+    ...donneesSeance,
+    modifie_par: req.utilisateur.id,
+  });
+
+  return res.json({
+    message: "Séance modifiée avec succès.",
+    seance: transformerSeancePourClient(seanceMiseAJour),
+  });
+}
+
+async function changerStatutSeance(req, res) {
+  const { statut_seance: statutSeance } = req.body;
+  const seanceExistante = await trouverSeanceParId(req.params.id);
+
+  if (!seanceExistante) {
+    return res.status(404).json({ message: "Séance introuvable." });
+  }
+
+  if (!statutsSeanceValides.includes(statutSeance)) {
+    return res.status(400).json({ message: "Statut de séance invalide." });
+  }
+
+  const seanceMiseAJour = await mettreAJourStatutSeance(
+    req.params.id,
+    statutSeance,
+    req.utilisateur.id
+  );
+
+  return res.json({
+    message: "Statut de la séance mis à jour.",
+    seance: transformerSeancePourClient(seanceMiseAJour),
+  });
+}
+
+async function supprimerUneSeance(req, res) {
+  const seance = await trouverSeanceParId(req.params.id);
+
+  if (!seance) {
+    return res.status(404).json({ message: "Séance introuvable." });
+  }
+
+  const photos = await recupererPhotosParSeance(req.params.id);
+  await supprimerSeance(req.params.id);
+
+  await Promise.all(
+    photos.map(async (photo) => {
+      const cheminComplet = path.join(
+        __dirname,
+        "..",
+        "public",
+        photo.chemin_fichier.replace(/^\/+/, "")
+      );
+
+      try {
+        await fs.unlink(cheminComplet);
+      } catch (error) {
+        if (error.code !== "ENOENT") {
+          console.error("Suppression de screenshot impossible :", error);
+        }
+      }
+    })
+  );
+
+  return res.json({ message: "Séance supprimée avec succès." });
+}
+
+module.exports = {
+  recupererToutesLesSeances,
+  recupererUneSeance,
+  ajouterSeance,
+  modifierSeance,
+  changerStatutSeance,
+  supprimerUneSeance,
+};

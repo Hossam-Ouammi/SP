@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gestion des séances</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <main>
+      <section id="login-view" class="page login-page">
+        <div class="login-shell">
+          <div class="panel login-card">
+            <div class="login-header">
+              <div class="login-brand">Gestion des séances</div>
+              <h1>Connexion</h1>
+              <p>Accès partagé pour les deux utilisateurs.</p>
+            </div>
+
+            <form id="login-form" class="stack-form">
+              <label class="field">
+                <span>Email</span>
+                <input
+                  id="login-email"
+                  name="email"
+                  type="email"
+                  placeholder="hossam@test.com"
+                  required
+                />
+              </label>
+
+              <label class="field">
+                <span>Mot de passe</span>
+                <input
+                  id="login-password"
+                  name="mot_de_passe"
+                  type="password"
+                  placeholder="123456"
+                  required
+                />
+              </label>
+
+              <p id="login-error" class="form-error hidden"></p>
+
+              <button id="login-button" class="button primary full-width" type="submit">
+                Se connecter
+              </button>
+            </form>
+
+            <div class="demo-box">
+              <div class="demo-head">
+                <strong>Comptes de test</strong>
+              </div>
+              <div class="demo-row">
+                <span>Hossam</span>
+                <span>hossam@test.com</span>
+                <span>123456</span>
+              </div>
+              <div class="demo-row">
+                <span>Ami</span>
+                <span>ami@test.com</span>
+                <span>123456</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="app-view" class="page app-page hidden">
+        <header class="topbar panel">
+          <div class="topbar-left">
+            <h1 class="brand-title">Gestion des séances</h1>
+            <div class="topbar-meta">
+              <span class="user-pill" id="current-user-name">Utilisateur</span>
+            </div>
+          </div>
+
+          <div class="topbar-actions">
+            <button id="add-seance-button" class="button primary" type="button">
+              Ajouter
+            </button>
+            <button id="logout-button" class="button secondary" type="button">
+              Déconnexion
+            </button>
+          </div>
+        </header>
+
+        <section class="statistics-panel panel">
+          <div class="section-heading">
+            <h2>Statistiques</h2>
+          </div>
+
+          <div class="summary-grid">
+            <article class="summary-card">
+              <span class="summary-label">Planifiées</span>
+              <strong id="planned-count" class="summary-value">0</strong>
+            </article>
+
+            <article class="summary-card">
+              <span class="summary-label">Faites</span>
+              <strong id="completed-count" class="summary-value">0</strong>
+            </article>
+
+            <article class="summary-card">
+              <span class="summary-label">D'essai</span>
+              <strong id="trial-count" class="summary-value">0</strong>
+            </article>
+
+            <article class="summary-card">
+              <span class="summary-label">Normales</span>
+              <strong id="regular-count" class="summary-value">0</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel calendar-panel">
+          <div class="section-heading">
+            <h2>Calendrier</h2>
+          </div>
+
+          <div id="calendar"></div>
+        </section>
+      </section>
+    </main>
+
+    <div id="seance-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="seance-modal"></div>
+      <div class="modal-panel modal-large">
+        <div class="modal-header">
+          <div class="modal-heading">
+            <h3 id="seance-modal-title">Nouvelle séance</h3>
+            <p id="seance-modal-subtitle" class="modal-subtitle hidden"></p>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="seance-modal">
+            x
+          </button>
+        </div>
+
+        <form id="seance-form" class="seance-form">
+          <input id="seance-id" name="id" type="hidden" />
+
+          <div class="form-grid">
+            <label class="field">
+              <span>Étudiant</span>
+              <input id="etudiant" name="etudiant" type="text" required />
+            </label>
+
+            <fieldset class="field checkbox-field">
+              <span>Matière</span>
+              <div class="checkbox-options checkbox-options-2">
+                <label class="checkbox-option">
+                  <input class="single-checkbox matiere-checkbox" name="matiere" type="checkbox" value="Maths" />
+                  <span>Maths</span>
+                </label>
+                <label class="checkbox-option">
+                  <input class="single-checkbox matiere-checkbox" name="matiere" type="checkbox" value="Physique chimie" />
+                  <span>Physique chimie</span>
+                </label>
+                <label class="checkbox-option">
+                  <input class="single-checkbox matiere-checkbox" name="matiere" type="checkbox" value="Python" />
+                  <span>Python</span>
+                </label>
+                <label class="checkbox-option">
+                  <input class="single-checkbox matiere-checkbox" name="matiere" type="checkbox" value="C++" />
+                  <span>C++</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <label class="field">
+              <span>Date</span>
+              <input id="date" name="date" type="date" required />
+            </label>
+
+            <fieldset class="field checkbox-field">
+              <span>Heure de début</span>
+              <input id="heure_debut" name="heure_debut" type="hidden" required />
+              <div class="time-picker">
+                <div class="time-picker-section">
+                  <small>Heure</small>
+                  <div
+                    id="heure-debut-hour-options"
+                    class="checkbox-options time-options-grid"
+                  ></div>
+                </div>
+                <div class="time-picker-section">
+                  <small>Minutes</small>
+                  <div
+                    id="heure-debut-minute-options"
+                    class="checkbox-options checkbox-options-2 time-minute-grid"
+                  ></div>
+                </div>
+              </div>
+              <small>Choisissez une heure, puis 00 ou 30 pour les minutes.</small>
+            </fieldset>
+
+            <fieldset class="field checkbox-field">
+              <span>Compte</span>
+              <div class="checkbox-options checkbox-options-2">
+                <label class="checkbox-option">
+                  <input class="single-checkbox compte-checkbox" name="compte" type="checkbox" value="Abdo" />
+                  <span>Abdo</span>
+                </label>
+                <label class="checkbox-option">
+                  <input class="single-checkbox compte-checkbox" name="compte" type="checkbox" value="Yassine" />
+                  <span>Yassine</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="field checkbox-field duration-field">
+              <span>Durée</span>
+              <div class="checkbox-options checkbox-options-3">
+                <label class="checkbox-option">
+                  <input
+                    class="single-checkbox duration-checkbox"
+                    name="duree_minutes"
+                    type="checkbox"
+                    value="60"
+                  />
+                  <span>1h</span>
+                </label>
+                <label class="checkbox-option">
+                  <input
+                    class="single-checkbox duration-checkbox"
+                    name="duree_minutes"
+                    type="checkbox"
+                    value="90"
+                  />
+                  <span>1h30</span>
+                </label>
+                <label class="checkbox-option">
+                  <input
+                    class="single-checkbox duration-checkbox"
+                    name="duree_minutes"
+                    type="checkbox"
+                    value="120"
+                  />
+                  <span>2h</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <input id="heure_fin_calculee" type="hidden" />
+
+            <fieldset class="field field-full checkbox-field">
+              <span>Statut</span>
+              <div class="checkbox-options checkbox-options-4">
+                <label class="checkbox-option status-option">
+                  <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="planifiee" />
+                  <span>Planifiée</span>
+                </label>
+                <label class="checkbox-option status-option">
+                  <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="faite" />
+                  <span>Faite</span>
+                </label>
+                <label class="checkbox-option status-option status-option-edit-only">
+                  <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="reportee" />
+                  <span>Reportée</span>
+                </label>
+                <label class="checkbox-option status-option status-option-edit-only">
+                  <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="annulee" />
+                  <span>Annulée</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="field field-full checkbox-field">
+              <span>Séance d'essai</span>
+              <div class="checkbox-options checkbox-options-2">
+                <label class="checkbox-option">
+                  <input class="single-checkbox essai-checkbox" name="est_essai" type="checkbox" value="0" />
+                  <span>Non</span>
+                </label>
+                <label class="checkbox-option">
+                  <input class="single-checkbox essai-checkbox" name="est_essai" type="checkbox" value="1" />
+                  <span>Oui</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <label class="field field-full">
+              <span>Description</span>
+              <textarea
+                id="description"
+                name="description"
+                rows="4"
+                placeholder="Notes"
+              ></textarea>
+            </label>
+
+            <label class="field field-full">
+              <span>Screenshots</span>
+              <input id="seance-screenshots" name="screenshots" type="file" accept="image/*" multiple />
+              <small>Images uniquement. Maximum 8 fichiers.</small>
+              <div id="selected-files" class="file-list"></div>
+            </label>
+          </div>
+
+          <p id="seance-form-error" class="form-error hidden"></p>
+
+          <div class="form-actions">
+            <button class="button secondary" type="button" data-close-modal="seance-modal">
+              Annuler
+            </button>
+            <button id="save-seance-button" class="button primary" type="submit">
+              Enregistrer
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="detail-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="detail-modal"></div>
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h3 id="detail-title">Séance</h3>
+          <button class="icon-button" type="button" data-close-modal="detail-modal">
+            x
+          </button>
+        </div>
+
+        <div class="detail-layout">
+          <section class="detail-card">
+            <div class="detail-badges">
+              <span id="detail-status-badge" class="status-badge">Statut</span>
+            </div>
+
+            <div class="detail-list">
+              <div class="detail-row">
+                <span>Étudiant</span>
+                <strong id="detail-student">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Matière</span>
+                <strong id="detail-subject">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Compte</span>
+                <strong id="detail-account">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Date</span>
+                <strong id="detail-date">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Heure</span>
+                <strong id="detail-time">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Durée</span>
+                <strong id="detail-duration">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Séance d'essai</span>
+                <strong id="detail-trial">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Créé par</span>
+                <strong id="detail-created-by">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Modifié par</span>
+                <strong id="detail-updated-by">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Créé le</span>
+                <strong id="detail-created-at">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Mis à jour le</span>
+                <strong id="detail-updated-at">-</strong>
+              </div>
+            </div>
+
+            <div class="detail-description">
+              <span>Description</span>
+              <p id="detail-description">Aucune description.</p>
+            </div>
+
+            <div class="detail-actions">
+              <button id="edit-seance-button" class="button primary" type="button">
+                Modifier
+              </button>
+              <button id="delete-seance-button" class="button danger" type="button">
+                Supprimer
+              </button>
+            </div>
+          </section>
+
+          <section class="detail-side">
+            <article class="detail-card">
+              <h4>Actions</h4>
+              <div class="quick-actions">
+                <button class="button secondary quick-status-button" data-status="faite" type="button">
+                  Marquer faite
+                </button>
+                <button class="button secondary quick-status-button" data-status="reportee" type="button">
+                  Reporter
+                </button>
+                <button class="button secondary quick-status-button" data-status="annulee" type="button">
+                  Annuler
+                </button>
+              </div>
+            </article>
+
+            <article class="detail-card">
+              <div class="detail-photo-header">
+                <h4>Screenshots</h4>
+                <span id="detail-photo-count">0</span>
+              </div>
+              <div id="detail-photos" class="photo-grid"></div>
+            </article>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="screenshot-preview-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="screenshot-preview-modal"></div>
+      <div class="modal-panel preview-modal-panel">
+        <div class="modal-header">
+          <h3 id="preview-title">Screenshot</h3>
+          <button
+            class="icon-button"
+            type="button"
+            data-close-modal="screenshot-preview-modal"
+          >
+            x
+          </button>
+        </div>
+
+        <div class="preview-modal-content">
+          <img id="preview-image" src="" alt="" />
+        </div>
+
+        <div class="preview-modal-actions">
+          <span id="preview-filename" class="preview-filename">-</span>
+          <a
+            id="preview-download"
+            class="button primary"
+            href="#"
+            download
+          >
+            Télécharger
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/vendor/@fullcalendar/core/index.global.js"></script>
+    <script src="/vendor/@fullcalendar/core/locales-all.global.js"></script>
+    <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
+    <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
+    <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
+    <script type="module" src="/js/ui.js"></script>
+  </body>
+</html>
