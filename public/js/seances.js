@@ -80,3 +80,18 @@ export async function recupererPhotosDeSeance(seanceId) {
   const resultat = await envoyerRequete(`/api/photos/seance/${seanceId}`);
   return resultat.photos;
 }
+
+export async function recupererHistoriqueActions() {
+  const resultat = await envoyerRequete("/api/historique");
+  return resultat.historique;
+}
+
+export async function recupererDetailHistorique(entreeId) {
+  const resultat = await envoyerRequete(`/api/historique/${entreeId}`);
+  return resultat.entree;
+}
+
+export async function recupererMonetisation() {
+  const resultat = await envoyerRequete("/api/monetisation");
+  return resultat.monetisation;
+}

@@ -1,4 +1,5 @@
 node_modules/
 database/database.db
+database/.audit-secret
 public/uploads/*
 !public/uploads/.gitkeep

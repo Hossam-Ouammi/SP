@@ -9,6 +9,19 @@ function verifierAuthentification(req, res, next) {
   return next();
 }
 
+function verifierAccesMonetisation(req, res, next) {
+  const emailUtilisateur = String(req.utilisateur?.email || "").trim().toLowerCase();
+
+  if (emailUtilisateur !== "hossam@test.com") {
+    return res.status(403).json({
+      message: "Vous n'avez pas acces a cette ressource.",
+    });
+  }
+
+  return next();
+}
+
 module.exports = {
   verifierAuthentification,
+  verifierAccesMonetisation,
 };

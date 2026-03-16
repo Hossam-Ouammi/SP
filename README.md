@@ -12,7 +12,7 @@ Application web locale pour gerer des seances de cours a deux, avec calendrier p
 
 ## Fonctionnalites
 
-- Connexion par email + mot de passe
+- Connexion par username + mot de passe
 - Deux utilisateurs avec les memes permissions
 - Calendrier mensuel et hebdomadaire
 - Ajout, modification, suppression et changement de statut d'une seance
@@ -88,8 +88,8 @@ Au premier lancement, l'application cree automatiquement :
 
 ## Comptes de test
 
-- `hossam@test.com` / `123456`
-- `ami@test.com` / `123456`
+- `Hossam` / `123456`
+- `Abdo` / `123456`
 
 ## Utilisation rapide
 

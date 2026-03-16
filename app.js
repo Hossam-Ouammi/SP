@@ -5,6 +5,8 @@ const path = require("path");
 const fs = require("fs");
 
 const authRoutes = require("./routes/auth.routes");
+const historiqueRoutes = require("./routes/historique.routes");
+const monetisationRoutes = require("./routes/monetisation.routes");
 const seancesRoutes = require("./routes/seances.routes");
 const photosRoutes = require("./routes/photos.routes");
 const { initialiserBaseDeDonnees } = require("./models/db");
@@ -34,6 +36,8 @@ app.use("/vendor", express.static(path.join(__dirname, "node_modules")));
 app.use(express.static(path.join(__dirname, "public")));
 
 app.use("/api/auth", authRoutes);
+app.use("/api/historique", historiqueRoutes);
+app.use("/api/monetisation", monetisationRoutes);
 app.use("/api/seances", seancesRoutes);
 app.use("/api/photos", photosRoutes);
 

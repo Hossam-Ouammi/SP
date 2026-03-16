@@ -1,5 +1,6 @@
 const { creerPhoto, recupererPhotosParSeance } = require("../models/photo.model");
 const { trouverSeanceParId } = require("../models/seance.model");
+const { creerEntreeHistorique } = require("../models/historique.model");
 
 async function televerserPhotos(req, res) {
   const { seanceId } = req.params;
@@ -26,6 +27,23 @@ async function televerserPhotos(req, res) {
   }
 
   const photos = await recupererPhotosParSeance(seanceId);
+
+  await creerEntreeHistorique({
+    seanceId: seance.id,
+    seanceLibelle: `${seance.matiere} - ${seance.etudiant}`,
+    actionType: "screenshots_ajoutes",
+    actionLabel: "Ajout de screenshots",
+    acteurId: req.utilisateur?.id,
+    acteurNom: req.utilisateur?.nom,
+    details: {
+      type: "screenshots",
+      captures_ajoutees: req.files.map((fichier) => ({
+        nom_fichier: fichier.originalname,
+        taille_octets: fichier.size,
+      })),
+      total_screenshots: photos.length,
+    },
+  });
 
   return res.status(201).json({
     message: "Screenshots ajoutés avec succès.",

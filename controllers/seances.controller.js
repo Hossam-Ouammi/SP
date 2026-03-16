@@ -10,6 +10,7 @@ const {
   supprimerSeance,
 } = require("../models/seance.model");
 const { recupererPhotosParSeance } = require("../models/photo.model");
+const { creerEntreeHistorique } = require("../models/historique.model");
 
 const statutsSeanceValides = ["planifiee", "faite", "annulee", "reportee"];
 const statutsCreationValides = ["planifiee", "faite"];
@@ -17,6 +18,24 @@ const matieresValides = ["Maths", "Physique chimie", "Python", "C++"];
 const comptesValides = ["Yassine", "Abdo"];
 const dureesValides = [60, 90, 120];
 const valeursEssaiValides = [0, 1];
+const libellesChampHistorique = {
+  etudiant: "Étudiant",
+  matiere: "Matière",
+  compte: "Compte",
+  est_essai: "Séance d'essai",
+  date: "Date",
+  heure_debut: "Heure de début",
+  heure_fin: "Heure de fin",
+  duree_minutes: "Durée",
+  statut_seance: "Statut",
+  description: "Description",
+};
+const libellesStatutHistorique = {
+  planifiee: "Planifiée",
+  faite: "Faite",
+  annulee: "Annulée",
+  reportee: "Reportée",
+};
 
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
@@ -87,6 +106,116 @@ function formaterDuree(dureeMinutes) {
   }
 
   return `${dureeMinutes} min`;
+}
+
+function normaliserValeurHistorique(champ, valeur) {
+  if (champ === "est_essai") {
+    return Number(valeur) === 1 || valeur === true ? "Oui" : "Non";
+  }
+
+  if (champ === "duree_minutes") {
+    return formaterDuree(Number(valeur) || 0);
+  }
+
+  if (champ === "statut_seance") {
+    return libellesStatutHistorique[valeur] || String(valeur || "-");
+  }
+
+  if (champ === "description") {
+    return normaliserTexte(valeur) || "Aucune description";
+  }
+
+  return normaliserTexte(String(valeur ?? "")) || "-";
+}
+
+function valeurComparableHistorique(champ, valeur) {
+  if (champ === "est_essai") {
+    return Number(valeur) === 1 || valeur === true ? 1 : 0;
+  }
+
+  if (champ === "duree_minutes") {
+    return Number(valeur) || 0;
+  }
+
+  if (champ === "description") {
+    return normaliserTexte(valeur);
+  }
+
+  return normaliserTexte(String(valeur ?? ""));
+}
+
+function extraireEtatAuditSeance(seance) {
+  if (!seance) {
+    return {};
+  }
+
+  const dureeMinutes =
+    Number(seance.duree_minutes) || calculerDureeMinutes(seance.heure_debut, seance.heure_fin);
+
+  return {
+    etudiant: seance.etudiant,
+    matiere: seance.matiere,
+    compte: seance.compte,
+    est_essai: Number(seance.est_essai) === 1 ? 1 : 0,
+    date: seance.date,
+    heure_debut: seance.heure_debut,
+    heure_fin: seance.heure_fin,
+    duree_minutes: dureeMinutes,
+    statut_seance: seance.statut_seance,
+    description: seance.description || "",
+  };
+}
+
+function construireDetailsCreation(etatSeance) {
+  return {
+    type: "creation",
+    seance: {
+      ...etatSeance,
+    },
+  };
+}
+
+function construireListeSuppression(etatSeance) {
+  return Object.keys(libellesChampHistorique).map((champ) => ({
+    champ,
+    label: libellesChampHistorique[champ],
+    avant: normaliserValeurHistorique(champ, etatSeance[champ]),
+    apres: "-",
+  }));
+}
+
+function construireListeChangements(avant, apres) {
+  return Object.keys(libellesChampHistorique)
+    .filter(
+      (champ) =>
+        valeurComparableHistorique(champ, avant[champ]) !==
+        valeurComparableHistorique(champ, apres[champ])
+    )
+    .map((champ) => ({
+      champ,
+      label: libellesChampHistorique[champ],
+      avant: normaliserValeurHistorique(champ, avant[champ]),
+      apres: normaliserValeurHistorique(champ, apres[champ]),
+    }));
+}
+
+async function journaliserActionSeance({
+  actionType,
+  actionLabel,
+  acteur,
+  seanceId,
+  seanceLibelle,
+  details,
+}) {
+  await creerEntreeHistorique({
+    seanceId,
+    seanceLibelle,
+    actionType,
+    actionLabel,
+    acteurId: acteur?.id,
+    acteurNom: acteur?.nom,
+    details,
+  });
 }
 
 function construireLibelleSeance(donneesSeance) {
@@ -281,6 +410,15 @@ async function ajouterSeance(req, res) {
     modifie_par: req.utilisateur.id,
   });
 
+  await journaliserActionSeance({
+    actionType: "seance_creee",
+    actionLabel: "Création de la séance",
+    acteur: req.utilisateur,
+    seanceId: nouvelleSeance.id,
+    seanceLibelle: construireLibelleSeance(nouvelleSeance),
+    details: construireDetailsCreation(extraireEtatAuditSeance(nouvelleSeance)),
+  });
+
   return res.status(201).json({
     message: "Séance créée avec succès.",
     seance: transformerSeancePourClient(nouvelleSeance),
@@ -304,6 +442,21 @@ async function modifierSeance(req, res) {
   const seanceMiseAJour = await mettreAJourSeance(req.params.id, {
     ...donneesSeance,
     modifie_par: req.utilisateur.id,
+  });
+
+  await journaliserActionSeance({
+    actionType: "seance_modifiee",
+    actionLabel: "Modification de la séance",
+    acteur: req.utilisateur,
+    seanceId: seanceMiseAJour.id,
+    seanceLibelle: construireLibelleSeance(seanceMiseAJour),
+    details: {
+      type: "modification",
+      changements: construireListeChangements(
+        extraireEtatAuditSeance(seanceExistante),
+        extraireEtatAuditSeance(seanceMiseAJour)
+      ),
+    },
   });
 
   return res.json({
@@ -330,6 +483,21 @@ async function changerStatutSeance(req, res) {
     req.utilisateur.id
   );
 
+  await journaliserActionSeance({
+    actionType: "statut_modifie",
+    actionLabel: "Changement de statut",
+    acteur: req.utilisateur,
+    seanceId: seanceMiseAJour.id,
+    seanceLibelle: construireLibelleSeance(seanceMiseAJour),
+    details: {
+      type: "statut",
+      changements: construireListeChangements(
+        extraireEtatAuditSeance(seanceExistante),
+        extraireEtatAuditSeance(seanceMiseAJour)
+      ),
+    },
+  });
+
   return res.json({
     message: "Statut de la séance mis à jour.",
     seance: transformerSeancePourClient(seanceMiseAJour),
@@ -344,7 +512,20 @@ async function supprimerUneSeance(req, res) {
   }
 
   const photos = await recupererPhotosParSeance(req.params.id);
+  const etatAvantSuppression = extraireEtatAuditSeance(seance);
   await supprimerSeance(req.params.id);
+
+  await journaliserActionSeance({
+    actionType: "seance_supprimee",
+    actionLabel: "Suppression de la séance",
+    acteur: req.utilisateur,
+    seanceId: seance.id,
+    seanceLibelle: construireLibelleSeance(seance),
+    details: {
+      type: "suppression",
+      changements: construireListeSuppression(etatAvantSuppression),
+    },
+  });
 
   await Promise.all(
     photos.map(async (photo) => {

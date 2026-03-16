@@ -1,7 +1,9 @@
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
+const { recupererSecretAudit } = require("./audit-secret");
 
 const databaseDirectory = path.join(__dirname, "..", "database");
 const databasePath = path.join(databaseDirectory, "database.db");
@@ -61,6 +63,73 @@ function ajouterJours(dateReference, nombreDeJours) {
 
 function formaterDate(date) {
   return date.toISOString().split("T")[0];
+}
+
+function trierObjetRecursivement(valeur) {
+  if (Array.isArray(valeur)) {
+    return valeur.map(trierObjetRecursivement);
+  }
+
+  if (valeur && typeof valeur === "object") {
+    return Object.keys(valeur)
+      .sort()
+      .reduce((objetTrie, cle) => {
+        objetTrie[cle] = trierObjetRecursivement(valeur[cle]);
+        return objetTrie;
+      }, {});
+  }
+
+  return valeur;
+}
+
+function calculerHashHistorique(entree) {
+  const chargeUtile = JSON.stringify(
+    trierObjetRecursivement({
+      action_label: entree.action_label,
+      action_type: entree.action_type,
+      acteur_id: entree.acteur_id,
+      acteur_nom: entree.acteur_nom,
+      created_at: entree.created_at,
+      details_json: entree.details_json,
+      previous_hash: entree.previous_hash,
+      seance_id: entree.seance_id,
+      seance_libelle: entree.seance_libelle,
+    })
+  );
+
+  return crypto
+    .createHmac("sha256", recupererSecretAudit())
+    .update(chargeUtile)
+    .digest("hex");
+}
+
+function construireListeCreationHistorique(seance) {
+  return [
+    { champ: "etudiant", label: "Étudiant", avant: "-", apres: seance.etudiant },
+    { champ: "matiere", label: "Matière", avant: "-", apres: seance.matiere },
+    { champ: "compte", label: "Compte", avant: "-", apres: seance.compte || "Abdo" },
+    {
+      champ: "est_essai",
+      label: "Séance d'essai",
+      avant: "-",
+      apres: Number(seance.est_essai) === 1 ? "Oui" : "Non",
+    },
+    { champ: "date", label: "Date", avant: "-", apres: seance.date },
+    { champ: "heure_debut", label: "Heure de début", avant: "-", apres: seance.heure_debut },
+    { champ: "heure_fin", label: "Heure de fin", avant: "-", apres: seance.heure_fin },
+    {
+      champ: "statut_seance",
+      label: "Statut",
+      avant: "-",
+      apres: seance.statut_seance,
+    },
+    {
+      champ: "description",
+      label: "Description",
+      avant: "-",
+      apres: seance.description || "Aucune description",
+    },
+  ];
 }
 
 async function ajouterColonneCompteSiNecessaire() {
@@ -155,7 +224,7 @@ async function initialiserUtilisateursDeTest() {
       motDePasse: "123456",
     },
     {
-      nom: "Ami",
+      nom: "Abdo",
       email: "ami@test.com",
       motDePasse: "123456",
     },
@@ -174,6 +243,14 @@ async function initialiserUtilisateursDeTest() {
   }
 }
 
+async function normaliserNomsUtilisateurs() {
+  await run(`
+    UPDATE utilisateurs
+    SET nom = 'Abdo'
+    WHERE email = 'ami@test.com' OR nom = 'Ami'
+  `);
+}
+
 async function initialiserSeancesExemple() {
   const resultat = await get("SELECT COUNT(*) AS total FROM seances");
 
@@ -185,9 +262,12 @@ async function initialiserSeancesExemple() {
     "SELECT id FROM utilisateurs WHERE email = ?",
     ["hossam@test.com"]
   );
-  const ami = await get("SELECT id FROM utilisateurs WHERE email = ?", ["ami@test.com"]);
+  const abdoUtilisateur = await get(
+    "SELECT id FROM utilisateurs WHERE email = ?",
+    ["ami@test.com"]
+  );
 
-  if (!hossam || !ami) {
+  if (!hossam || !abdoUtilisateur) {
     return;
   }
 
@@ -216,8 +296,8 @@ async function initialiserSeancesExemple() {
       heure_fin: "18:00",
       statut_seance: "faite",
       description: "Mécanique et résolution d'exercices.",
-      cree_par: ami.id,
-      modifie_par: ami.id,
+      cree_par: abdoUtilisateur.id,
+      modifie_par: abdoUtilisateur.id,
     },
     {
       etudiant: "Lina",
@@ -230,7 +310,7 @@ async function initialiserSeancesExemple() {
       statut_seance: "reportee",
       description: "Séance déplacée après changement d'horaire.",
       cree_par: hossam.id,
-      modifie_par: ami.id,
+      modifie_par: abdoUtilisateur.id,
     },
     {
       etudiant: "Adam",
@@ -242,7 +322,7 @@ async function initialiserSeancesExemple() {
       heure_fin: "16:30",
       statut_seance: "annulee",
       description: "Séance annulée à la demande de l'étudiant.",
-      cree_par: ami.id,
+      cree_par: abdoUtilisateur.id,
       modifie_par: hossam.id,
     },
   ];
@@ -285,6 +365,77 @@ async function initialiserSeancesExemple() {
         seance.modifie_par,
       ]
     );
+  }
+}
+
+async function initialiserHistoriqueExistant() {
+  const resultat = await get("SELECT COUNT(*) AS total FROM historique_actions");
+
+  if (resultat.total > 0) {
+    return;
+  }
+
+  const seances = await all(
+    `
+      SELECT
+        seances.*,
+        createur.nom AS createur_nom
+      FROM seances
+      LEFT JOIN utilisateurs AS createur ON createur.id = seances.cree_par
+      ORDER BY seances.id ASC
+    `
+  );
+
+  let hashPrecedent = "";
+
+  for (const seance of seances) {
+    const entree = {
+      seance_id: seance.id,
+      seance_libelle: `${seance.matiere} - ${seance.etudiant}`,
+      action_type: "initialisation",
+      action_label: "Initialisation de la séance",
+      acteur_id: seance.cree_par,
+      acteur_nom: seance.createur_nom || "Utilisateur inconnu",
+      details_json: JSON.stringify({
+        type: "creation",
+        changements: construireListeCreationHistorique(seance),
+      }),
+      previous_hash: hashPrecedent,
+      created_at: seance.created_at || new Date().toISOString(),
+    };
+    const entryHash = calculerHashHistorique(entree);
+
+    await run(
+      `
+        INSERT INTO historique_actions (
+          seance_id,
+          seance_libelle,
+          action_type,
+          action_label,
+          acteur_id,
+          acteur_nom,
+          details_json,
+          previous_hash,
+          entry_hash,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        entree.seance_id,
+        entree.seance_libelle,
+        entree.action_type,
+        entree.action_label,
+        entree.acteur_id,
+        entree.acteur_nom,
+        entree.details_json,
+        entree.previous_hash,
+        entryHash,
+        entree.created_at,
+      ]
+    );
+
+    hashPrecedent = entryHash;
   }
 }
 
@@ -332,11 +483,30 @@ async function initialiserBaseDeDonnees() {
     )
   `);
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS historique_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      seance_id INTEGER,
+      seance_libelle TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      action_label TEXT NOT NULL,
+      acteur_id INTEGER,
+      acteur_nom TEXT NOT NULL,
+      details_json TEXT NOT NULL,
+      previous_hash TEXT NOT NULL,
+      entry_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (acteur_id) REFERENCES utilisateurs (id)
+    )
+  `);
+
   await ajouterColonneCompteSiNecessaire();
   await ajouterColonneEssaiSiNecessaire();
   await normaliserSeancesExistantes();
   await initialiserUtilisateursDeTest();
+  await normaliserNomsUtilisateurs();
   await initialiserSeancesExemple();
+  await initialiserHistoriqueExistant();
 }
 
 module.exports = {
