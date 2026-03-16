@@ -25,12 +25,13 @@
 
             <form id="login-form" class="stack-form">
               <label class="field">
-                <span>Username</span>
+                <span>Identifiant</span>
                 <input
                   id="login-username"
                   name="username"
                   type="text"
-                  placeholder="Hossam"
+                  placeholder="Votre identifiant"
+                  autocomplete="username"
                   required
                 />
               </label>
@@ -41,7 +42,8 @@
                   id="login-password"
                   name="mot_de_passe"
                   type="password"
-                  placeholder="123456"
+                  placeholder="Votre mot de passe"
+                  autocomplete="current-password"
                   required
                 />
               </label>
@@ -53,21 +55,6 @@
               </button>
             </form>
 
-            <div class="demo-box">
-              <div class="demo-head">
-                <strong>Comptes de test</strong>
-              </div>
-              <div class="demo-row">
-                <span>Hossam</span>
-                <span>Hossam</span>
-                <span>123456</span>
-              </div>
-              <div class="demo-row">
-                <span>Abdo</span>
-                <span>Abdo</span>
-                <span>123456</span>
-              </div>
-            </div>
           </div>
         </div>
       </section>
@@ -92,7 +79,10 @@
         </header>
 
         <nav class="workspace-nav panel">
-          <button class="nav-tab is-active" type="button" data-section-target="dashboard">
+          <button class="nav-tab hidden" type="button" data-section-target="aujourdhui">
+            Aujourd'hui
+          </button>
+          <button class="nav-tab" type="button" data-section-target="dashboard">
             Dashboard
           </button>
           <button class="nav-tab" type="button" data-section-target="statistiques">
@@ -101,7 +91,7 @@
           <button class="nav-tab" type="button" data-section-target="utilisateur">
             Utilisateur
           </button>
-          <button class="nav-tab" type="button" data-section-target="monetisation">
+          <button class="nav-tab hidden" type="button" data-section-target="monetisation">
             Monétisation
           </button>
           <button class="nav-tab" type="button" data-section-target="historique">
@@ -109,7 +99,21 @@
           </button>
         </nav>
 
-        <section id="dashboard-section" class="app-section">
+        <section id="aujourdhui-section" class="app-section">
+          <section class="panel today-panel">
+            <div class="section-heading section-heading-stack">
+              <div>
+                <h2>Aujourd'hui</h2>
+                <p id="today-date-label" class="section-note">-</p>
+              </div>
+              <span id="today-count" class="history-count">0</span>
+            </div>
+
+            <div id="today-list" class="today-agenda"></div>
+          </section>
+        </section>
+
+        <section id="dashboard-section" class="app-section hidden">
           <section class="panel calendar-panel">
             <div class="section-heading">
               <h2>Calendrier</h2>
@@ -164,14 +168,14 @@
                 <strong id="stats-abdo-completed">0</strong>
               </div>
 
-              <div class="stats-table-row stats-table-row-muted">
-                <span>Dans les faites : séances d'essai</span>
+              <div class="stats-table-row stats-table-row-muted stats-table-row-sub">
+                <span class="stats-table-label-sub">Séances d'essai</span>
                 <strong id="stats-yassine-completed-trial">0</strong>
                 <strong id="stats-abdo-completed-trial">0</strong>
               </div>
 
-              <div class="stats-table-row stats-table-row-muted">
-                <span>Dans les faites : séances standards</span>
+              <div class="stats-table-row stats-table-row-muted stats-table-row-sub">
+                <span class="stats-table-label-sub">Séances standards</span>
                 <strong id="stats-yassine-completed-regular">0</strong>
                 <strong id="stats-abdo-completed-regular">0</strong>
               </div>
@@ -204,9 +208,14 @@
               <article class="user-summary-card">
                 <span class="summary-label">Username</span>
                 <strong id="user-username" class="summary-value user-summary-value">-</strong>
+                <p id="user-security-status" class="user-security-status">Compte securise.</p>
               </article>
 
               <form id="user-password-form" class="stack-form user-password-form">
+                <div id="password-security-notice" class="security-notice hidden">
+                  Changez le mot de passe maintenant pour debloquer l'application.
+                </div>
+
                 <label class="field">
                   <span>Mot de passe actuel</span>
                   <input
@@ -224,7 +233,7 @@
                     id="new-password"
                     name="nouveau_mot_de_passe"
                     type="password"
-                    minlength="6"
+                    minlength="12"
                     autocomplete="new-password"
                     required
                   />
@@ -236,11 +245,15 @@
                     id="confirm-password"
                     name="confirmation_mot_de_passe"
                     type="password"
-                    minlength="6"
+                    minlength="12"
                     autocomplete="new-password"
                     required
                   />
                 </label>
+
+                <p class="user-password-help">
+                  12 caracteres minimum avec minuscule, majuscule, chiffre et caractere special.
+                </p>
 
                 <p id="user-password-error" class="form-error hidden"></p>
 

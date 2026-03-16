@@ -63,7 +63,7 @@ const etat = {
   historiqueSelection: null,
   seanceSelectionnee: null,
   calendrier: null,
-  sectionActive: "dashboard",
+  sectionActive: "aujourdhui",
 };
 
 const elements = {
@@ -77,13 +77,19 @@ const elements = {
   logoutButton: document.getElementById("logout-button"),
   addSeanceButton: document.getElementById("add-seance-button"),
   navTabs: Array.from(document.querySelectorAll(".nav-tab")),
+  todaySection: document.getElementById("aujourdhui-section"),
   dashboardSection: document.getElementById("dashboard-section"),
   statistiquesSection: document.getElementById("statistiques-section"),
   utilisateurSection: document.getElementById("utilisateur-section"),
   monetisationSection: document.getElementById("monetisation-section"),
   historiqueSection: document.getElementById("historique-section"),
+  todayDateLabel: document.getElementById("today-date-label"),
+  todayCount: document.getElementById("today-count"),
+  todayList: document.getElementById("today-list"),
   currentUserName: document.getElementById("current-user-name"),
   userUsername: document.getElementById("user-username"),
+  userSecurityStatus: document.getElementById("user-security-status"),
+  passwordSecurityNotice: document.getElementById("password-security-notice"),
   userPasswordForm: document.getElementById("user-password-form"),
   userPasswordError: document.getElementById("user-password-error"),
   currentPassword: document.getElementById("current-password"),
@@ -183,6 +189,40 @@ const elements = {
 
 document.addEventListener("DOMContentLoaded", initialiserApplication);
 
+function utilisateurDoitChangerMotDePasse() {
+  return Number(etat.utilisateur?.doit_changer_mot_de_passe) === 1;
+}
+
+function viderDonneesApplication() {
+  etat.seances = [];
+  etat.historique = [];
+  etat.monetisation = null;
+  etat.historiqueSelection = null;
+  etat.seanceSelectionnee = null;
+
+  if (etat.calendrier) {
+    mettreAJourEvenements(etat.calendrier, []);
+  }
+
+  mettreAJourResume();
+  afficherListeHistorique();
+  viderDetailHistorique();
+  viderMonetisation();
+}
+
+async function chargerDonneesApplication() {
+  if (utilisateurDoitChangerMotDePasse()) {
+    viderDonneesApplication();
+    return;
+  }
+
+  await Promise.all([
+    chargerSeances(),
+    chargerHistorique(),
+    chargerMonetisationSiAutorise(),
+  ]);
+}
+
 async function initialiserApplication() {
   initialiserChoixHeureDebut();
   attacherEcouteurs();
@@ -193,11 +233,7 @@ async function initialiserApplication() {
     if (utilisateur) {
       etat.utilisateur = utilisateur;
       afficherApplication();
-      await Promise.all([
-        chargerSeances(),
-        chargerHistorique(),
-        chargerMonetisationSiAutorise(),
-      ]);
+      await chargerDonneesApplication();
     } else {
       afficherConnexion();
     }
@@ -269,6 +305,7 @@ function afficherConnexion() {
   elements.loginError.classList.add("hidden");
   elements.loginForm.reset();
   reinitialiserFormulaireUtilisateur();
+  elements.passwordSecurityNotice.classList.add("hidden");
   mettreAJourNavigationProtegee();
 }
 
@@ -277,26 +314,63 @@ function afficherApplication() {
   elements.appView.classList.remove("hidden");
   elements.currentUserName.textContent = etat.utilisateur.nom;
   elements.userUsername.textContent = etat.utilisateur.nom;
+  elements.userSecurityStatus.textContent = utilisateurDoitChangerMotDePasse()
+    ? "Mot de passe a securiser."
+    : "Compte securise.";
+  elements.passwordSecurityNotice.classList.toggle("hidden", !utilisateurDoitChangerMotDePasse());
+  mettreAJourVueAujourdhui();
   mettreAJourNavigationProtegee();
-  afficherSectionApplication(etat.sectionActive);
+  afficherSectionApplication(utilisateurDoitChangerMotDePasse() ? "utilisateur" : etat.sectionActive);
+}
+
+function initialiserCalendrierSiNecessaire() {
+  if (etat.calendrier) {
+    return;
+  }
+
+  etat.calendrier = initialiserCalendrier(elements.calendar, {
+    onDateClick: ouvrirFormulaireCreation,
+    onEventClick: ouvrirDetailSeance,
+  });
+
+  mettreAJourEvenements(etat.calendrier, etat.seances);
+}
+
+function rafraichirCalendrierSiVisible(sectionDemandee = etat.sectionActive) {
+  if (sectionDemandee !== "dashboard") {
+    return;
+  }
+
+  initialiserCalendrierSiNecessaire();
 
   if (!etat.calendrier) {
-    etat.calendrier = initialiserCalendrier(elements.calendar, {
-      onDateClick: ouvrirFormulaireCreation,
-      onEventClick: ouvrirDetailSeance,
-    });
+    return;
   }
+
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      if (typeof etat.calendrier.updateSize === "function") {
+        etat.calendrier.updateSize();
+      }
+    });
+  });
 }
 
 function afficherSectionApplication(section) {
-  const sectionDemandee =
-    section === "monetisation" && !utilisateurPeutVoirMonetisation()
-      ? "dashboard"
-      : section;
+  let sectionDemandee = section;
+
+  if (utilisateurDoitChangerMotDePasse()) {
+    sectionDemandee = "utilisateur";
+  } else if (section === "aujourdhui" && !utilisateurPeutVoirAujourdhui()) {
+    sectionDemandee = "dashboard";
+  } else if (section === "monetisation" && !utilisateurPeutVoirMonetisation()) {
+    sectionDemandee = utilisateurPeutVoirAujourdhui() ? "aujourdhui" : "dashboard";
+  }
 
   etat.sectionActive = sectionDemandee;
 
   const cartes = {
+    aujourdhui: elements.todaySection,
     dashboard: elements.dashboardSection,
     statistiques: elements.statistiquesSection,
     utilisateur: elements.utilisateurSection,
@@ -311,19 +385,43 @@ function afficherSectionApplication(section) {
   elements.navTabs.forEach((bouton) => {
     bouton.classList.toggle("is-active", bouton.dataset.sectionTarget === sectionDemandee);
   });
+
+  rafraichirCalendrierSiVisible(sectionDemandee);
 }
 
 function utilisateurPeutVoirMonetisation() {
   return String(etat.utilisateur?.email || "").trim().toLowerCase() === "hossam@test.com";
 }
 
+function utilisateurPeutVoirAujourdhui() {
+  return String(etat.utilisateur?.email || "").trim().toLowerCase() === "hossam@test.com";
+}
+
 function mettreAJourNavigationProtegee() {
+  const motDePasseAChanger = utilisateurDoitChangerMotDePasse();
+
+  elements.addSeanceButton.classList.toggle("hidden", motDePasseAChanger);
+  elements.addSeanceButton.disabled = motDePasseAChanger;
+
   elements.navTabs.forEach((bouton) => {
-    if (bouton.dataset.sectionTarget !== "monetisation") {
+    const section = bouton.dataset.sectionTarget;
+
+    if (motDePasseAChanger) {
+      bouton.classList.toggle("hidden", section !== "utilisateur");
       return;
     }
 
-    bouton.classList.toggle("hidden", !utilisateurPeutVoirMonetisation());
+    if (section === "monetisation") {
+      bouton.classList.toggle("hidden", !utilisateurPeutVoirMonetisation());
+      return;
+    }
+
+    if (section === "aujourdhui") {
+      bouton.classList.toggle("hidden", !utilisateurPeutVoirAujourdhui());
+      return;
+    }
+
+    bouton.classList.remove("hidden");
   });
 }
 
@@ -346,11 +444,7 @@ async function gererConnexion(event) {
 
     etat.utilisateur = utilisateur;
     afficherApplication();
-    await Promise.all([
-      chargerSeances(),
-      chargerHistorique(),
-      chargerMonetisationSiAutorise(),
-    ]);
+    await chargerDonneesApplication();
     afficherToast("Connexion réussie.");
   } catch (erreur) {
     afficherErreur(elements.loginError, erreur.message);
@@ -364,17 +458,9 @@ async function gererDeconnexion() {
   try {
     await deconnecterUtilisateur();
     etat.utilisateur = null;
-    etat.seances = [];
-    etat.historique = [];
-    etat.monetisation = null;
-    etat.historiqueSelection = null;
-    etat.seanceSelectionnee = null;
-    etat.sectionActive = "dashboard";
-    viderDetailHistorique();
+    viderDonneesApplication();
+    etat.sectionActive = "aujourdhui";
     afficherConnexion();
-    if (etat.calendrier) {
-      mettreAJourEvenements(etat.calendrier, []);
-    }
     afficherToast("Déconnexion réussie.");
   } catch (erreur) {
     afficherToast(erreur.message, "error");
@@ -401,8 +487,12 @@ async function gererModificationMotDePasse(event) {
   elements.savePasswordButton.textContent = "Mise à jour...";
 
   try {
-    await changerMotDePasse(motDePasseActuel, nouveauMotDePasse);
+    const resultat = await changerMotDePasse(motDePasseActuel, nouveauMotDePasse);
+    etat.utilisateur = resultat.utilisateur;
     reinitialiserFormulaireUtilisateur();
+    afficherApplication();
+    await chargerDonneesApplication();
+    afficherSectionApplication("aujourdhui");
     afficherToast("Mot de passe modifié.");
   } catch (erreur) {
     if (erreur.status === 401) {
@@ -422,6 +512,7 @@ async function chargerSeances(options = {}) {
   etat.seances = seances;
   mettreAJourEvenements(etat.calendrier, seances);
   mettreAJourResume();
+  rafraichirCalendrierSiVisible();
 
   if (options.ouvrirSeanceId) {
     const seance = etat.seances.find(
@@ -473,7 +564,7 @@ async function chargerMonetisationSiAutorise() {
     if (erreur.status === 403) {
       etat.monetisation = null;
       viderMonetisation();
-      afficherSectionApplication("dashboard");
+      afficherSectionApplication("aujourdhui");
       return;
     }
 
@@ -483,6 +574,7 @@ async function chargerMonetisationSiAutorise() {
 
 function mettreAJourResume() {
   elements.totalCount.textContent = String(etat.seances.length);
+  mettreAJourVueAujourdhui();
 
   const statistiquesYassine = calculerStatistiquesCompte("Yassine");
   const statistiquesAbdo = calculerStatistiquesCompte("Abdo");
@@ -508,6 +600,131 @@ function mettreAJourResume() {
   }, statistiquesAbdo);
 
   viderMonetisation();
+}
+
+function obtenirDateLocaleIso(dateObjet = new Date()) {
+  const annee = dateObjet.getFullYear();
+  const mois = String(dateObjet.getMonth() + 1).padStart(2, "0");
+  const jour = String(dateObjet.getDate()).padStart(2, "0");
+  return `${annee}-${mois}-${jour}`;
+}
+
+function formaterDateAujourdhui() {
+  return new Intl.DateTimeFormat("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
+}
+
+function obtenirCleTriHeure(heure) {
+  if (!estHeureValide(heure)) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const [heures, minutes] = heure.split(":").map(Number);
+  return heures * 60 + minutes;
+}
+
+function obtenirSeancesAujourdhui() {
+  const dateAujourdhui = obtenirDateLocaleIso();
+
+  return etat.seances
+    .filter((seance) => seance.date === dateAujourdhui)
+    .sort((premiereSeance, secondeSeance) => {
+      return (
+        obtenirCleTriHeure(premiereSeance.heure_debut) -
+        obtenirCleTriHeure(secondeSeance.heure_debut)
+      );
+    });
+}
+
+function mettreAJourVueAujourdhui() {
+  elements.todayDateLabel.textContent = formaterDateAujourdhui();
+
+  const seancesAujourdhui = obtenirSeancesAujourdhui();
+  elements.todayCount.textContent = String(seancesAujourdhui.length);
+  elements.todayList.innerHTML = "";
+
+  if (seancesAujourdhui.length === 0) {
+    elements.todayList.innerHTML =
+      '<div class="empty-state">Aucune séance prévue aujourd\'hui.</div>';
+    return;
+  }
+
+  seancesAujourdhui.forEach((seance) => {
+    elements.todayList.appendChild(creerCarteSeanceAujourdhui(seance));
+  });
+}
+
+function creerCarteSeanceAujourdhui(seance) {
+  const ligne = document.createElement("button");
+  ligne.type = "button";
+  ligne.className = "today-row";
+  ligne.addEventListener("click", async () => {
+    await ouvrirDetailSeance(seance);
+  });
+
+  const heure = document.createElement("span");
+  heure.className = "today-time";
+  heure.textContent = estHeureValide(seance.heure_debut) ? seance.heure_debut : "--:--";
+
+  const carte = document.createElement("span");
+  carte.className = `today-item today-item-${seance.statut_seance}`;
+
+  const entete = document.createElement("span");
+  entete.className = "today-item-head";
+
+  const titreZone = document.createElement("span");
+  titreZone.className = "today-item-title";
+
+  const etudiant = document.createElement("strong");
+  etudiant.className = "today-item-student";
+  etudiant.textContent = seance.etudiant || "Séance";
+
+  const matiere = document.createElement("span");
+  matiere.className = "today-item-subject";
+  matiere.textContent = seance.matiere || "-";
+
+  titreZone.append(etudiant, matiere);
+
+  const badgeStatut = document.createElement("span");
+  definirBadge(
+    badgeStatut,
+    seance.statut_seance,
+    libellesStatutSeance[seance.statut_seance] || "Séance"
+  );
+
+  entete.append(titreZone, badgeStatut);
+
+  const meta = document.createElement("span");
+  meta.className = "today-item-meta";
+  meta.append(
+    creerPuceAujourdhui(construirePlageHoraire(seance)),
+    creerPuceAujourdhui(seance.duree_label || "-"),
+    creerPuceAujourdhui(seance.compte || "-"),
+    creerPuceAujourdhui(seance.est_essai ? "Essai" : "Normale")
+  );
+
+  carte.append(entete, meta);
+
+  if (seance.description) {
+    const description = document.createElement("span");
+    description.className = "today-item-note";
+    description.textContent = seance.description;
+    carte.append(description);
+  }
+
+  ligne.append(heure, carte);
+  return ligne;
+}
+
+function creerPuceAujourdhui(texte) {
+  const puce = document.createElement("span");
+  puce.className = "today-meta-pill";
+  puce.textContent = texte;
+  return puce;
 }
 
 function normaliserNomCompte(compte) {

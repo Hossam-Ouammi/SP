@@ -4,11 +4,15 @@ const {
   recupererHistorique,
   recupererDetailHistorique,
 } = require("../controllers/historique.controller");
-const { verifierAuthentification } = require("../middleware/auth.middleware");
+const {
+  verifierAuthentification,
+  verifierCompteSecurise,
+} = require("../middleware/auth.middleware");
 
 const router = express.Router();
 
 router.use(verifierAuthentification);
+router.use(verifierCompteSecurise);
 
 router.get("/", recupererHistorique);
 router.get("/:id", recupererDetailHistorique);

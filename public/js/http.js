@@ -40,6 +40,7 @@ export async function envoyerRequete(url, options = {}) {
   if (!reponse.ok) {
     const erreur = new Error(donnees.message || "Une erreur est survenue.");
     erreur.status = reponse.status;
+    erreur.code = donnees.code || null;
     throw erreur;
   }
 

@@ -5,17 +5,25 @@ const {
   trouverUtilisateurParId,
   trouverUtilisateurAvecMotDePasseParId,
   mettreAJourMotDePasseUtilisateur,
+  mettreAJourEtatConnexionReussie,
+  mettreAJourEtatEchecConnexion,
 } = require("../models/utilisateur.model");
+const { enregistrerEvenementAuth } = require("../models/journal-auth.model");
 const { genererTokenCsrf } = require("../middleware/security.middleware");
+const { chargerUtilisateurAuthentifie } = require("../middleware/auth.middleware");
 const {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_MS,
 } = require("../config/security.config");
 
 const tentativesConnexionParIp = new Map();
-const FENETRE_TENTATIVES_MS = 15 * 60 * 1000;
-const DUREE_BLOCAGE_MS = 15 * 60 * 1000;
-const MAX_TENTATIVES = 5;
+const FENETRE_TENTATIVES_IP_MS = 15 * 60 * 1000;
+const DUREE_BLOCAGE_IP_MS = 15 * 60 * 1000;
+const MAX_TENTATIVES_IP = 5;
+
+const FENETRE_TENTATIVES_COMPTE_MS = 15 * 60 * 1000;
+const DUREE_BLOCAGE_COMPTE_MS = 15 * 60 * 1000;
+const MAX_TENTATIVES_COMPTE = 5;
 
 function normaliserIpClient(req) {
   const enteteTransmis = String(req.headers["x-forwarded-for"] || "")
@@ -24,12 +32,16 @@ function normaliserIpClient(req) {
   return enteteTransmis || req.ip || "ip-inconnue";
 }
 
-function nettoyerTentativesConnexion() {
+function obtenirUserAgent(req) {
+  return String(req.headers["user-agent"] || "").slice(0, 400);
+}
+
+function nettoyerTentativesConnexionIp() {
   const maintenant = Date.now();
 
   for (const [ip, enregistrement] of tentativesConnexionParIp.entries()) {
     const echecsRecents = enregistrement.echecs.filter(
-      (horodatage) => maintenant - horodatage <= FENETRE_TENTATIVES_MS
+      (horodatage) => maintenant - horodatage <= FENETRE_TENTATIVES_IP_MS
     );
 
     if (enregistrement.bloqueJusqua <= maintenant && echecsRecents.length === 0) {
@@ -45,8 +57,8 @@ function nettoyerTentativesConnexion() {
   }
 }
 
-function recupererBlocageConnexionActif(req) {
-  nettoyerTentativesConnexion();
+function recupererBlocageConnexionActifParIp(req) {
+  nettoyerTentativesConnexionIp();
 
   const enregistrement = tentativesConnexionParIp.get(normaliserIpClient(req));
   const maintenant = Date.now();
@@ -58,8 +70,8 @@ function recupererBlocageConnexionActif(req) {
   return Math.ceil((enregistrement.bloqueJusqua - maintenant) / 1000);
 }
 
-function enregistrerEchecConnexion(req) {
-  nettoyerTentativesConnexion();
+function enregistrerEchecConnexionIp(req) {
+  nettoyerTentativesConnexionIp();
 
   const ip = normaliserIpClient(req);
   const maintenant = Date.now();
@@ -70,28 +82,78 @@ function enregistrerEchecConnexion(req) {
 
   enregistrement.echecs.push(maintenant);
   enregistrement.echecs = enregistrement.echecs.filter(
-    (horodatage) => maintenant - horodatage <= FENETRE_TENTATIVES_MS
+    (horodatage) => maintenant - horodatage <= FENETRE_TENTATIVES_IP_MS
   );
 
-  if (enregistrement.echecs.length >= MAX_TENTATIVES) {
-    enregistrement.bloqueJusqua = maintenant + DUREE_BLOCAGE_MS;
+  if (enregistrement.echecs.length >= MAX_TENTATIVES_IP) {
+    enregistrement.bloqueJusqua = maintenant + DUREE_BLOCAGE_IP_MS;
     enregistrement.echecs = [];
   }
 
   tentativesConnexionParIp.set(ip, enregistrement);
 }
 
-function reinitialiserTentativesConnexion(req) {
+function reinitialiserTentativesConnexionIp(req) {
   tentativesConnexionParIp.delete(normaliserIpClient(req));
 }
 
 function motDePasseRespectePolitique(motDePasse) {
   const valeur = String(motDePasse || "");
   return (
-    valeur.length >= 8 &&
-    /[A-Za-z]/.test(valeur) &&
-    /\d/.test(valeur)
+    valeur.length >= 12 &&
+    /[a-z]/.test(valeur) &&
+    /[A-Z]/.test(valeur) &&
+    /\d/.test(valeur) &&
+    /[^A-Za-z0-9]/.test(valeur)
   );
+}
+
+function calculerSecondesRestantes(dateIso) {
+  const horodatage = new Date(dateIso || "").getTime();
+
+  if (!Number.isFinite(horodatage) || horodatage <= Date.now()) {
+    return 0;
+  }
+
+  return Math.ceil((horodatage - Date.now()) / 1000);
+}
+
+function recupererBlocageCompteActif(utilisateur) {
+  return calculerSecondesRestantes(utilisateur?.bloque_jusqua);
+}
+
+function calculerNouvelEtatEchecConnexion(utilisateur) {
+  const maintenant = Date.now();
+  const premierEchecExistant = new Date(
+    utilisateur?.premier_echec_connexion_at || ""
+  ).getTime();
+
+  let echecsConnexion = Number(utilisateur?.echecs_connexion || 0);
+  let premierEchecConnexionAt = null;
+  let bloqueJusqua = null;
+
+  if (
+    !Number.isFinite(premierEchecExistant) ||
+    maintenant - premierEchecExistant > FENETRE_TENTATIVES_COMPTE_MS
+  ) {
+    echecsConnexion = 1;
+    premierEchecConnexionAt = new Date(maintenant).toISOString();
+  } else {
+    echecsConnexion += 1;
+    premierEchecConnexionAt = new Date(premierEchecExistant).toISOString();
+  }
+
+  if (echecsConnexion >= MAX_TENTATIVES_COMPTE) {
+    echecsConnexion = 0;
+    premierEchecConnexionAt = null;
+    bloqueJusqua = new Date(maintenant + DUREE_BLOCAGE_COMPTE_MS).toISOString();
+  }
+
+  return {
+    echecsConnexion,
+    premierEchecConnexionAt,
+    bloqueJusqua,
+  };
 }
 
 function regenererSession(req) {
@@ -118,6 +180,23 @@ function sauvegarderSession(req) {
   });
 }
 
+function detruireSession(req) {
+  return new Promise((resolve, reject) => {
+    if (!req.session) {
+      resolve();
+      return;
+    }
+
+    req.session.destroy((error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 function obtenirOptionsCookie(req) {
   const secure =
     req.secure || String(req.headers["x-forwarded-proto"] || "").includes("https");
@@ -131,21 +210,39 @@ function obtenirOptionsCookie(req) {
   };
 }
 
+async function journaliserEvenementAuth(req, evenement) {
+  await enregistrerEvenementAuth({
+    utilisateurId: evenement.utilisateurId || null,
+    identifiant: evenement.identifiant || "",
+    actionType: evenement.actionType,
+    resultat: evenement.resultat,
+    adresseIp: normaliserIpClient(req),
+    userAgent: obtenirUserAgent(req),
+    details: evenement.details || null,
+  });
+}
+
 async function connecterUtilisateur(req, res) {
   const { username, email, mot_de_passe: motDePasse } = req.body;
   const identifiant = String(username || email || "").trim();
-  const blocageActifSecondes = recupererBlocageConnexionActif(req);
+  const blocageIpSecondes = recupererBlocageConnexionActifParIp(req);
 
-  if (blocageActifSecondes > 0) {
-    res.setHeader("Retry-After", String(blocageActifSecondes));
+  if (blocageIpSecondes > 0) {
+    res.setHeader("Retry-After", String(blocageIpSecondes));
+    await journaliserEvenementAuth(req, {
+      identifiant,
+      actionType: "login",
+      resultat: "blocked_ip",
+      details: { retry_after_seconds: blocageIpSecondes },
+    });
     return res.status(429).json({
-      message: "Trop de tentatives de connexion. Réessayez dans quelques minutes.",
+      message: "Trop de tentatives de connexion. Reessayez dans quelques minutes.",
     });
   }
 
   if (!identifiant || !motDePasse) {
     return res.status(400).json({
-      message: "Username et mot de passe obligatoires.",
+      message: "Identifiant et mot de passe obligatoires.",
     });
   }
 
@@ -158,42 +255,97 @@ async function connecterUtilisateur(req, res) {
   const utilisateur = await trouverUtilisateurParNomOuEmail(identifiant);
 
   if (!utilisateur) {
-    enregistrerEchecConnexion(req);
+    enregistrerEchecConnexionIp(req);
+    await journaliserEvenementAuth(req, {
+      identifiant,
+      actionType: "login",
+      resultat: "failed_unknown_user",
+    });
     return res.status(401).json({
       message: "Identifiants invalides.",
     });
   }
 
-  const motDePasseValide = await bcrypt.compare(
-    motDePasse,
-    utilisateur.mot_de_passe
-  );
+  const blocageCompteSecondes = recupererBlocageCompteActif(utilisateur);
+
+  if (blocageCompteSecondes > 0) {
+    res.setHeader("Retry-After", String(blocageCompteSecondes));
+    await journaliserEvenementAuth(req, {
+      utilisateurId: utilisateur.id,
+      identifiant,
+      actionType: "login",
+      resultat: "blocked_account",
+      details: { retry_after_seconds: blocageCompteSecondes },
+    });
+    return res.status(429).json({
+      message: "Compte temporairement bloque. Reessayez plus tard.",
+    });
+  }
+
+  const motDePasseValide = await bcrypt.compare(motDePasse, utilisateur.mot_de_passe);
 
   if (!motDePasseValide) {
-    enregistrerEchecConnexion(req);
+    enregistrerEchecConnexionIp(req);
+    const nouvelEtatEchec = calculerNouvelEtatEchecConnexion(utilisateur);
+    await mettreAJourEtatEchecConnexion(utilisateur.id, nouvelEtatEchec);
+
+    await journaliserEvenementAuth(req, {
+      utilisateurId: utilisateur.id,
+      identifiant,
+      actionType: "login",
+      resultat: nouvelEtatEchec.bloqueJusqua ? "blocked_after_failure" : "failed_password",
+    });
+
+    if (nouvelEtatEchec.bloqueJusqua) {
+      const blocageSecondes = calculerSecondesRestantes(nouvelEtatEchec.bloqueJusqua);
+      res.setHeader("Retry-After", String(blocageSecondes));
+      return res.status(429).json({
+        message:
+          "Compte temporairement bloque apres plusieurs tentatives. Reessayez plus tard.",
+      });
+    }
+
     return res.status(401).json({
       message: "Identifiants invalides.",
     });
   }
 
   await regenererSession(req);
+  await mettreAJourEtatConnexionReussie(utilisateur.id, normaliserIpClient(req));
+
+  const utilisateurActualise = await trouverUtilisateurParId(utilisateur.id);
 
   req.session.utilisateur = {
-    id: utilisateur.id,
-    nom: utilisateur.nom,
-    email: utilisateur.email,
+    id: utilisateurActualise.id,
+    nom: utilisateurActualise.nom,
+    email: utilisateurActualise.email,
+    session_version: utilisateurActualise.session_version,
   };
   req.session.csrfToken = genererTokenCsrf();
   req.session.cookie.maxAge = SESSION_MAX_AGE_MS;
 
   await sauvegarderSession(req);
-  reinitialiserTentativesConnexion(req);
+  reinitialiserTentativesConnexionIp(req);
 
   res.setHeader("X-CSRF-Token", req.session.csrfToken);
 
+  await journaliserEvenementAuth(req, {
+    utilisateurId: utilisateurActualise.id,
+    identifiant,
+    actionType: "login",
+    resultat: "success",
+    details: {
+      must_change_password:
+        Number(utilisateurActualise.doit_changer_mot_de_passe) === 1,
+    },
+  });
+
   return res.json({
-    message: "Connexion réussie.",
-    utilisateur: req.session.utilisateur,
+    message:
+      Number(utilisateurActualise.doit_changer_mot_de_passe) === 1
+        ? "Connexion reussie. Vous devez changer le mot de passe avant de continuer."
+        : "Connexion reussie.",
+    utilisateur: utilisateurActualise,
   });
 }
 
@@ -212,7 +364,7 @@ async function modifierMotDePasse(req, res) {
   if (!motDePasseRespectePolitique(nouveauMotDePasse)) {
     return res.status(400).json({
       message:
-        "Le nouveau mot de passe doit contenir au moins 8 caractères, avec au moins une lettre et un chiffre.",
+        "Le nouveau mot de passe doit contenir au moins 12 caracteres, avec une minuscule, une majuscule, un chiffre et un caractere special.",
     });
   }
 
@@ -230,6 +382,12 @@ async function modifierMotDePasse(req, res) {
   );
 
   if (!motDePasseActuelValide) {
+    await journaliserEvenementAuth(req, {
+      utilisateurId: utilisateur.id,
+      identifiant: utilisateur.nom,
+      actionType: "password_change",
+      resultat: "failed_current_password",
+    });
     return res.status(400).json({
       message: "Le mot de passe actuel est incorrect.",
     });
@@ -242,57 +400,76 @@ async function modifierMotDePasse(req, res) {
 
   if (nouveauMotDePasseIdentique) {
     return res.status(400).json({
-      message: "Le nouveau mot de passe doit être différent de l'ancien.",
+      message: "Le nouveau mot de passe doit etre different de l'ancien.",
     });
   }
 
   const nouveauMotDePasseHash = await bcrypt.hash(nouveauMotDePasse, 12);
   await mettreAJourMotDePasseUtilisateur(utilisateur.id, nouveauMotDePasseHash);
 
+  const utilisateurActualise = await trouverUtilisateurParId(utilisateur.id);
+
+  await regenererSession(req);
+  req.session.utilisateur = {
+    id: utilisateurActualise.id,
+    nom: utilisateurActualise.nom,
+    email: utilisateurActualise.email,
+    session_version: utilisateurActualise.session_version,
+  };
   req.session.csrfToken = genererTokenCsrf();
+  req.session.cookie.maxAge = SESSION_MAX_AGE_MS;
   await sauvegarderSession(req);
+
   res.setHeader("X-CSRF-Token", req.session.csrfToken);
 
+  await journaliserEvenementAuth(req, {
+    utilisateurId: utilisateurActualise.id,
+    identifiant: utilisateurActualise.nom,
+    actionType: "password_change",
+    resultat: "success",
+  });
+
   return res.json({
-    message: "Mot de passe modifié avec succès.",
+    message: "Mot de passe modifie avec succes.",
+    utilisateur: utilisateurActualise,
   });
 }
 
-function deconnecterUtilisateur(req, res) {
+async function deconnecterUtilisateur(req, res) {
   const optionsCookie = obtenirOptionsCookie(req);
+  const utilisateurSession = req.session?.utilisateur || null;
+
+  if (utilisateurSession) {
+    await journaliserEvenementAuth(req, {
+      utilisateurId: utilisateurSession.id,
+      identifiant: utilisateurSession.nom || utilisateurSession.email,
+      actionType: "logout",
+      resultat: "success",
+    }).catch(() => {});
+  }
 
   if (!req.session) {
     res.clearCookie(SESSION_COOKIE_NAME, optionsCookie);
-    return res.json({ message: "Déconnexion réussie." });
+    return res.json({ message: "Deconnexion reussie." });
   }
 
-  req.session.destroy((error) => {
-    if (error) {
-      return res.status(500).json({
-        message: "La déconnexion a échoué.",
-      });
-    }
-
+  try {
+    await detruireSession(req);
     res.clearCookie(SESSION_COOKIE_NAME, optionsCookie);
-    return res.json({ message: "Déconnexion réussie." });
-  });
+    return res.json({ message: "Deconnexion reussie." });
+  } catch (error) {
+    return res.status(500).json({
+      message: "La deconnexion a echoue.",
+    });
+  }
 }
 
 async function recupererUtilisateurConnecte(req, res) {
-  if (!req.session.utilisateur) {
-    return res.status(401).json({
-      message: "Aucun utilisateur connecté.",
-    });
-  }
-
-  const utilisateur = await trouverUtilisateurParId(req.session.utilisateur.id);
+  const utilisateur = await chargerUtilisateurAuthentifie(req, res);
 
   if (!utilisateur) {
-    req.session.destroy(() => {});
-    res.clearCookie(SESSION_COOKIE_NAME, obtenirOptionsCookie(req));
-
     return res.status(401).json({
-      message: "Votre session n'est plus valide.",
+      message: "Aucun utilisateur connecte.",
     });
   }
 

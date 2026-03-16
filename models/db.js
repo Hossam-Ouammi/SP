@@ -169,6 +169,96 @@ async function ajouterColonneEssaiSiNecessaire() {
   );
 }
 
+async function ajouterColonnesSecuriteUtilisateursSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(utilisateurs)");
+  const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
+  const migrations = [
+    {
+      nom: "session_version",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN session_version INTEGER DEFAULT 1",
+    },
+    {
+      nom: "doit_changer_mot_de_passe",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN doit_changer_mot_de_passe INTEGER DEFAULT 0",
+    },
+    {
+      nom: "mot_de_passe_change_at",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN mot_de_passe_change_at TEXT",
+    },
+    {
+      nom: "echecs_connexion",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN echecs_connexion INTEGER DEFAULT 0",
+    },
+    {
+      nom: "premier_echec_connexion_at",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN premier_echec_connexion_at TEXT",
+    },
+    {
+      nom: "bloque_jusqua",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN bloque_jusqua TEXT",
+    },
+    {
+      nom: "dernier_login_at",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN dernier_login_at TEXT",
+    },
+    {
+      nom: "dernier_login_ip",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN dernier_login_ip TEXT",
+    },
+  ];
+
+  for (const migration of migrations) {
+    if (!colonnesExistantes.has(migration.nom)) {
+      await run(migration.sql);
+    }
+  }
+
+  await run(`
+    UPDATE utilisateurs
+    SET
+      session_version = COALESCE(session_version, 1),
+      doit_changer_mot_de_passe = COALESCE(doit_changer_mot_de_passe, 0),
+      echecs_connexion = COALESCE(echecs_connexion, 0)
+  `);
+}
+
+async function marquerComptesTemporairesCommeASecuriser() {
+  const utilisateurs = await all(`
+    SELECT id, mot_de_passe, doit_changer_mot_de_passe, mot_de_passe_change_at
+    FROM utilisateurs
+    ORDER BY id ASC
+  `);
+
+  for (const utilisateur of utilisateurs) {
+    const motDePasseTemporaire = await bcrypt.compare("123456", utilisateur.mot_de_passe);
+    const doitChangerMotDePasse =
+      motDePasseTemporaire || Number(utilisateur.doit_changer_mot_de_passe) === 1;
+
+    if (doitChangerMotDePasse) {
+      await run(
+        `
+          UPDATE utilisateurs
+          SET doit_changer_mot_de_passe = 1
+          WHERE id = ?
+        `,
+        [utilisateur.id]
+      );
+      continue;
+    }
+
+    if (!utilisateur.mot_de_passe_change_at) {
+      await run(
+        `
+          UPDATE utilisateurs
+          SET mot_de_passe_change_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `,
+        [utilisateur.id]
+      );
+    }
+  }
+}
+
 async function normaliserSeancesExistantes() {
   await run(
     `
@@ -240,10 +330,18 @@ async function initialiserUtilisateursDeTest() {
 
     await run(
       `
-        INSERT INTO utilisateurs (nom, email, mot_de_passe)
-        VALUES (?, ?, ?)
+        INSERT INTO utilisateurs (
+          nom,
+          email,
+          mot_de_passe,
+          session_version,
+          doit_changer_mot_de_passe,
+          mot_de_passe_change_at,
+          echecs_connexion
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-      [utilisateur.nom, utilisateur.email, motDePasseHash]
+      [utilisateur.nom, utilisateur.email, motDePasseHash, 1, 1, null, 0]
     );
   }
 }
@@ -462,7 +560,15 @@ async function initialiserBaseDeDonnees() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nom TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE,
-      mot_de_passe TEXT NOT NULL
+      mot_de_passe TEXT NOT NULL,
+      session_version INTEGER DEFAULT 1,
+      doit_changer_mot_de_passe INTEGER DEFAULT 0,
+      mot_de_passe_change_at TEXT,
+      echecs_connexion INTEGER DEFAULT 0,
+      premier_echec_connexion_at TEXT,
+      bloque_jusqua TEXT,
+      dernier_login_at TEXT,
+      dernier_login_ip TEXT
     )
   `);
 
@@ -532,11 +638,33 @@ async function initialiserBaseDeDonnees() {
     ON sessions (expires_at)
   `);
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS journal_auth (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      utilisateur_id INTEGER,
+      identifiant TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      resultat TEXT NOT NULL,
+      adresse_ip TEXT,
+      user_agent TEXT,
+      details_json TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (utilisateur_id) REFERENCES utilisateurs (id)
+    )
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_journal_auth_created_at
+    ON journal_auth (created_at DESC)
+  `);
+
+  await ajouterColonnesSecuriteUtilisateursSiNecessaire();
   await ajouterColonneCompteSiNecessaire();
   await ajouterColonneEssaiSiNecessaire();
   await normaliserSeancesExistantes();
   await initialiserUtilisateursDeTest();
   await normaliserNomsUtilisateurs();
+  await marquerComptesTemporairesCommeASecuriser();
   await initialiserSeancesExemple();
   await initialiserHistoriqueExistant();
   await migrerScreenshotsVersStockagePrive();

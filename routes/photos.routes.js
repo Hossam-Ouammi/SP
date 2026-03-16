@@ -7,7 +7,10 @@ const {
   recupererPhotosDuneSeance,
   recupererFichierPhoto,
 } = require("../controllers/photos.controller");
-const { verifierAuthentification } = require("../middleware/auth.middleware");
+const {
+  verifierAuthentification,
+  verifierCompteSecurise,
+} = require("../middleware/auth.middleware");
 const {
   assurerDossiersScreenshots,
   storageUploadsDirectory,
@@ -53,6 +56,7 @@ const upload = multer({
 });
 
 router.use(verifierAuthentification);
+router.use(verifierCompteSecurise);
 
 router.get("/:photoId/file", recupererFichierPhoto);
 router.get("/seance/:seanceId", recupererPhotosDuneSeance);

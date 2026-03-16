@@ -8,11 +8,15 @@ const {
   changerStatutSeance,
   supprimerUneSeance,
 } = require("../controllers/seances.controller");
-const { verifierAuthentification } = require("../middleware/auth.middleware");
+const {
+  verifierAuthentification,
+  verifierCompteSecurise,
+} = require("../middleware/auth.middleware");
 
 const router = express.Router();
 
 router.use(verifierAuthentification);
+router.use(verifierCompteSecurise);
 
 router.get("/", recupererToutesLesSeances);
 router.get("/:id", recupererUneSeance);

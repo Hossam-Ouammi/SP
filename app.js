@@ -34,6 +34,12 @@ assurerDossiersScreenshots();
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 
+function appliquerNoCacheStatic(res) {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+}
+
 app.use(appliquerEnTetesSecurite);
 app.use(desactiverCacheApi);
 app.use(express.json({ limit: "100kb" }));
@@ -67,6 +73,7 @@ app.use(
   express.static(path.join(__dirname, "node_modules", "@fullcalendar", "core"), {
     index: false,
     fallthrough: true,
+    setHeaders: appliquerNoCacheStatic,
   })
 );
 app.use(
@@ -74,6 +81,7 @@ app.use(
   express.static(path.join(__dirname, "node_modules", "@fullcalendar", "daygrid"), {
     index: false,
     fallthrough: true,
+    setHeaders: appliquerNoCacheStatic,
   })
 );
 app.use(
@@ -81,6 +89,7 @@ app.use(
   express.static(path.join(__dirname, "node_modules", "@fullcalendar", "timegrid"), {
     index: false,
     fallthrough: true,
+    setHeaders: appliquerNoCacheStatic,
   })
 );
 app.use(
@@ -88,6 +97,7 @@ app.use(
   express.static(path.join(__dirname, "node_modules", "@fullcalendar", "interaction"), {
     index: false,
     fallthrough: true,
+    setHeaders: appliquerNoCacheStatic,
   })
 );
 
@@ -100,6 +110,7 @@ app.use(
     index: false,
     fallthrough: true,
     dotfiles: "ignore",
+    setHeaders: appliquerNoCacheStatic,
   })
 );
 
@@ -114,6 +125,7 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/", (req, res) => {
+  appliquerNoCacheStatic(res);
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
