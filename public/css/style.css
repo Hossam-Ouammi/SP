@@ -2344,6 +2344,15 @@ button {
     align-items: stretch;
   }
 
+  .topbar {
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .topbar-actions .button {
+    width: 100%;
+  }
+
   .form-grid,
   .form-grid-profile,
   .quick-actions,
@@ -2357,6 +2366,7 @@ button {
     width: min(100%, 100%);
     padding: 20px;
     border-radius: 20px;
+    max-height: calc(100vh - 20px);
   }
 
   .form-section {
@@ -2375,9 +2385,15 @@ button {
     padding: 12px 14px;
   }
 
+  .stats-table-row span,
+  .stats-table-row strong {
+    font-size: 0.88rem;
+  }
+
   .workspace-nav {
     grid-auto-columns: max-content;
     justify-content: start;
+    padding-bottom: 2px;
   }
 
   .admin-identity-head,
@@ -2421,6 +2437,10 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .detail-list {
+    grid-template-columns: 1fr;
+  }
+
   .modal {
     padding: 10px;
   }
@@ -2436,10 +2456,235 @@ button {
   .fc .fc-toolbar {
     flex-direction: column;
     gap: 10px;
+    align-items: stretch;
   }
 
   .fc .fc-toolbar-chunk {
     display: flex;
     justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .fc .fc-button-group {
+    display: flex;
+    width: 100%;
+  }
+
+  .fc .fc-button-group .fc-button {
+    flex: 1 1 0;
+  }
+
+  .fc .fc-toolbar-title {
+    text-align: center;
+  }
+}
+
+@media (max-width: 560px) {
+  main {
+    width: calc(100% - 16px);
+  }
+
+  .page {
+    padding: 12px 0 20px;
+  }
+
+  .panel {
+    border-radius: 14px;
+  }
+
+  .topbar {
+    padding: 14px;
+  }
+
+  .brand-title {
+    font-size: 1.55rem;
+    line-height: 1.15;
+  }
+
+  .workspace-nav {
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .nav-tab {
+    min-height: 40px;
+    padding: 9px 12px;
+    font-size: 0.9rem;
+  }
+
+  .calendar-panel,
+  .statistics-panel,
+  .stats-panel,
+  .today-panel,
+  .history-panel,
+  .admin-panel-shell {
+    padding: 16px;
+  }
+
+  .section-heading {
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .section-heading h2 {
+    font-size: 1rem;
+  }
+
+  .summary-grid,
+  .summary-grid-large,
+  .summary-grid-compact {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-card,
+  .stat-overview-card,
+  .account-stats-card,
+  .admin-card,
+  .admin-identity-card,
+  .admin-guide-card {
+    padding: 16px;
+  }
+
+  .summary-value,
+  .stat-overview-value,
+  .account-stats-total {
+    font-size: 1.8rem;
+  }
+
+  .stats-table {
+    gap: 8px;
+  }
+
+  .stats-table-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    text-align: left;
+    padding: 12px;
+  }
+
+  .stats-table-head {
+    display: none;
+  }
+
+  .stats-table-row strong {
+    justify-self: start;
+  }
+
+  .stats-table-row span,
+  .stats-table-row strong {
+    font-size: 0.9rem;
+  }
+
+  .history-count {
+    min-width: 32px;
+    min-height: 26px;
+    font-size: 0.8rem;
+  }
+
+  .history-item,
+  .history-change-card,
+  .admin-user-row,
+  .admin-session-item {
+    padding: 14px;
+  }
+
+  .modal-panel,
+  .modal-large {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .modal-header {
+    margin-bottom: 14px;
+  }
+
+  .modal-header h3 {
+    font-size: 1.08rem;
+  }
+
+  .form-section {
+    padding: 14px;
+  }
+
+  .field input,
+  .field select,
+  .field textarea {
+    padding: 11px 12px;
+  }
+
+  .field-student input,
+  #date,
+  .time-select-row select,
+  .form-section input[type="file"] {
+    min-height: 48px;
+  }
+
+  .checkbox-option span {
+    min-height: 46px;
+    padding: 10px 12px;
+    font-size: 0.88rem;
+  }
+
+  .notes-field textarea {
+    min-height: 160px;
+  }
+
+  .detail-card {
+    padding: 16px;
+  }
+
+  .detail-title {
+    font-size: 1.1rem;
+  }
+
+  #calendar {
+    min-height: 520px;
+  }
+
+  .fc .fc-toolbar.fc-header-toolbar {
+    padding: 10px;
+  }
+
+  .fc .fc-button {
+    min-height: 38px;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.88rem;
+  }
+
+  .fc .fc-toolbar-title {
+    font-size: 1rem;
+  }
+
+  .fc .fc-col-header-cell-cushion {
+    padding: 10px 4px;
+    font-size: 0.8rem;
+  }
+
+  .fc .fc-daygrid-day-frame {
+    min-height: 96px;
+  }
+
+  .fc .fc-daygrid-day-top {
+    padding: 6px 8px 0;
+  }
+
+  .fc .fc-daygrid-event {
+    margin: 3px 6px 0;
+  }
+
+  .fc .fc-event {
+    padding: 3px 5px;
+    font-size: 0.77rem;
+  }
+
+  .toast-container {
+    left: 10px;
+    right: 10px;
+    top: 10px;
+  }
+
+  .toast {
+    min-width: 0;
+    max-width: none;
   }
 }
