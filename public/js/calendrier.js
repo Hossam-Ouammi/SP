@@ -42,30 +42,61 @@ function normaliserCompte(compte) {
   return typeof compte === "string" ? compte.trim().toLowerCase() : "";
 }
 
-function construireClassesCompte(compte) {
-  const compteNormalise = normaliserCompte(compte);
+function obtenirPaletteCompte(seance) {
+  const compteNormalise = normaliserCompte(seance.compte);
+  const statut = seance.statut_seance;
 
   if (compteNormalise === "yassine") {
     return {
-      className: "calendar-account-yassine",
-      shortLabel: "Y",
-      label: "Yassine",
-    };
+      planifiee: {
+        backgroundColor: "#deecff",
+        borderColor: "#78a7e8",
+        textColor: "#173f7a",
+      },
+      faite: {
+        backgroundColor: "#def5e8",
+        borderColor: "#84c6a0",
+        textColor: "#1f5a3a",
+      },
+      annulee: {
+        backgroundColor: "#fae2e5",
+        borderColor: "#de95a2",
+        textColor: "#92344c",
+      },
+      reportee: {
+        backgroundColor: "#ffefd7",
+        borderColor: "#e3b56a",
+        textColor: "#8a4d0f",
+      },
+    }[statut];
   }
 
   if (compteNormalise === "abdo") {
     return {
-      className: "calendar-account-abdo",
-      shortLabel: "A",
-      label: "Abdo",
-    };
+      planifiee: {
+        backgroundColor: "#edf2f7",
+        borderColor: "#94a3b8",
+        textColor: "#334155",
+      },
+      faite: {
+        backgroundColor: "#e9f3ee",
+        borderColor: "#9db8ab",
+        textColor: "#325446",
+      },
+      annulee: {
+        backgroundColor: "#f5eaec",
+        borderColor: "#c9aab0",
+        textColor: "#7f4854",
+      },
+      reportee: {
+        backgroundColor: "#f7efe2",
+        borderColor: "#d2b48c",
+        textColor: "#7a5a2a",
+      },
+    }[statut];
   }
 
-  return {
-    className: "",
-    shortLabel: "",
-    label: typeof compte === "string" ? compte.trim() : "",
-  };
+  return null;
 }
 
 function recupererPluginsCalendrier() {
@@ -86,9 +117,9 @@ function transformerSeanceEnEvenement(seance) {
     return null;
   }
 
-  const palette = palettesStatut[seance.statut_seance] || palettesStatut.planifiee;
+  const paletteCompte = obtenirPaletteCompte(seance);
+  const palette = paletteCompte || palettesStatut[seance.statut_seance] || palettesStatut.planifiee;
   const titreEvenement = seance.libelle || `${seance.matiere} - ${seance.etudiant}`;
-  const compteCalendrier = construireClassesCompte(seance.compte);
 
   return {
     id: String(seance.id),
@@ -98,10 +129,9 @@ function transformerSeanceEnEvenement(seance) {
     backgroundColor: palette.backgroundColor,
     borderColor: palette.borderColor,
     textColor: palette.textColor,
-    classNames: [palette.className, compteCalendrier.className].filter(Boolean),
+    classNames: [palette.className],
     extendedProps: {
       seance,
-      compteCalendrier,
     },
   };
 }
@@ -145,22 +175,6 @@ export function initialiserCalendrier(element, { onDateClick, onEventClick }) {
     },
     eventClick(info) {
       onEventClick(info.event.extendedProps.seance);
-    },
-    eventDidMount(info) {
-      const compteCalendrier = info.event.extendedProps.compteCalendrier;
-
-      if (!compteCalendrier) {
-        return;
-      }
-
-      if (compteCalendrier.shortLabel) {
-        info.el.dataset.accountShort = compteCalendrier.shortLabel;
-      }
-
-      if (compteCalendrier.label) {
-        info.el.dataset.accountLabel = compteCalendrier.label;
-        info.el.title = `${compteCalendrier.label} - ${info.event.title}`;
-      }
     },
     events: [],
   });
