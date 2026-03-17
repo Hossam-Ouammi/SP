@@ -40,6 +40,7 @@ async function creerSeance(donneesSeance) {
       INSERT INTO seances (
         titre,
         etudiant,
+        parent,
         matiere,
         compte,
         est_essai,
@@ -53,11 +54,12 @@ async function creerSeance(donneesSeance) {
         cree_par,
         modifie_par
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       donneesSeance.titre,
       donneesSeance.etudiant,
+      donneesSeance.parent,
       donneesSeance.matiere,
       donneesSeance.compte,
       donneesSeance.est_essai,
@@ -83,6 +85,7 @@ async function mettreAJourSeance(id, donneesSeance) {
       SET
         titre = ?,
         etudiant = ?,
+        parent = ?,
         matiere = ?,
         compte = ?,
         est_essai = ?,
@@ -100,6 +103,7 @@ async function mettreAJourSeance(id, donneesSeance) {
     [
       donneesSeance.titre,
       donneesSeance.etudiant,
+      donneesSeance.parent,
       donneesSeance.matiere,
       donneesSeance.compte,
       donneesSeance.est_essai,

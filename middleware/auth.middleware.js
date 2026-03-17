@@ -45,6 +45,11 @@ async function chargerUtilisateurAuthentifie(req, res) {
     return null;
   }
 
+  if (Number(utilisateur.acces_active) !== 1) {
+    await invaliderSessionEtCookie(req, res);
+    return null;
+  }
+
   if (
     Number(utilisateurSession.session_version || 0) !==
     Number(utilisateur.session_version || 0)
@@ -85,10 +90,49 @@ function verifierCompteSecurise(req, res, next) {
   return next();
 }
 
-function verifierAccesMonetisation(req, res, next) {
-  const emailUtilisateur = String(req.utilisateur?.email || "").trim().toLowerCase();
+function utilisateurEstAdministrateur(utilisateur) {
+  return (
+    Number(utilisateur?.est_admin) === 1 ||
+    String(utilisateur?.email || "").trim().toLowerCase() === "hossam@test.com"
+  );
+}
 
-  if (emailUtilisateur !== "hossam@test.com") {
+function utilisateurEstHossam(utilisateur) {
+  const emailUtilisateur = String(utilisateur?.email || "").trim().toLowerCase();
+  return emailUtilisateur === "hossam@test.com";
+}
+
+function verifierAccesAdministratifHossam(req, res, next) {
+  if (!utilisateurEstAdministrateur(req.utilisateur)) {
+    return res.status(403).json({
+      message: "Vous n'avez pas acces a cette ressource.",
+    });
+  }
+
+  return next();
+}
+
+function verifierModeEcritureAutorise(req, res, next) {
+  if (utilisateurEstAdministrateur(req.utilisateur)) {
+    return next();
+  }
+
+  if (Number(req.utilisateur?.mode_lecture_seule) === 1) {
+    return res.status(403).json({
+      code: "READ_ONLY_ACCOUNT",
+      message:
+        "Votre compte est actuellement en lecture seule. Les modifications sont reservees a Hossam.",
+    });
+  }
+
+  return next();
+}
+
+function verifierAccesMonetisation(req, res, next) {
+  if (
+    !utilisateurEstHossam(req.utilisateur) &&
+    Number(req.utilisateur?.peut_voir_monetisation) !== 1
+  ) {
     return res.status(403).json({
       message: "Vous n'avez pas acces a cette ressource.",
     });
@@ -100,6 +144,10 @@ function verifierAccesMonetisation(req, res, next) {
 module.exports = {
   verifierAuthentification,
   verifierCompteSecurise,
+  verifierAccesAdministratifHossam,
   verifierAccesMonetisation,
   chargerUtilisateurAuthentifie,
+  verifierModeEcritureAutorise,
+  utilisateurEstAdministrateur,
+  utilisateurEstHossam,
 };

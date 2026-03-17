@@ -5,6 +5,11 @@ export async function recupererSeances() {
   return resultat.seances;
 }
 
+export async function recupererOptionsSeances() {
+  const resultat = await envoyerRequete("/api/seances/options");
+  return resultat.options;
+}
+
 export async function ajouterSeance(donneesSeance) {
   const resultat = await envoyerRequete("/api/seances", {
     method: "POST",

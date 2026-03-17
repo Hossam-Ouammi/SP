@@ -266,6 +266,18 @@ async function connecterUtilisateur(req, res) {
     });
   }
 
+  if (Number(utilisateur.acces_active) !== 1) {
+    await journaliserEvenementAuth(req, {
+      utilisateurId: utilisateur.id,
+      identifiant,
+      actionType: "login",
+      resultat: "blocked_disabled_account",
+    });
+    return res.status(403).json({
+      message: "Votre acces est actuellement suspendu.",
+    });
+  }
+
   const blocageCompteSecondes = recupererBlocageCompteActif(utilisateur);
 
   if (blocageCompteSecondes > 0) {
@@ -320,6 +332,13 @@ async function connecterUtilisateur(req, res) {
     nom: utilisateurActualise.nom,
     email: utilisateurActualise.email,
     session_version: utilisateurActualise.session_version,
+    est_admin: utilisateurActualise.est_admin,
+    peut_voir_monetisation: utilisateurActualise.peut_voir_monetisation,
+  };
+  req.session.session_meta = {
+    adresse_ip: normaliserIpClient(req),
+    user_agent: obtenirUserAgent(req),
+    connected_at: new Date().toISOString(),
   };
   req.session.csrfToken = genererTokenCsrf();
   req.session.cookie.maxAge = SESSION_MAX_AGE_MS;
@@ -415,6 +434,14 @@ async function modifierMotDePasse(req, res) {
     nom: utilisateurActualise.nom,
     email: utilisateurActualise.email,
     session_version: utilisateurActualise.session_version,
+    est_admin: utilisateurActualise.est_admin,
+    peut_voir_monetisation: utilisateurActualise.peut_voir_monetisation,
+  };
+  req.session.session_meta = {
+    ...(req.session.session_meta || {}),
+    adresse_ip: normaliserIpClient(req),
+    user_agent: obtenirUserAgent(req),
+    connected_at: req.session.session_meta?.connected_at || new Date().toISOString(),
   };
   req.session.csrfToken = genererTokenCsrf();
   req.session.cookie.maxAge = SESSION_MAX_AGE_MS;

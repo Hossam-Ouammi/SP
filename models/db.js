@@ -10,9 +10,12 @@ const {
 } = require("../utils/screenshot-storage");
 
 const databaseDirectory = path.join(__dirname, "..", "database");
-const databasePath = path.join(databaseDirectory, "database.db");
+const databasePath = process.env.DATABASE_PATH || path.join(databaseDirectory, "database.db");
+const activerDonneesExemple = process.env.SEED_DEMO_DATA === "true";
+const matieresParDefaut = ["Maths", "Physique chimie", "Python", "C++"];
+const comptesParDefaut = ["Abdo", "Yassine"];
 
-fs.mkdirSync(databaseDirectory, { recursive: true });
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 assurerDossiersScreenshots();
 
 const db = new sqlite3.Database(databasePath);
@@ -174,6 +177,22 @@ async function ajouterColonnesSecuriteUtilisateursSiNecessaire() {
   const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
   const migrations = [
     {
+      nom: "est_admin",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN est_admin INTEGER DEFAULT 0",
+    },
+    {
+      nom: "acces_active",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN acces_active INTEGER DEFAULT 1",
+    },
+    {
+      nom: "mode_lecture_seule",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN mode_lecture_seule INTEGER DEFAULT 0",
+    },
+    {
+      nom: "peut_voir_monetisation",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN peut_voir_monetisation INTEGER DEFAULT 0",
+    },
+    {
       nom: "session_version",
       sql: "ALTER TABLE utilisateurs ADD COLUMN session_version INTEGER DEFAULT 1",
     },
@@ -205,6 +224,10 @@ async function ajouterColonnesSecuriteUtilisateursSiNecessaire() {
       nom: "dernier_login_ip",
       sql: "ALTER TABLE utilisateurs ADD COLUMN dernier_login_ip TEXT",
     },
+    {
+      nom: "created_at",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN created_at TEXT",
+    },
   ];
 
   for (const migration of migrations) {
@@ -216,9 +239,46 @@ async function ajouterColonnesSecuriteUtilisateursSiNecessaire() {
   await run(`
     UPDATE utilisateurs
     SET
+      est_admin = COALESCE(est_admin, 0),
+      acces_active = COALESCE(acces_active, 1),
+      mode_lecture_seule = COALESCE(mode_lecture_seule, 0),
+      peut_voir_monetisation = COALESCE(peut_voir_monetisation, 0),
       session_version = COALESCE(session_version, 1),
       doit_changer_mot_de_passe = COALESCE(doit_changer_mot_de_passe, 0),
-      echecs_connexion = COALESCE(echecs_connexion, 0)
+      echecs_connexion = COALESCE(echecs_connexion, 0),
+      created_at = COALESCE(created_at, CURRENT_TIMESTAMP)
+  `);
+}
+
+async function normaliserRolesUtilisateurs() {
+  await run(
+    `
+      UPDATE utilisateurs
+      SET
+        est_admin = CASE
+          WHEN lower(email) = 'hossam@test.com' THEN 1
+          ELSE 0
+        END,
+        mode_lecture_seule = COALESCE(mode_lecture_seule, 0),
+        peut_voir_monetisation = CASE
+          WHEN lower(email) = 'hossam@test.com' THEN 1
+          ELSE COALESCE(peut_voir_monetisation, 0)
+        END
+    `
+  );
+}
+
+async function ajouterColonneParentSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(seances)");
+  const colonneParentExiste = colonnes.some((colonne) => colonne.name === "parent");
+
+  if (!colonneParentExiste) {
+    await run("ALTER TABLE seances ADD COLUMN parent TEXT");
+  }
+
+  await run(`
+    UPDATE seances
+    SET parent = COALESCE(parent, '')
   `);
 }
 
@@ -269,12 +329,16 @@ async function normaliserSeancesExistantes() {
           WHEN lower(matiere) LIKE '%phys%' OR lower(matiere) LIKE '%chim%' THEN 'Physique chimie'
           WHEN lower(matiere) LIKE '%python%' THEN 'Python'
           WHEN lower(matiere) LIKE '%c++%' OR lower(matiere) LIKE '%cpp%' THEN 'C++'
-          ELSE 'Maths'
+          WHEN trim(COALESCE(matiere, '')) = '' THEN 'Maths'
+          ELSE trim(matiere)
         END,
         compte = CASE
-          WHEN compte IN ('Yassine', 'Abdo') THEN compte
-          ELSE 'Abdo'
+          WHEN lower(trim(COALESCE(compte, ''))) = 'yassine' THEN 'Yassine'
+          WHEN lower(trim(COALESCE(compte, ''))) IN ('abdo', 'ami') THEN 'Abdo'
+          WHEN trim(COALESCE(compte, '')) = '' THEN 'Abdo'
+          ELSE trim(compte)
         END,
+        parent = COALESCE(parent, ''),
         est_essai = CASE
           WHEN est_essai IN (0, 1) THEN est_essai
           ELSE 0
@@ -305,6 +369,64 @@ async function normaliserSeancesExistantes() {
   );
 }
 
+async function initialiserCatalogueParDefaut() {
+  for (const matiere of matieresParDefaut) {
+    await run(
+      `
+        INSERT OR IGNORE INTO catalogue_options (type, valeur)
+        VALUES ('matiere', ?)
+      `,
+      [matiere]
+    );
+  }
+
+  for (const compte of comptesParDefaut) {
+    await run(
+      `
+        INSERT OR IGNORE INTO catalogue_options (type, valeur)
+        VALUES ('compte', ?)
+      `,
+      [compte]
+    );
+  }
+}
+
+async function synchroniserCatalogueDepuisSeances() {
+  const matieres = await all(`
+    SELECT DISTINCT trim(matiere) AS valeur
+    FROM seances
+    WHERE trim(COALESCE(matiere, '')) <> ''
+    ORDER BY trim(matiere) ASC
+  `);
+
+  const comptes = await all(`
+    SELECT DISTINCT trim(compte) AS valeur
+    FROM seances
+    WHERE trim(COALESCE(compte, '')) <> ''
+    ORDER BY trim(compte) ASC
+  `);
+
+  for (const matiere of matieres) {
+    await run(
+      `
+        INSERT OR IGNORE INTO catalogue_options (type, valeur)
+        VALUES ('matiere', ?)
+      `,
+      [matiere.valeur]
+    );
+  }
+
+  for (const compte of comptes) {
+    await run(
+      `
+        INSERT OR IGNORE INTO catalogue_options (type, valeur)
+        VALUES ('compte', ?)
+      `,
+      [compte.valeur]
+    );
+  }
+}
+
 async function initialiserUtilisateursDeTest() {
   const resultat = await get("SELECT COUNT(*) AS total FROM utilisateurs");
 
@@ -317,11 +439,13 @@ async function initialiserUtilisateursDeTest() {
       nom: "Hossam",
       email: "hossam@test.com",
       motDePasse: "123456",
+      estAdmin: 1,
     },
     {
       nom: "Abdo",
       email: "ami@test.com",
       motDePasse: "123456",
+      estAdmin: 0,
     },
   ];
 
@@ -334,14 +458,30 @@ async function initialiserUtilisateursDeTest() {
           nom,
           email,
           mot_de_passe,
+          est_admin,
+          acces_active,
+          mode_lecture_seule,
+          peut_voir_monetisation,
           session_version,
           doit_changer_mot_de_passe,
           mot_de_passe_change_at,
           echecs_connexion
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
-      [utilisateur.nom, utilisateur.email, motDePasseHash, 1, 1, null, 0]
+      [
+        utilisateur.nom,
+        utilisateur.email,
+        motDePasseHash,
+        utilisateur.estAdmin,
+        1,
+        0,
+        utilisateur.estAdmin ? 1 : 0,
+        1,
+        1,
+        null,
+        0,
+      ]
     );
   }
 }
@@ -561,6 +701,10 @@ async function initialiserBaseDeDonnees() {
       nom TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE,
       mot_de_passe TEXT NOT NULL,
+      est_admin INTEGER DEFAULT 0,
+      acces_active INTEGER DEFAULT 1,
+      mode_lecture_seule INTEGER DEFAULT 0,
+      peut_voir_monetisation INTEGER DEFAULT 0,
       session_version INTEGER DEFAULT 1,
       doit_changer_mot_de_passe INTEGER DEFAULT 0,
       mot_de_passe_change_at TEXT,
@@ -568,8 +712,14 @@ async function initialiserBaseDeDonnees() {
       premier_echec_connexion_at TEXT,
       bloque_jusqua TEXT,
       dernier_login_at TEXT,
-      dernier_login_ip TEXT
+      dernier_login_ip TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
+  `);
+
+  await run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_utilisateurs_nom_unique
+    ON utilisateurs (nom COLLATE NOCASE)
   `);
 
   await run(`
@@ -578,6 +728,7 @@ async function initialiserBaseDeDonnees() {
       titre TEXT NOT NULL,
       etudiant TEXT NOT NULL,
       matiere TEXT NOT NULL,
+      parent TEXT,
       compte TEXT,
       est_essai INTEGER DEFAULT 0,
       date TEXT NOT NULL,
@@ -639,6 +790,20 @@ async function initialiserBaseDeDonnees() {
   `);
 
   await run(`
+    CREATE TABLE IF NOT EXISTS catalogue_options (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      valeur TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_catalogue_type_valeur_unique
+    ON catalogue_options (type, valeur COLLATE NOCASE)
+  `);
+
+  await run(`
     CREATE TABLE IF NOT EXISTS journal_auth (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       utilisateur_id INTEGER,
@@ -661,12 +826,20 @@ async function initialiserBaseDeDonnees() {
   await ajouterColonnesSecuriteUtilisateursSiNecessaire();
   await ajouterColonneCompteSiNecessaire();
   await ajouterColonneEssaiSiNecessaire();
+  await ajouterColonneParentSiNecessaire();
+  await initialiserCatalogueParDefaut();
   await normaliserSeancesExistantes();
+  await synchroniserCatalogueDepuisSeances();
   await initialiserUtilisateursDeTest();
   await normaliserNomsUtilisateurs();
+  await normaliserRolesUtilisateurs();
   await marquerComptesTemporairesCommeASecuriser();
-  await initialiserSeancesExemple();
-  await initialiserHistoriqueExistant();
+
+  if (activerDonneesExemple) {
+    await initialiserSeancesExemple();
+    await initialiserHistoriqueExistant();
+  }
+
   await migrerScreenshotsVersStockagePrive();
 }
 

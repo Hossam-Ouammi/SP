@@ -8,17 +8,17 @@ const {
   mettreAJourStatutSeance,
   supprimerSeance,
 } = require("../models/seance.model");
+const { listerCatalogueOptions } = require("../models/catalogue.model");
 const { recupererPhotosParSeance } = require("../models/photo.model");
 const { creerEntreeHistorique } = require("../models/historique.model");
 const { resoudreCheminScreenshot } = require("../utils/screenshot-storage");
 
 const statutsSeanceValides = ["planifiee", "faite", "annulee", "reportee"];
 const statutsCreationValides = ["planifiee", "faite"];
-const matieresValides = ["Maths", "Physique chimie", "Python", "C++"];
-const comptesValides = ["Yassine", "Abdo"];
 const dureesValides = [60, 90, 120];
 const valeursEssaiValides = [0, 1];
 const libellesChampHistorique = {
+  parent: "Parent",
   etudiant: "Étudiant",
   matiere: "Matière",
   compte: "Compte",
@@ -158,6 +158,7 @@ function extraireEtatAuditSeance(seance) {
 
   return {
     etudiant: seance.etudiant,
+    parent: seance.parent || "",
     matiere: seance.matiere,
     compte: seance.compte,
     est_essai: Number(seance.est_essai) === 1 ? 1 : 0,
@@ -267,13 +268,28 @@ function normaliserValeurEssai(valeur) {
   return 0;
 }
 
-function validerDonneesSeance(donneesSeance) {
+async function recupererCatalogueSeances() {
+  const catalogue = await listerCatalogueOptions();
+
+  return {
+    matieres: Array.isArray(catalogue.matieres)
+      ? catalogue.matieres.map((matiere) => matiere.valeur)
+      : [],
+    comptes: Array.isArray(catalogue.comptes)
+      ? catalogue.comptes.map((compte) => compte.valeur)
+      : [],
+  };
+}
+
+async function validerDonneesSeance(donneesSeance) {
   const erreurs = [];
   const dureeMinutes = Number(donneesSeance.duree_minutes);
   const heureValide = estHeureDebutSeanceValide(donneesSeance.heure_debut);
   const dureeValide = dureesValides.includes(dureeMinutes);
   const nomEtudiant = normaliserTexte(donneesSeance.etudiant);
+  const nomParent = normaliserTexte(donneesSeance.parent);
   const description = normaliserTexte(donneesSeance.description);
+  const catalogue = await recupererCatalogueSeances();
 
   if (!nomEtudiant) {
     erreurs.push("Le nom de l'étudiant est obligatoire.");
@@ -281,11 +297,15 @@ function validerDonneesSeance(donneesSeance) {
     erreurs.push("Le nom de l'étudiant est trop long.");
   }
 
-  if (!matieresValides.includes(donneesSeance.matiere)) {
+  if (nomParent.length > 120) {
+    erreurs.push("Le nom du parent est trop long.");
+  }
+
+  if (!catalogue.matieres.includes(donneesSeance.matiere)) {
     erreurs.push("La matière est invalide.");
   }
 
-  if (!comptesValides.includes(donneesSeance.compte)) {
+  if (!catalogue.comptes.includes(donneesSeance.compte)) {
     erreurs.push("Le compte est invalide.");
   }
 
@@ -326,6 +346,7 @@ function validerDonneesSeance(donneesSeance) {
 
 function preparerDonneesSeance(donneesSeance) {
   const etudiant = normaliserTexte(donneesSeance.etudiant);
+  const parent = normaliserTexte(donneesSeance.parent);
   const matiere = normaliserTexte(donneesSeance.matiere);
   const compte = normaliserTexte(donneesSeance.compte);
   const estEssai = normaliserValeurEssai(donneesSeance.est_essai);
@@ -335,6 +356,7 @@ function preparerDonneesSeance(donneesSeance) {
 
   const donneesPreparees = {
     etudiant,
+    parent,
     matiere,
     compte,
     est_essai: estEssai,
@@ -349,6 +371,7 @@ function preparerDonneesSeance(donneesSeance) {
   return {
     titre: construireLibelleSeance(donneesPreparees),
     etudiant: donneesPreparees.etudiant,
+    parent: donneesPreparees.parent,
     matiere: donneesPreparees.matiere,
     compte: donneesPreparees.compte,
     est_essai: donneesPreparees.est_essai,
@@ -392,6 +415,17 @@ async function recupererToutesLesSeances(req, res) {
   });
 }
 
+async function recupererOptionsSeances(req, res) {
+  const catalogue = await listerCatalogueOptions();
+
+  return res.json({
+    options: {
+      matieres: Array.isArray(catalogue.matieres) ? catalogue.matieres : [],
+      comptes: Array.isArray(catalogue.comptes) ? catalogue.comptes : [],
+    },
+  });
+}
+
 async function recupererUneSeance(req, res) {
   if (!estIdentifiantValide(req.params.id)) {
     return res.status(400).json({ message: "Identifiant de séance invalide." });
@@ -408,7 +442,7 @@ async function recupererUneSeance(req, res) {
 
 async function ajouterSeance(req, res) {
   const donneesSeance = preparerDonneesSeance(req.body);
-  const erreurs = validerDonneesSeance(donneesSeance);
+  const erreurs = await validerDonneesSeance(donneesSeance);
 
   if (erreurs.length > 0) {
     return res.status(400).json({ message: erreurs.join(" ") });
@@ -453,7 +487,7 @@ async function modifierSeance(req, res) {
   }
 
   const donneesSeance = preparerDonneesSeance(req.body);
-  const erreurs = validerDonneesSeance(donneesSeance);
+  const erreurs = await validerDonneesSeance(donneesSeance);
 
   if (erreurs.length > 0) {
     return res.status(400).json({ message: erreurs.join(" ") });
@@ -578,6 +612,7 @@ async function supprimerUneSeance(req, res) {
 
 module.exports = {
   recupererToutesLesSeances,
+  recupererOptionsSeances,
   recupererUneSeance,
   ajouterSeance,
   modifierSeance,

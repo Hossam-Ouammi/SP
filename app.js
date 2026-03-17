@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require("fs");
 
 const authRoutes = require("./routes/auth.routes");
+const adminRoutes = require("./routes/admin.routes");
 const historiqueRoutes = require("./routes/historique.routes");
 const monetisationRoutes = require("./routes/monetisation.routes");
 const seancesRoutes = require("./routes/seances.routes");
@@ -27,6 +28,7 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || process.env.IP || "0.0.0.0";
 
 fs.mkdirSync(path.join(__dirname, "database"), { recursive: true });
 assurerDossiersScreenshots();
@@ -115,6 +117,7 @@ app.use(
 );
 
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/historique", historiqueRoutes);
 app.use("/api/monetisation", monetisationRoutes);
 app.use("/api/seances", seancesRoutes);
@@ -168,8 +171,8 @@ async function demarrerServeur() {
   try {
     await initialiserBaseDeDonnees();
 
-    app.listen(PORT, () => {
-      console.log(`Serveur lancé sur http://localhost:${PORT}`);
+    app.listen(PORT, HOST, () => {
+      console.log(`Serveur lancé sur http://${HOST}:${PORT}`);
     });
   } catch (error) {
     console.error("Impossible de démarrer le serveur :", error);

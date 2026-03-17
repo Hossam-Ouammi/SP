@@ -10,6 +10,7 @@ const {
 const {
   verifierAuthentification,
   verifierCompteSecurise,
+  verifierModeEcritureAutorise,
 } = require("../middleware/auth.middleware");
 const {
   assurerDossiersScreenshots,
@@ -60,6 +61,11 @@ router.use(verifierCompteSecurise);
 
 router.get("/:photoId/file", recupererFichierPhoto);
 router.get("/seance/:seanceId", recupererPhotosDuneSeance);
-router.post("/seance/:seanceId", upload.array("screenshots", 8), televerserPhotos);
+router.post(
+  "/seance/:seanceId",
+  verifierModeEcritureAutorise,
+  upload.array("screenshots", 8),
+  televerserPhotos
+);
 
 module.exports = router;

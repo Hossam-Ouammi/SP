@@ -3,11 +3,49 @@ const { get, run } = require("./db");
 async function trouverUtilisateurParEmail(email) {
   return get(
     `
-      SELECT id, nom, email, mot_de_passe, session_version, doit_changer_mot_de_passe
+      SELECT
+        id,
+        nom,
+        email,
+        mot_de_passe,
+        est_admin,
+        acces_active,
+        mode_lecture_seule,
+        peut_voir_monetisation,
+        session_version,
+        doit_changer_mot_de_passe,
+        mot_de_passe_change_at,
+        dernier_login_at,
+        dernier_login_ip,
+        created_at
       FROM utilisateurs
       WHERE email = ?
     `,
     [email]
+  );
+}
+
+async function trouverUtilisateurParNom(nom) {
+  return get(
+    `
+      SELECT
+        id,
+        nom,
+        email,
+        est_admin,
+        acces_active,
+        mode_lecture_seule,
+        peut_voir_monetisation,
+        session_version,
+        doit_changer_mot_de_passe,
+        mot_de_passe_change_at,
+        dernier_login_at,
+        dernier_login_ip,
+        created_at
+      FROM utilisateurs
+      WHERE lower(nom) = lower(?)
+    `,
+    [nom]
   );
 }
 
@@ -19,6 +57,10 @@ async function trouverUtilisateurParNomOuEmail(identifiant) {
         nom,
         email,
         mot_de_passe,
+        est_admin,
+        acces_active,
+        mode_lecture_seule,
+        peut_voir_monetisation,
         session_version,
         doit_changer_mot_de_passe,
         mot_de_passe_change_at,
@@ -41,11 +83,16 @@ async function trouverUtilisateurParId(id) {
         id,
         nom,
         email,
+        est_admin,
+        acces_active,
+        mode_lecture_seule,
+        peut_voir_monetisation,
         session_version,
         doit_changer_mot_de_passe,
         mot_de_passe_change_at,
         dernier_login_at,
-        dernier_login_ip
+        dernier_login_ip,
+        created_at
       FROM utilisateurs
       WHERE id = ?
     `,
@@ -61,6 +108,10 @@ async function trouverUtilisateurAvecMotDePasseParId(id) {
         nom,
         email,
         mot_de_passe,
+        est_admin,
+        acces_active,
+        mode_lecture_seule,
+        peut_voir_monetisation,
         session_version,
         doit_changer_mot_de_passe,
         mot_de_passe_change_at,
@@ -76,13 +127,40 @@ async function trouverUtilisateurAvecMotDePasseParId(id) {
   );
 }
 
-async function creerUtilisateur({ nom, email, motDePasse }) {
+async function creerUtilisateur({
+  nom,
+  email,
+  motDePasse,
+  estAdmin = 0,
+  accesActive = 1,
+  modeLectureSeule = 0,
+  peutVoirMonetisation = 0,
+  doitChangerMotDePasse = 1,
+}) {
   return run(
     `
-      INSERT INTO utilisateurs (nom, email, mot_de_passe)
-      VALUES (?, ?, ?)
+      INSERT INTO utilisateurs (
+        nom,
+        email,
+        mot_de_passe,
+        est_admin,
+        acces_active,
+        mode_lecture_seule,
+        peut_voir_monetisation,
+        doit_changer_mot_de_passe
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
-    [nom, email, motDePasse]
+    [
+      nom,
+      email,
+      motDePasse,
+      estAdmin ? 1 : 0,
+      accesActive ? 1 : 0,
+      modeLectureSeule ? 1 : 0,
+      peutVoirMonetisation ? 1 : 0,
+      doitChangerMotDePasse ? 1 : 0,
+    ]
   );
 }
 
@@ -95,6 +173,24 @@ async function mettreAJourMotDePasseUtilisateur(id, motDePasseHash) {
         session_version = session_version + 1,
         doit_changer_mot_de_passe = 0,
         mot_de_passe_change_at = CURRENT_TIMESTAMP,
+        echecs_connexion = 0,
+        premier_echec_connexion_at = NULL,
+        bloque_jusqua = NULL
+      WHERE id = ?
+    `,
+    [motDePasseHash, id]
+  );
+}
+
+async function reinitialiserMotDePasseUtilisateur(id, motDePasseHash) {
+  return run(
+    `
+      UPDATE utilisateurs
+      SET
+        mot_de_passe = ?,
+        session_version = session_version + 1,
+        doit_changer_mot_de_passe = 1,
+        mot_de_passe_change_at = NULL,
         echecs_connexion = 0,
         premier_echec_connexion_at = NULL,
         bloque_jusqua = NULL
@@ -139,11 +235,13 @@ async function mettreAJourEtatEchecConnexion(
 
 module.exports = {
   trouverUtilisateurParEmail,
+  trouverUtilisateurParNom,
   trouverUtilisateurParNomOuEmail,
   trouverUtilisateurParId,
   trouverUtilisateurAvecMotDePasseParId,
   creerUtilisateur,
   mettreAJourMotDePasseUtilisateur,
+  reinitialiserMotDePasseUtilisateur,
   mettreAJourEtatConnexionReussie,
   mettreAJourEtatEchecConnexion,
 };

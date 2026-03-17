@@ -6,7 +6,17 @@ const tarifsParCompte = {
 };
 
 function normaliserCompte(compte) {
-  return String(compte || "").trim().toLowerCase() === "yassine" ? "Yassine" : "Abdo";
+  const valeur = String(compte || "").trim().toLowerCase();
+
+  if (valeur === "yassine") {
+    return "Yassine";
+  }
+
+  if (valeur === "abdo" || valeur === "ami") {
+    return "Abdo";
+  }
+
+  return "";
 }
 
 function calculerMonetisationPourCompte(seances, compte) {

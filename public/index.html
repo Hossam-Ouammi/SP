@@ -48,6 +48,18 @@
                 />
               </label>
 
+              <div class="login-options">
+                <label class="inline-option">
+                  <input id="login-show-password" type="checkbox" />
+                  <span>Afficher le mot de passe</span>
+                </label>
+
+                <label class="inline-option">
+                  <input id="login-remember" type="checkbox" />
+                  <span>Enregistrer l'identifiant et le mot de passe</span>
+                </label>
+              </div>
+
               <p id="login-error" class="form-error hidden"></p>
 
               <button id="login-button" class="button primary full-width" type="submit">
@@ -88,14 +100,14 @@
           <button class="nav-tab" type="button" data-section-target="statistiques">
             Statistiques
           </button>
-          <button class="nav-tab" type="button" data-section-target="utilisateur">
-            Utilisateur
-          </button>
           <button class="nav-tab hidden" type="button" data-section-target="monetisation">
             Monétisation
           </button>
           <button class="nav-tab" type="button" data-section-target="historique">
             Historique
+          </button>
+          <button class="nav-tab" type="button" data-section-target="utilisateur">
+            User admin
           </button>
         </nav>
 
@@ -196,73 +208,608 @@
         </section>
 
         <section id="utilisateur-section" class="app-section hidden">
-          <section class="panel user-settings-panel">
+          <section class="panel admin-panel-shell">
             <div class="section-heading section-heading-stack">
               <div>
-                <h2>Utilisateur</h2>
-                <p class="section-note">Modifiez votre mot de passe.</p>
+                <h2 id="admin-panel-title">User admin</h2>
+                <p id="admin-panel-note" class="section-note">
+                  Securite du compte et outils user.
+                </p>
               </div>
             </div>
 
-            <div class="user-settings-grid">
-              <article class="user-summary-card">
-                <span class="summary-label">Username</span>
-                <strong id="user-username" class="summary-value user-summary-value">-</strong>
+            <section class="admin-overview-strip">
+              <article class="admin-identity-card">
+                <div class="admin-identity-head">
+                  <div>
+                    <span class="summary-label">Compte connecte</span>
+                    <strong id="user-username" class="summary-value user-summary-value">-</strong>
+                  </div>
+
+                  <div class="admin-identity-badges">
+                    <span id="user-role-badge" class="admin-status-badge">
+                      User
+                    </span>
+                    <span
+                      id="user-access-badge"
+                      class="admin-status-badge admin-status-badge-active"
+                    >
+                      Actif
+                    </span>
+                  </div>
+                </div>
+
                 <p id="user-security-status" class="user-security-status">Compte securise.</p>
+
+                <div class="admin-identity-stats">
+                  <div class="admin-identity-stat">
+                    <span>Outils sensibles</span>
+                    <strong id="user-admin-access">Non</strong>
+                  </div>
+                  <div class="admin-identity-stat">
+                    <span>Derniere connexion</span>
+                    <strong id="user-last-login">-</strong>
+                  </div>
+                </div>
               </article>
 
-              <form id="user-password-form" class="stack-form user-password-form">
-                <div id="password-security-notice" class="security-notice hidden">
-                  Changez le mot de passe maintenant pour debloquer l'application.
+              <article class="admin-guide-card">
+                <span class="summary-label">Vue rapide</span>
+                <strong id="admin-guide-title" class="admin-guide-title">Securite et controle</strong>
+                <p id="admin-guide-note" class="section-note">
+                  Le mot de passe se modifie ici. Les actions avancees sont reservees a
+                  Hossam et demandent toujours son mot de passe actuel.
+                </p>
+              </article>
+            </section>
+
+            <div class="admin-panel-layout">
+              <form id="user-password-form" class="stack-form user-password-form admin-card admin-password-card">
+                <div class="admin-card-head">
+                  <div>
+                    <h3 class="user-form-title">Securite du compte</h3>
+                    <p class="section-note">
+                      Modifiez votre mot de passe depuis cet espace.
+                    </p>
+                  </div>
                 </div>
 
-                <label class="field">
-                  <span>Mot de passe actuel</span>
-                  <input
-                    id="current-password"
-                    name="mot_de_passe_actuel"
-                    type="password"
-                    autocomplete="current-password"
-                    required
-                  />
-                </label>
+                <div class="admin-card-body stack-form">
+                  <div id="password-security-notice" class="security-notice hidden">
+                    Changez le mot de passe maintenant pour debloquer l'application.
+                  </div>
 
-                <label class="field">
-                  <span>Nouveau mot de passe</span>
-                  <input
-                    id="new-password"
-                    name="nouveau_mot_de_passe"
-                    type="password"
-                    minlength="12"
-                    autocomplete="new-password"
-                    required
-                  />
-                </label>
+                  <label class="field">
+                    <span>Mot de passe actuel</span>
+                    <input
+                      id="current-password"
+                      name="mot_de_passe_actuel"
+                      type="password"
+                      autocomplete="current-password"
+                      required
+                    />
+                  </label>
 
-                <label class="field">
-                  <span>Confirmer le nouveau mot de passe</span>
-                  <input
-                    id="confirm-password"
-                    name="confirmation_mot_de_passe"
-                    type="password"
-                    minlength="12"
-                    autocomplete="new-password"
-                    required
-                  />
-                </label>
+                  <label class="field">
+                    <span>Nouveau mot de passe</span>
+                    <input
+                      id="new-password"
+                      name="nouveau_mot_de_passe"
+                      type="password"
+                      minlength="12"
+                      autocomplete="new-password"
+                      required
+                    />
+                  </label>
 
-                <p class="user-password-help">
-                  12 caracteres minimum avec minuscule, majuscule, chiffre et caractere special.
-                </p>
+                  <label class="field">
+                    <span>Confirmer le nouveau mot de passe</span>
+                    <input
+                      id="confirm-password"
+                      name="confirmation_mot_de_passe"
+                      type="password"
+                      minlength="12"
+                      autocomplete="new-password"
+                      required
+                    />
+                  </label>
 
-                <p id="user-password-error" class="form-error hidden"></p>
+                  <p class="user-password-help">
+                    12 caracteres minimum avec minuscule, majuscule, chiffre et caractere special.
+                  </p>
 
-                <div class="form-actions">
-                  <button id="save-password-button" class="button primary" type="submit">
-                    Modifier le mot de passe
-                  </button>
+                  <p id="user-password-error" class="form-error hidden"></p>
+
+                  <div class="form-actions">
+                    <button id="save-password-button" class="button primary" type="submit">
+                      Modifier le mot de passe
+                    </button>
+                  </div>
                 </div>
               </form>
+
+              <section id="admin-tools-panel" class="user-admin-shell hidden">
+                <article class="admin-card admin-directory-card">
+                  <div class="admin-card-head">
+                    <div>
+                      <h3 class="user-form-title">Utilisateurs</h3>
+                      <p class="section-note">
+                        Ajoutez des comptes et suivez leur etat en un seul endroit.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="admin-summary-strip">
+                    <div class="admin-summary-tile">
+                      <span>Total comptes</span>
+                      <strong id="admin-total-users">0</strong>
+                    </div>
+                    <div class="admin-summary-tile">
+                      <span>Actifs</span>
+                      <strong id="admin-active-users">0</strong>
+                    </div>
+                    <div class="admin-summary-tile">
+                      <span>Lecture seule</span>
+                      <strong id="admin-readonly-users">0</strong>
+                    </div>
+                    <div class="admin-summary-tile">
+                      <span>Sessions actives</span>
+                      <strong id="admin-active-sessions">0</strong>
+                    </div>
+                  </div>
+
+                  <div id="admin-users-list" class="admin-user-list"></div>
+                </article>
+
+                <article class="admin-card admin-actions-shell">
+                  <div class="admin-card-head">
+                    <div>
+                      <h3 class="user-form-title">Outils de gestion</h3>
+                      <p class="section-note">
+                        Chaque action sensible demande votre mot de passe actuel.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="admin-actions-grid">
+                    <form
+                      id="admin-add-subject-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Ajouter une matière</h3>
+                        <p class="section-note">
+                          Ajoute une matière disponible dans le formulaire des séances.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Nom de la matière</span>
+                        <input id="admin-new-subject-name" type="text" maxlength="80" required />
+                      </label>
+
+                      <div id="admin-subject-list" class="admin-catalog-list"></div>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-add-subject-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-add-subject-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button id="admin-add-subject-button" class="button primary" type="submit">
+                          Ajouter la matière
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-add-account-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Ajouter un compte</h3>
+                        <p class="section-note">
+                          Ajoute un compte de travail disponible dans les séances.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Nom du compte</span>
+                        <input id="admin-new-account-name" type="text" maxlength="80" required />
+                      </label>
+
+                      <div id="admin-account-list" class="admin-catalog-list"></div>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-add-account-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-add-account-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button id="admin-add-account-button" class="button primary" type="submit">
+                          Ajouter le compte
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-create-user-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Ajouter un utilisateur</h3>
+                        <p class="section-note">
+                          Le nouveau compte demarre avec 123456 et devra le changer.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Nom d'utilisateur</span>
+                        <input id="admin-new-user-name" type="text" maxlength="60" required />
+                      </label>
+
+                      <label class="field">
+                        <span>Email</span>
+                        <input id="admin-new-user-email" type="email" maxlength="160" required />
+                      </label>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-create-user-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-create-user-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button id="admin-create-user-button" class="button primary" type="submit">
+                          Ajouter l'utilisateur
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-delete-user-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Supprimer un utilisateur</h3>
+                        <p class="section-note">
+                          Supprime le compte cible et coupe immediatement toutes ses sessions.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Compte cible</span>
+                        <select id="admin-delete-user-id" required></select>
+                      </label>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-delete-user-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-delete-user-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button id="admin-delete-user-button" class="button danger" type="submit">
+                          Supprimer l'utilisateur
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-reset-password-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Reinitialiser un mot de passe</h3>
+                        <p class="section-note">
+                          Reinitialise le compte cible a 123456.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Compte cible</span>
+                        <select id="admin-reset-user-id" required></select>
+                      </label>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-reset-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-reset-password-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button
+                          id="admin-reset-password-button"
+                          class="button danger"
+                          type="submit"
+                        >
+                          Reinitialiser le mot de passe
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-toggle-access-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Gerer l'acces</h3>
+                        <p class="section-note">
+                          Suspendez ou reactivez un compte collaborateur.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Compte cible</span>
+                        <select id="admin-access-user-id" required></select>
+                      </label>
+
+                      <div class="security-notice security-notice-subtle">
+                        Etat actuel : <strong id="admin-toggle-access-status">-</strong>
+                      </div>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-toggle-access-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-toggle-access-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button
+                          id="admin-toggle-access-button"
+                          class="button secondary"
+                          type="submit"
+                        >
+                          Mettre a jour l'acces
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-readonly-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Lecture seule</h3>
+                        <p class="section-note">
+                          Autorisez la consultation seule sans modification.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Compte cible</span>
+                        <select id="admin-readonly-user-id" required></select>
+                      </label>
+
+                      <div class="security-notice security-notice-subtle">
+                        Etat actuel : <strong id="admin-readonly-status">-</strong>
+                      </div>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-readonly-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-readonly-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button id="admin-readonly-button" class="button secondary" type="submit">
+                          Mettre a jour le mode
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-monetisation-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Afficher Monetisation</h3>
+                        <p class="section-note">
+                          Autorise ou masque le menu Monetisation pour le compte cible.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Compte cible</span>
+                        <select id="admin-monetisation-user-id" required></select>
+                      </label>
+
+                      <div class="security-notice security-notice-subtle">
+                        Etat actuel : <strong id="admin-monetisation-status">-</strong>
+                      </div>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-monetisation-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-monetisation-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button id="admin-monetisation-button" class="button secondary" type="submit">
+                          Mettre a jour Monetisation
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-logout-user-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Couper les sessions d'un compte</h3>
+                        <p class="section-note">
+                          Force la deconnexion de toutes les sessions actives du compte cible.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Compte cible</span>
+                        <select id="admin-logout-user-id" required></select>
+                      </label>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-logout-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-logout-user-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button id="admin-logout-user-button" class="button secondary" type="submit">
+                          Couper les sessions
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-clear-seances-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Supprimer toutes les seances</h3>
+                        <p class="section-note">
+                          Efface toutes les seances et tous les screenshots.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-clear-seances-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-clear-seances-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button
+                          id="admin-clear-seances-button"
+                          class="button danger"
+                          type="submit"
+                        >
+                          Supprimer toutes les seances
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-clear-history-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Supprimer tout l'historique</h3>
+                        <p class="section-note">
+                          Vide l'historique des actions sans toucher aux seances.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-clear-history-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-clear-history-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button
+                          id="admin-clear-history-button"
+                          class="button danger"
+                          type="submit"
+                        >
+                          Supprimer tout l'historique
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </article>
+
+                <article class="admin-card admin-sessions-card">
+                  <div class="admin-card-head">
+                    <div>
+                      <h3 class="user-form-title">Sessions actives</h3>
+                      <p class="section-note">
+                        Visualisez les sessions en cours et fermez-les une par une si besoin.
+                      </p>
+                    </div>
+                  </div>
+
+                  <label class="field">
+                    <span>Votre mot de passe actuel</span>
+                    <input
+                      id="admin-session-current-password"
+                      type="password"
+                      autocomplete="current-password"
+                    />
+                  </label>
+
+                  <p id="admin-session-error" class="form-error hidden"></p>
+
+                  <div id="admin-sessions-list" class="admin-session-list"></div>
+                </article>
+              </section>
             </div>
           </section>
         </section>
@@ -270,28 +817,80 @@
         <section id="monetisation-section" class="app-section hidden">
           <section class="statistics-overview-grid">
             <article class="panel stat-overview-card monetisation-card-primary">
-              <span class="stat-overview-label">Abdo doit payer</span>
-              <strong id="monetisation-abdo-due" class="stat-overview-value">0 dh</strong>
-              <p class="section-note">Montant dû jusqu'à maintenant.</p>
+              <span class="stat-overview-label">Monétisation totale</span>
+              <strong id="monetisation-total-amount" class="stat-overview-value">0 dh</strong>
+              <p class="section-note">Montant total cumulé sur tous les comptes.</p>
             </article>
 
             <article class="panel stat-overview-card">
-              <span class="stat-overview-label">Total à recevoir</span>
-              <strong id="monetisation-total-due" class="stat-overview-value">0 dh</strong>
-              <p class="section-note">Tous comptes confondus.</p>
+              <span class="stat-overview-label">Compte Yassine</span>
+              <strong id="monetisation-yassine-amount-card" class="stat-overview-value">0 dh</strong>
+              <p class="section-note">Montant généré par les séances du compte Yassine.</p>
             </article>
 
             <article class="panel stat-overview-card">
-              <span class="stat-overview-label">Séances facturables</span>
-              <strong id="monetisation-total-billable" class="stat-overview-value">0</strong>
-              <p class="section-note">Faites et hors essai.</p>
+              <span class="stat-overview-label">Compte Abdo</span>
+              <strong id="monetisation-abdo-amount-card" class="stat-overview-value">0 dh</strong>
+              <p class="section-note">Montant généré par les séances du compte Abdo.</p>
+            </article>
+          </section>
+
+          <section class="account-stats-grid">
+            <article class="panel account-stats-card">
+              <div class="account-stats-header">
+                <div>
+                  <h3>Yassine</h3>
+                  <p>Détail de monétisation du compte Yassine.</p>
+                </div>
+                <strong id="monetisation-yassine-amount" class="account-stats-total">0 dh</strong>
+              </div>
+
+              <div class="account-stats-list">
+                <div class="stats-list-row">
+                  <span>Tarif unitaire</span>
+                  <strong id="monetisation-yassine-rate">130 dh</strong>
+                </div>
+                <div class="stats-list-row">
+                  <span>Séances facturables</span>
+                  <strong id="monetisation-yassine-billable-count">0</strong>
+                </div>
+                <div class="stats-list-row">
+                  <span>Séances d'essai faites</span>
+                  <strong id="monetisation-yassine-trial-count">0</strong>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel account-stats-card">
+              <div class="account-stats-header">
+                <div>
+                  <h3>Abdo</h3>
+                  <p>Détail de monétisation du compte Abdo.</p>
+                </div>
+                <strong id="monetisation-abdo-amount" class="account-stats-total">0 dh</strong>
+              </div>
+
+              <div class="account-stats-list">
+                <div class="stats-list-row">
+                  <span>Tarif unitaire</span>
+                  <strong id="monetisation-abdo-rate">90 dh</strong>
+                </div>
+                <div class="stats-list-row">
+                  <span>Séances facturables</span>
+                  <strong id="monetisation-abdo-billable-count">0</strong>
+                </div>
+                <div class="stats-list-row">
+                  <span>Séances d'essai faites</span>
+                  <strong id="monetisation-abdo-trial-count">0</strong>
+                </div>
+              </div>
             </article>
           </section>
 
           <section class="panel stats-compare-panel">
             <div class="section-heading section-heading-stack">
               <div>
-                <h2>Détail de monétisation</h2>
+                <h2>Répartition par compte</h2>
                 <p class="section-note">
                   Une séance est comptée seulement si elle est faite et non d'essai.
                 </p>
@@ -307,24 +906,24 @@
 
               <div class="stats-table-row">
                 <span>Tarif unitaire</span>
-                <strong id="monetisation-yassine-rate">130 dh</strong>
-                <strong id="monetisation-abdo-rate">90 dh</strong>
+                <strong id="monetisation-yassine-rate-table">130 dh</strong>
+                <strong id="monetisation-abdo-rate-table">90 dh</strong>
               </div>
 
               <div class="stats-table-row">
                 <span>Séances faites facturables</span>
-                <strong id="monetisation-yassine-billable-count">0</strong>
-                <strong id="monetisation-abdo-billable-count">0</strong>
+                <strong id="monetisation-yassine-billable-count-table">0</strong>
+                <strong id="monetisation-abdo-billable-count-table">0</strong>
               </div>
 
               <div class="stats-table-row stats-table-row-muted">
                 <span>Séances d'essai faites</span>
-                <strong id="monetisation-yassine-trial-count">0</strong>
-                <strong id="monetisation-abdo-trial-count">0</strong>
+                <strong id="monetisation-yassine-trial-count-table">0</strong>
+                <strong id="monetisation-abdo-trial-count-table">0</strong>
               </div>
 
               <div class="stats-table-row stats-table-row-total">
-                <span>Montant dû</span>
+                <span>Montant par compte</span>
                 <strong id="monetisation-yassine-due">0 dh</strong>
                 <strong id="monetisation-abdo-due-table">0 dh</strong>
               </div>
@@ -334,7 +933,7 @@
 
         <section id="historique-section" class="app-section hidden">
           <section class="history-layout">
-            <article class="panel history-panel">
+            <article class="panel history-panel history-panel-list">
               <div class="section-heading">
                 <h2>Historique des actions</h2>
                 <span id="history-count" class="history-count">0</span>
@@ -342,7 +941,7 @@
               <div id="history-list" class="history-list"></div>
             </article>
 
-            <article class="panel history-panel">
+            <article class="panel history-panel history-panel-detail">
               <div class="section-heading">
                 <h2>Détail</h2>
               </div>
@@ -403,37 +1002,33 @@
               <div class="form-section-header">
                 <div>
                   <h4>Informations</h4>
-                  <p>L'essentiel pour identifier la séance.</p>
+                  <p>Identite eleve, parent et matiere.</p>
                 </div>
               </div>
 
-              <div class="form-grid">
-            <label class="field field-student">
-              <span>Étudiant</span>
-              <input id="etudiant" name="etudiant" type="text" required />
-            </label>
+              <div class="form-grid form-grid-profile">
+                <div class="identity-stack">
+                  <label class="field field-student">
+                    <span>Étudiant</span>
+                    <input
+                      id="etudiant"
+                      name="etudiant"
+                      type="text"
+                      placeholder="Nom de l'etudiant"
+                      required
+                    />
+                  </label>
 
-            <fieldset class="field checkbox-field">
-              <span>Matière</span>
-              <div class="checkbox-options checkbox-options-2">
-                <label class="checkbox-option">
-                  <input class="single-checkbox matiere-checkbox" name="matiere" type="checkbox" value="Maths" />
-                  <span>Maths</span>
-                </label>
-                <label class="checkbox-option">
-                  <input class="single-checkbox matiere-checkbox" name="matiere" type="checkbox" value="Physique chimie" />
-                  <span>PC</span>
-                </label>
-                <label class="checkbox-option">
-                  <input class="single-checkbox matiere-checkbox" name="matiere" type="checkbox" value="Python" />
-                  <span>Python</span>
-                </label>
-                <label class="checkbox-option">
-                  <input class="single-checkbox matiere-checkbox" name="matiere" type="checkbox" value="C++" />
-                  <span>C++</span>
-                </label>
-              </div>
-            </fieldset>
+                  <label class="field">
+                    <span>Parent</span>
+                    <input id="parent" name="parent" type="text" placeholder="Nom du parent" />
+                  </label>
+                </div>
+
+                <fieldset class="field checkbox-field subject-fieldset">
+                  <span>Matière</span>
+                  <div id="matiere-options" class="checkbox-options checkbox-options-2"></div>
+                </fieldset>
 
               </div>
             </section>
@@ -442,7 +1037,7 @@
               <div class="form-section-header">
                 <div>
                   <h4>Planification</h4>
-                  <p>Date, horaire, compte et statut.</p>
+                  <p>Date, heure, duree et compte de travail.</p>
                 </div>
               </div>
 
@@ -464,16 +1059,7 @@
 
             <fieldset class="field checkbox-field">
               <span>Compte</span>
-              <div class="checkbox-options checkbox-options-2">
-                <label class="checkbox-option">
-                  <input class="single-checkbox compte-checkbox" name="compte" type="checkbox" value="Abdo" />
-                  <span>Abdo</span>
-                </label>
-                <label class="checkbox-option">
-                  <input class="single-checkbox compte-checkbox" name="compte" type="checkbox" value="Yassine" />
-                  <span>Yassine</span>
-                </label>
-              </div>
+              <div id="compte-options" class="checkbox-options checkbox-options-2"></div>
             </fieldset>
 
             <fieldset class="field checkbox-field duration-field">
@@ -554,28 +1140,27 @@
               <div class="form-section-header">
                 <div>
                   <h4>Notes et captures</h4>
-                  <p>Ajoutez un contexte utile si besoin.</p>
+                  <p>Conservez ici les remarques et screenshots utiles.</p>
                 </div>
               </div>
 
               <div class="form-grid form-grid-single">
+                <label class="field field-full notes-field">
+                  <span>Description</span>
+                  <textarea
+                    id="description"
+                    name="description"
+                    rows="4"
+                    placeholder="Notes, remarques, points a revoir..."
+                  ></textarea>
+                </label>
 
-            <label class="field field-full">
-              <span>Description</span>
-              <textarea
-                id="description"
-                name="description"
-                rows="4"
-                placeholder="Notes"
-              ></textarea>
-            </label>
-
-            <label class="field field-full">
-              <span>Screenshots</span>
-              <input id="seance-screenshots" name="screenshots" type="file" accept="image/*" multiple />
-              <small>Images uniquement. Maximum 8 fichiers.</small>
-              <div id="selected-files" class="file-list"></div>
-            </label>
+                <label class="field field-full upload-field">
+                  <span>Screenshots</span>
+                  <input id="seance-screenshots" name="screenshots" type="file" accept="image/*" multiple />
+                  <small>Images uniquement. Maximum 8 fichiers.</small>
+                  <div id="selected-files" class="file-list"></div>
+                </label>
               </div>
             </section>
           </div>
@@ -614,6 +1199,10 @@
               <div class="detail-row">
                 <span>Étudiant</span>
                 <strong id="detail-student">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Parent</span>
+                <strong id="detail-parent">-</strong>
               </div>
               <div class="detail-row">
                 <span>Matière</span>
