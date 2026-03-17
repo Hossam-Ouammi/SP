@@ -107,6 +107,86 @@ function recupererPluginsCalendrier() {
   ].filter(Boolean);
 }
 
+function estCalendrierMobile() {
+  return globalThis.matchMedia?.("(max-width: 560px)")?.matches ?? false;
+}
+
+function estCalendrierCompact() {
+  return globalThis.matchMedia?.("(max-width: 720px)")?.matches ?? false;
+}
+
+function obtenirOptionsResponsiveCalendrier() {
+  if (estCalendrierMobile()) {
+    return {
+      initialView: "timeGridWeek",
+      headerToolbar: {
+        left: "prev,next",
+        center: "title",
+        right: "today dayGridMonth,timeGridWeek",
+      },
+      buttonText: {
+        today: "Auj.",
+        month: "Mois",
+        week: "Sem.",
+      },
+      dayHeaderFormat: {
+        weekday: "short",
+        day: "numeric",
+      },
+      dayMaxEvents: 1,
+    };
+  }
+
+  if (estCalendrierCompact()) {
+    return {
+      initialView: "dayGridMonth",
+      headerToolbar: {
+        left: "prev,next",
+        center: "title",
+        right: "dayGridMonth,timeGridWeek",
+      },
+      buttonText: {
+        month: "Mois",
+        week: "Semaine",
+      },
+      dayHeaderFormat: {
+        weekday: "short",
+      },
+      dayMaxEvents: 1,
+    };
+  }
+
+  return {
+    initialView: "dayGridMonth",
+    headerToolbar: {
+      left: "prev,next today",
+      center: "title",
+      right: "dayGridMonth,timeGridWeek",
+    },
+    buttonText: {
+      today: "Aujourd'hui",
+      month: "Mois",
+      week: "Semaine",
+    },
+    dayHeaderFormat: {
+      weekday: "short",
+    },
+    dayMaxEvents: 2,
+  };
+}
+
+function appliquerOptionsResponsive(calendrier) {
+  if (!calendrier) {
+    return;
+  }
+
+  const options = obtenirOptionsResponsiveCalendrier();
+  calendrier.setOption("headerToolbar", options.headerToolbar);
+  calendrier.setOption("buttonText", options.buttonText);
+  calendrier.setOption("dayHeaderFormat", options.dayHeaderFormat);
+  calendrier.setOption("dayMaxEvents", options.dayMaxEvents);
+}
+
 function transformerSeanceEnEvenement(seance) {
   if (
     !estDateIsoValide(seance.date) ||
@@ -120,6 +200,12 @@ function transformerSeanceEnEvenement(seance) {
   const paletteCompte = obtenirPaletteCompte(seance);
   const palette = paletteCompte || palettesStatut[seance.statut_seance] || palettesStatut.planifiee;
   const titreEvenement = seance.libelle || `${seance.matiere} - ${seance.etudiant}`;
+  const compteNormalise = normaliserCompte(seance.compte);
+  const classesEvenement = [palette.className];
+
+  if (compteNormalise === "yassine" || compteNormalise === "abdo") {
+    classesEvenement.push(`compte-${compteNormalise}`);
+  }
 
   return {
     id: String(seance.id),
@@ -129,7 +215,7 @@ function transformerSeanceEnEvenement(seance) {
     backgroundColor: palette.backgroundColor,
     borderColor: palette.borderColor,
     textColor: palette.textColor,
-    classNames: [palette.className],
+    classNames: classesEvenement,
     extendedProps: {
       seance,
     },
@@ -146,29 +232,37 @@ export function initialiserCalendrier(element, { onDateClick, onEventClick }) {
     return null;
   }
 
+  const optionsResponsive = obtenirOptionsResponsiveCalendrier();
+
   const calendrier = new FullCalendar.Calendar(element, {
     plugins,
     locale: "fr",
-    initialView: "dayGridMonth",
+    initialView: optionsResponsive.initialView,
     firstDay: 1,
     height: "auto",
     selectable: true,
     fixedWeekCount: false,
-    dayMaxEvents: 2,
-    headerToolbar: {
-      left: "prev,next today",
-      center: "title",
-      right: "dayGridMonth,timeGridWeek",
-    },
-    buttonText: {
-      today: "Aujourd'hui",
-      month: "Mois",
-      week: "Semaine",
-    },
+    allDaySlot: false,
+    dayMaxEvents: optionsResponsive.dayMaxEvents,
+    headerToolbar: optionsResponsive.headerToolbar,
+    buttonText: optionsResponsive.buttonText,
+    dayHeaderFormat: optionsResponsive.dayHeaderFormat,
     eventTimeFormat: {
       hour: "2-digit",
       minute: "2-digit",
       meridiem: false,
+    },
+    windowResize() {
+      const vueActive = calendrier.view?.type;
+      appliquerOptionsResponsive(calendrier);
+
+      if (estCalendrierMobile()) {
+        if (vueActive !== "timeGridWeek" && vueActive !== "dayGridMonth") {
+          calendrier.changeView("timeGridWeek");
+        }
+      } else if (vueActive === "timeGridWeek" && !estCalendrierCompact()) {
+        calendrier.changeView("dayGridMonth");
+      }
     },
     dateClick(info) {
       onDateClick(info.dateStr);

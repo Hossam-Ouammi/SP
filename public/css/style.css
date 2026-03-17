@@ -345,6 +345,7 @@ button {
   padding: 8px;
   overflow-x: auto;
   overflow-y: hidden;
+  scroll-snap-type: x proximity;
 }
 
 .nav-tab {
@@ -366,6 +367,7 @@ button {
   line-height: 1;
   white-space: nowrap;
   vertical-align: middle;
+  scroll-snap-align: start;
   transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
 }
 
@@ -455,6 +457,7 @@ button {
 .stats-list-row span {
   color: var(--text-muted);
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .stats-list-row strong {
@@ -503,6 +506,7 @@ button {
   font-size: 2rem;
   font-weight: 700;
   line-height: 1;
+  overflow-wrap: anywhere;
 }
 
 .account-stats-list {
@@ -584,6 +588,8 @@ button {
   margin: 6px 0 0;
   color: var(--text-muted);
   font-size: 0.92rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .section-heading h2 {
@@ -685,12 +691,14 @@ button {
   font-size: 1.08rem;
   font-weight: 800;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .today-item-subject {
   color: var(--text-muted);
   font-size: 0.96rem;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .today-item-meta {
@@ -869,6 +877,10 @@ button {
   font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: -0.02em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fc .fc-toolbar-chunk {
@@ -975,7 +987,7 @@ button {
   border: none;
   border-radius: 999px;
   padding: 2px 8px;
-  box-shadow: none;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.22);
   font-size: 0.78rem;
 }
 
@@ -985,8 +997,33 @@ button {
   line-height: 1.25;
 }
 
+.fc .fc-event-main,
+.fc .fc-timegrid-event-harness,
+.fc .fc-daygrid-event-harness,
+.fc .fc-daygrid-event-harness-abs {
+  min-width: 0;
+}
+
 .fc .fc-event-time {
   margin-right: 4px;
+}
+
+.fc .fc-event {
+  overflow: hidden;
+}
+
+.fc .fc-event-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc .fc-event.compte-yassine {
+  box-shadow: none;
+}
+
+.fc .fc-event.compte-abdo {
+  box-shadow: none;
 }
 
 .fc .fc-scrollgrid {
@@ -2411,7 +2448,6 @@ button {
   }
 
   .topbar,
-  .topbar-actions,
   .form-actions,
   .detail-actions,
   .preview-modal-actions {
@@ -2422,6 +2458,13 @@ button {
   .topbar {
     gap: 14px;
     padding: 16px;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 
   .topbar-actions .button {
@@ -2508,6 +2551,17 @@ button {
     min-height: 52px;
   }
 
+  .today-item-head,
+  .account-stats-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .stats-list-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
   .time-select-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2525,7 +2579,7 @@ button {
   }
 
   #calendar {
-    min-height: 500px;
+    min-height: 460px;
   }
 
   .fc .fc-toolbar {
@@ -2538,15 +2592,17 @@ button {
     display: flex;
     justify-content: center;
     flex-wrap: wrap;
+    width: 100%;
   }
 
   .fc .fc-button-group {
     display: flex;
-    width: 100%;
+    width: auto;
+    max-width: 100%;
   }
 
   .fc .fc-button-group .fc-button {
-    flex: 1 1 0;
+    flex: 1 1 auto;
   }
 
   .fc .fc-toolbar-title {
@@ -2569,6 +2625,10 @@ button {
 
   .topbar {
     padding: 14px;
+  }
+
+  .topbar-actions {
+    grid-template-columns: 1fr;
   }
 
   .brand-title {
@@ -2637,6 +2697,20 @@ button {
     padding: 12px;
   }
 
+  .account-stats-header {
+    gap: 10px;
+  }
+
+  .account-stats-total {
+    margin-top: 0;
+    font-size: 1.8rem;
+  }
+
+  .stats-list-row {
+    gap: 6px;
+    padding: 11px 12px;
+  }
+
   .stats-table-head {
     display: none;
   }
@@ -2694,6 +2768,15 @@ button {
     min-height: 48px;
   }
 
+  .time-select-row {
+    border-radius: 14px;
+  }
+
+  .time-select-row select {
+    padding: 0 12px;
+    font-size: 0.95rem;
+  }
+
   .checkbox-option span {
     min-height: 46px;
     padding: 10px 12px;
@@ -2713,11 +2796,25 @@ button {
   }
 
   #calendar {
-    min-height: 400px;
+    min-height: 360px;
   }
 
   .fc .fc-toolbar.fc-header-toolbar {
     padding: 10px;
+  }
+
+  .fc .fc-toolbar {
+    gap: 8px;
+  }
+
+  .fc .fc-toolbar-chunk {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .fc .fc-toolbar-chunk:first-child,
+  .fc .fc-toolbar-chunk:last-child {
+    justify-content: center;
   }
 
   .fc .fc-button {
@@ -2726,30 +2823,56 @@ button {
     font-size: 0.88rem;
   }
 
+  .fc .fc-prev-button,
+  .fc .fc-next-button {
+    min-width: 36px;
+  }
+
   .fc .fc-toolbar-title {
     font-size: 1rem;
+    white-space: normal;
+    text-align: center;
   }
 
   .fc .fc-col-header-cell-cushion {
-    padding: 10px 4px;
-    font-size: 0.8rem;
+    padding: 8px 2px;
+    font-size: 0.74rem;
   }
 
   .fc .fc-daygrid-day-frame {
-    min-height: 76px;
+    min-height: 64px;
   }
 
   .fc .fc-daygrid-day-top {
-    padding: 6px 8px 0;
+    padding: 4px 6px 0;
   }
 
   .fc .fc-daygrid-event {
-    margin: 3px 6px 0;
+    margin: 2px 4px 0;
   }
 
   .fc .fc-event {
-    padding: 3px 5px;
-    font-size: 0.77rem;
+    padding: 2px 4px;
+    font-size: 0.72rem;
+  }
+
+  .fc .fc-daygrid-day-number {
+    font-size: 0.84rem;
+  }
+
+  .fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+    min-width: 24px;
+    height: 24px;
+    font-size: 0.78rem;
+  }
+
+  .fc .fc-timegrid-slot-label-cushion,
+  .fc .fc-timegrid-axis-cushion {
+    font-size: 0.74rem;
+  }
+
+  .fc .fc-timegrid-col-events {
+    margin: 0 3px;
   }
 
   .toast-container {
