@@ -340,20 +340,18 @@ function chargerConnexionMemorisee() {
     const connexion = JSON.parse(valeurBrute);
     return {
       username: String(connexion?.username || ""),
-      motDePasse: String(connexion?.motDePasse || ""),
     };
   } catch (erreur) {
     return null;
   }
 }
 
-function enregistrerConnexionMemorisee(username, motDePasse) {
+function enregistrerConnexionMemorisee(username) {
   try {
     window.localStorage.setItem(
       cleConnexionMemorisee,
       JSON.stringify({
         username,
-        motDePasse,
       })
     );
   } catch (erreur) {
@@ -378,8 +376,7 @@ function appliquerConnexionMemorisee() {
   }
 
   elements.loginUsername.value = connexion.username;
-  elements.loginPassword.value = connexion.motDePasse;
-  elements.loginRemember.checked = Boolean(connexion.username || connexion.motDePasse);
+  elements.loginRemember.checked = Boolean(connexion.username);
 }
 
 function mettreAJourVisibiliteMotDePasseConnexion() {
@@ -928,10 +925,7 @@ async function gererConnexion(event) {
     );
 
     if (elements.loginRemember.checked) {
-      enregistrerConnexionMemorisee(
-        elements.loginUsername.value.trim(),
-        elements.loginPassword.value
-      );
+      enregistrerConnexionMemorisee(elements.loginUsername.value.trim());
     } else {
       effacerConnexionMemorisee();
     }

@@ -38,6 +38,36 @@ function estHeureValide(heure) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(heure);
 }
 
+function normaliserCompte(compte) {
+  return typeof compte === "string" ? compte.trim().toLowerCase() : "";
+}
+
+function construireClassesCompte(compte) {
+  const compteNormalise = normaliserCompte(compte);
+
+  if (compteNormalise === "yassine") {
+    return {
+      className: "calendar-account-yassine",
+      shortLabel: "Y",
+      label: "Yassine",
+    };
+  }
+
+  if (compteNormalise === "abdo") {
+    return {
+      className: "calendar-account-abdo",
+      shortLabel: "A",
+      label: "Abdo",
+    };
+  }
+
+  return {
+    className: "",
+    shortLabel: "",
+    label: typeof compte === "string" ? compte.trim() : "",
+  };
+}
+
 function recupererPluginsCalendrier() {
   return [
     globalThis.FullCalendar?.DayGrid?.default,
@@ -58,6 +88,7 @@ function transformerSeanceEnEvenement(seance) {
 
   const palette = palettesStatut[seance.statut_seance] || palettesStatut.planifiee;
   const titreEvenement = seance.libelle || `${seance.matiere} - ${seance.etudiant}`;
+  const compteCalendrier = construireClassesCompte(seance.compte);
 
   return {
     id: String(seance.id),
@@ -67,9 +98,10 @@ function transformerSeanceEnEvenement(seance) {
     backgroundColor: palette.backgroundColor,
     borderColor: palette.borderColor,
     textColor: palette.textColor,
-    classNames: [palette.className],
+    classNames: [palette.className, compteCalendrier.className].filter(Boolean),
     extendedProps: {
       seance,
+      compteCalendrier,
     },
   };
 }
@@ -113,6 +145,22 @@ export function initialiserCalendrier(element, { onDateClick, onEventClick }) {
     },
     eventClick(info) {
       onEventClick(info.event.extendedProps.seance);
+    },
+    eventDidMount(info) {
+      const compteCalendrier = info.event.extendedProps.compteCalendrier;
+
+      if (!compteCalendrier) {
+        return;
+      }
+
+      if (compteCalendrier.shortLabel) {
+        info.el.dataset.accountShort = compteCalendrier.shortLabel;
+      }
+
+      if (compteCalendrier.label) {
+        info.el.dataset.accountLabel = compteCalendrier.label;
+        info.el.title = `${compteCalendrier.label} - ${info.event.title}`;
+      }
     },
     events: [],
   });

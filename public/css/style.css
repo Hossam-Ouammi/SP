@@ -921,16 +921,56 @@ button {
 }
 
 .fc .fc-event {
+  position: relative;
   border: none;
   border-radius: 8px;
-  padding: 4px 7px;
+  padding: 5px 28px 5px 10px;
   box-shadow: none;
+  overflow: hidden;
 }
 
 .fc .fc-event-title,
 .fc .fc-event-time {
   font-weight: 600;
   line-height: 1.35;
+}
+
+.fc .fc-event.calendar-account-yassine {
+  box-shadow:
+    inset 5px 0 0 #2563eb,
+    inset 0 0 0 1px rgba(37, 99, 235, 0.14);
+}
+
+.fc .fc-event.calendar-account-abdo {
+  box-shadow:
+    inset 5px 0 0 #475569,
+    inset 0 0 0 1px rgba(71, 85, 105, 0.16);
+}
+
+.fc .fc-event[data-account-short]::after {
+  content: attr(data-account-short);
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.88);
+  color: #0f172a;
+}
+
+.fc .fc-event.calendar-account-yassine[data-account-short]::after {
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+}
+
+.fc .fc-event.calendar-account-abdo[data-account-short]::after {
+  background: rgba(71, 85, 105, 0.15);
+  color: #334155;
 }
 
 .fc .fc-scrollgrid {
@@ -963,6 +1003,10 @@ button {
 
 .fc .fc-daygrid-event {
   margin: 4px 8px 0;
+}
+
+.fc .fc-daygrid-event .fc-event-title-container {
+  padding-right: 4px;
 }
 
 .fc .fc-day-other .fc-daygrid-day-frame {

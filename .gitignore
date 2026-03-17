@@ -1,5 +1,13 @@
 node_modules/
 database/database.db
 database/.audit-secret
+database/.session-secret
 public/uploads/*
 !public/uploads/.gitkeep
+storage/uploads/*
+!storage/uploads/.gitkeep
+.server.out.log
+.tmp-cookies.txt
+.tmp-invalid.png
+.tmp-login-headers.txt
+.tmp-valid.png
