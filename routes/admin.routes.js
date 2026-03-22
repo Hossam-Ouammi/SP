@@ -19,22 +19,53 @@ const {
   verifierCompteSecurise,
   verifierAccesAdministratifHossam,
 } = require("../middleware/auth.middleware");
+const { notifierMiseAJourApplication } = require("../utils/realtime-route");
 
 const router = express.Router();
 
 router.use(verifierAuthentification, verifierCompteSecurise, verifierAccesAdministratifHossam);
 
 router.get("/", recupererVueAdministration);
-router.post("/catalogue-items", ajouterElementCatalogueAdministration);
-router.post("/users", creerUtilisateurAdministration);
-router.delete("/users/:id", supprimerUtilisateurAdministration);
-router.post("/reset-password", reinitialiserMotDePasseCompte);
-router.patch("/access", mettreAJourAccesUtilisateur);
-router.patch("/read-only", mettreAJourLectureSeuleUtilisateur);
-router.patch("/monetisation-access", mettreAJourAccesMonetisationUtilisateur);
-router.post("/sessions/revoke", revoquerSessionAdministration);
-router.post("/sessions/revoke-user", revoquerSessionsUtilisateurAdministration);
-router.post("/clear-seances", supprimerToutesLesSeancesAdmin);
-router.post("/clear-history", supprimerToutHistoriqueAdmin);
+router.post(
+  "/catalogue-items",
+  notifierMiseAJourApplication(ajouterElementCatalogueAdministration, "catalogue")
+);
+router.post("/users", notifierMiseAJourApplication(creerUtilisateurAdministration, "administration"));
+router.delete(
+  "/users/:id",
+  notifierMiseAJourApplication(supprimerUtilisateurAdministration, "administration")
+);
+router.post(
+  "/reset-password",
+  notifierMiseAJourApplication(reinitialiserMotDePasseCompte, "administration")
+);
+router.patch(
+  "/access",
+  notifierMiseAJourApplication(mettreAJourAccesUtilisateur, "administration")
+);
+router.patch(
+  "/read-only",
+  notifierMiseAJourApplication(mettreAJourLectureSeuleUtilisateur, "administration")
+);
+router.patch(
+  "/monetisation-access",
+  notifierMiseAJourApplication(mettreAJourAccesMonetisationUtilisateur, "administration")
+);
+router.post(
+  "/sessions/revoke",
+  notifierMiseAJourApplication(revoquerSessionAdministration, "administration")
+);
+router.post(
+  "/sessions/revoke-user",
+  notifierMiseAJourApplication(revoquerSessionsUtilisateurAdministration, "administration")
+);
+router.post(
+  "/clear-seances",
+  notifierMiseAJourApplication(supprimerToutesLesSeancesAdmin, "administration")
+);
+router.post(
+  "/clear-history",
+  notifierMiseAJourApplication(supprimerToutHistoriqueAdmin, "historique")
+);
 
 module.exports = router;

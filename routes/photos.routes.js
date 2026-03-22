@@ -18,6 +18,7 @@ const {
   extensionImageAutorisee,
   mimeTypeImageAutorise,
 } = require("../utils/screenshot-storage");
+const { notifierMiseAJourApplication } = require("../utils/realtime-route");
 
 const router = express.Router();
 assurerDossiersScreenshots();
@@ -65,7 +66,7 @@ router.post(
   "/seance/:seanceId",
   verifierModeEcritureAutorise,
   upload.array("screenshots", 8),
-  televerserPhotos
+  notifierMiseAJourApplication(televerserPhotos, "screenshots")
 );
 
 module.exports = router;

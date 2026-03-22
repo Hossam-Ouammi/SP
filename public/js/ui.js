@@ -90,6 +90,12 @@ const etat = {
   calendrier: null,
   sectionActive: "aujourdhui",
 };
+const connexionTempsReel = {
+  source: null,
+  synchronisationProgrammee: null,
+  synchronisationEnCours: false,
+  synchronisationEnAttente: false,
+};
 
 const elements = {
   loginView: document.getElementById("login-view"),
@@ -661,6 +667,7 @@ function attacherEcouteurs() {
 }
 
 function afficherConnexion() {
+  fermerConnexionTempsReel();
   elements.loginView.classList.remove("hidden");
   elements.appView.classList.add("hidden");
   elements.loginError.classList.add("hidden");
@@ -683,6 +690,127 @@ function afficherApplication() {
   mettreAJourVueAujourdhui();
   mettreAJourNavigationProtegee();
   afficherSectionApplication(utilisateurDoitChangerMotDePasse() ? "utilisateur" : etat.sectionActive);
+  demarrerConnexionTempsReel();
+}
+
+function fermerConnexionTempsReel() {
+  if (connexionTempsReel.synchronisationProgrammee) {
+    window.clearTimeout(connexionTempsReel.synchronisationProgrammee);
+    connexionTempsReel.synchronisationProgrammee = null;
+  }
+
+  if (connexionTempsReel.source) {
+    connexionTempsReel.source.close();
+    connexionTempsReel.source = null;
+  }
+
+  connexionTempsReel.synchronisationEnCours = false;
+  connexionTempsReel.synchronisationEnAttente = false;
+}
+
+function demarrerConnexionTempsReel() {
+  if (
+    !etat.utilisateur ||
+    utilisateurDoitChangerMotDePasse() ||
+    connexionTempsReel.source ||
+    typeof window.EventSource !== "function"
+  ) {
+    return;
+  }
+
+  const source = new window.EventSource("/api/realtime");
+  connexionTempsReel.source = source;
+
+  source.addEventListener("app-updated", () => {
+    programmerSynchronisationTempsReel();
+  });
+
+  source.addEventListener("ping", () => {});
+
+  source.onerror = () => {
+    if (!etat.utilisateur) {
+      fermerConnexionTempsReel();
+    }
+  };
+}
+
+function programmerSynchronisationTempsReel() {
+  if (!etat.utilisateur || utilisateurDoitChangerMotDePasse()) {
+    return;
+  }
+
+  if (connexionTempsReel.synchronisationProgrammee) {
+    return;
+  }
+
+  connexionTempsReel.synchronisationProgrammee = window.setTimeout(() => {
+    connexionTempsReel.synchronisationProgrammee = null;
+    synchroniserApplicationDepuisTempsReel().catch((erreur) => {
+      console.error("Synchronisation temps reel impossible :", erreur);
+    });
+  }, 350);
+}
+
+function appliquerDeconnexionLocale(message) {
+  etat.utilisateur = null;
+  viderDonneesApplication();
+  etat.sectionActive = "aujourdhui";
+  afficherConnexion();
+
+  if (message) {
+    afficherToast(message, "warning");
+  }
+}
+
+async function synchroniserApplicationDepuisTempsReel() {
+  if (!etat.utilisateur || utilisateurDoitChangerMotDePasse()) {
+    return;
+  }
+
+  if (connexionTempsReel.synchronisationEnCours) {
+    connexionTempsReel.synchronisationEnAttente = true;
+    return;
+  }
+
+  connexionTempsReel.synchronisationEnCours = true;
+
+  try {
+    const utilisateurActualise = await recupererUtilisateurCourant();
+
+    if (!utilisateurActualise) {
+      appliquerDeconnexionLocale("Votre session a ete mise a jour. Reconnectez-vous.");
+      return;
+    }
+
+    etat.utilisateur = utilisateurActualise;
+    afficherApplication();
+
+    const seanceOuverteId =
+      etat.seanceSelectionnee && !elements.detailModal.classList.contains("hidden")
+        ? Number(etat.seanceSelectionnee.id)
+        : null;
+
+    await Promise.all([
+      chargerOptionsSeancesDisponibles(),
+      chargerSeances(
+        seanceOuverteId
+          ? {
+              ouvrirSeanceId: seanceOuverteId,
+            }
+          : {}
+      ),
+      chargerHistorique(),
+      chargerMonetisationSiAutorise(),
+      chargerAdministrationSiAutorise(),
+    ]);
+  } finally {
+    connexionTempsReel.synchronisationEnCours = false;
+
+    if (connexionTempsReel.synchronisationEnAttente) {
+      connexionTempsReel.synchronisationEnAttente = false;
+      programmerSynchronisationTempsReel();
+    }
+  }
 }
 
 function initialiserCalendrierSiNecessaire() {
@@ -1657,6 +1785,16 @@ async function chargerSeances(options = {}) {
 
     if (seance) {
       await ouvrirDetailSeance(seance);
+      return;
+    }
+
+    if (
+      etat.seanceSelectionnee &&
+      Number(etat.seanceSelectionnee.id) === Number(options.ouvrirSeanceId) &&
+      !elements.detailModal.classList.contains("hidden")
+    ) {
+      fermerModal(elements.detailModal);
+      etat.seanceSelectionnee = null;
     }
   }
 }
