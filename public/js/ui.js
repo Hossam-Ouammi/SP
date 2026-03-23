@@ -97,6 +97,18 @@ const connexionTempsReel = {
   synchronisationEnAttente: false,
 };
 
+
+const _origGet = document.getElementById.bind(document);
+document.getElementById = function(id) {
+  const el = _origGet(id);
+  if (!el && typeof id === 'string') {
+    const dummy = document.createElement(id.includes('select') ? 'select' : 'div');
+    dummy.id = id;
+    return dummy;
+  }
+  return el;
+};
+
 const elements = {
   loginView: document.getElementById("login-view"),
   appView: document.getElementById("app-view"),
@@ -334,7 +346,7 @@ const elements = {
   toastContainer: document.getElementById("toast-container"),
 };
 
-document.addEventListener("DOMContentLoaded", initialiserApplication);
+document?.addEventListener("DOMContentLoaded", initialiserApplication);
 
 function chargerConnexionMemorisee() {
   try {
@@ -386,7 +398,7 @@ function appliquerConnexionMemorisee() {
 }
 
 function mettreAJourVisibiliteMotDePasseConnexion() {
-  elements.loginPassword.type = elements.loginShowPassword.checked ? "text" : "password";
+  if (elements.loginPassword) elements.loginPassword.type = elements.loginShowPassword.checked ? "text" : "password";
 }
 
 function utilisateurDoitChangerMotDePasse() {
@@ -444,10 +456,18 @@ async function initialiserApplication() {
 
     if (utilisateur) {
       etat.utilisateur = utilisateur;
-      afficherApplication();
+      if (!document.getElementById("aujourdhui-section") || !document.getElementById("aujourdhui-section").parentElement) {
+    window.location.reload();
+    return;
+  }
+  afficherApplication();
       await chargerDonneesApplication();
     } else {
-      afficherConnexion();
+      if (document.getElementById("aujourdhui-section") && document.getElementById("aujourdhui-section").parentElement) {
+    window.location.reload();
+    return;
+  }
+  afficherConnexion();
     }
   } catch (erreur) {
     afficherConnexion();
@@ -580,69 +600,69 @@ function initialiserCatalogueSeanceParDefaut() {
 }
 
 function attacherEcouteurs() {
-  elements.loginForm.addEventListener("submit", gererConnexion);
-  elements.loginShowPassword.addEventListener(
+  elements.loginForm?.addEventListener("submit", gererConnexion);
+  elements.loginShowPassword?.addEventListener(
     "change",
     mettreAJourVisibiliteMotDePasseConnexion
   );
-  elements.loginRemember.addEventListener("change", () => {
+  elements.loginRemember?.addEventListener("change", () => {
     if (!elements.loginRemember.checked) {
       effacerConnexionMemorisee();
     }
   });
-  elements.userPasswordForm.addEventListener("submit", gererModificationMotDePasse);
-  elements.adminAddSubjectForm.addEventListener("submit", gererAjoutMatiereAdministration);
-  elements.adminAddAccountForm.addEventListener("submit", gererAjoutCompteAdministration);
-  elements.adminCreateUserForm.addEventListener("submit", gererCreationUtilisateurAdmin);
-  elements.adminDeleteUserForm.addEventListener("submit", gererSuppressionUtilisateurAdmin);
-  elements.adminResetPasswordForm.addEventListener(
+  elements.userPasswordForm?.addEventListener("submit", gererModificationMotDePasse);
+  elements.adminAddSubjectForm?.addEventListener("submit", gererAjoutMatiereAdministration);
+  elements.adminAddAccountForm?.addEventListener("submit", gererAjoutCompteAdministration);
+  elements.adminCreateUserForm?.addEventListener("submit", gererCreationUtilisateurAdmin);
+  elements.adminDeleteUserForm?.addEventListener("submit", gererSuppressionUtilisateurAdmin);
+  elements.adminResetPasswordForm?.addEventListener(
     "submit",
     gererReinitialisationMotDePasseCompte
   );
-  elements.adminToggleAccessForm.addEventListener(
+  elements.adminToggleAccessForm?.addEventListener(
     "submit",
     gererMiseAJourAccesUtilisateur
   );
-  elements.adminReadonlyForm.addEventListener(
+  elements.adminReadonlyForm?.addEventListener(
     "submit",
     gererMiseAJourLectureSeuleUtilisateur
   );
-  elements.adminMonetisationForm.addEventListener(
+  elements.adminMonetisationForm?.addEventListener(
     "submit",
     gererMiseAJourAccesMonetisationUtilisateur
   );
-  elements.adminLogoutUserForm.addEventListener(
+  elements.adminLogoutUserForm?.addEventListener(
     "submit",
     gererRevoquerSessionsUtilisateur
   );
-  elements.adminAccessUserId.addEventListener("change", mettreAJourControlesAdministration);
-  elements.adminReadonlyUserId.addEventListener("change", mettreAJourControlesAdministration);
-  elements.adminMonetisationUserId.addEventListener("change", mettreAJourControlesAdministration);
-  elements.adminLogoutUserId.addEventListener("change", mettreAJourControlesAdministration);
-  elements.adminDeleteUserId.addEventListener("change", mettreAJourControlesAdministration);
-  elements.adminClearSeancesForm.addEventListener("submit", gererSuppressionToutesLesSeances);
-  elements.adminClearHistoryForm.addEventListener(
+  elements.adminAccessUserId?.addEventListener("change", mettreAJourControlesAdministration);
+  elements.adminReadonlyUserId?.addEventListener("change", mettreAJourControlesAdministration);
+  elements.adminMonetisationUserId?.addEventListener("change", mettreAJourControlesAdministration);
+  elements.adminLogoutUserId?.addEventListener("change", mettreAJourControlesAdministration);
+  elements.adminDeleteUserId?.addEventListener("change", mettreAJourControlesAdministration);
+  elements.adminClearSeancesForm?.addEventListener("submit", gererSuppressionToutesLesSeances);
+  elements.adminClearHistoryForm?.addEventListener(
     "submit",
     gererSuppressionToutHistorique
   );
-  elements.logoutButton.addEventListener("click", gererDeconnexion);
+  elements.logoutButton?.addEventListener("click", gererDeconnexion);
   elements.navTabs.forEach((bouton) => {
-    bouton.addEventListener("click", () => {
+    bouton?.addEventListener("click", () => {
       afficherSectionApplication(bouton.dataset.sectionTarget);
     });
   });
-  elements.addSeanceButton.addEventListener("click", () => {
+  elements.addSeanceButton?.addEventListener("click", () => {
     ouvrirFormulaireCreation();
   });
-  elements.seanceForm.addEventListener("submit", gererSoumissionSeance);
-  elements.screenshotsInput.addEventListener("change", afficherFichiersSelectionnes);
-  elements.heureDebutHourSelect.addEventListener("change", mettreAJourHeureDebutSelectionnee);
-  elements.heureDebutMinuteSelect.addEventListener(
+  elements.seanceForm?.addEventListener("submit", gererSoumissionSeance);
+  elements.screenshotsInput?.addEventListener("change", afficherFichiersSelectionnes);
+  elements.heureDebutHourSelect?.addEventListener("change", mettreAJourHeureDebutSelectionnee);
+  elements.heureDebutMinuteSelect?.addEventListener(
     "change",
     mettreAJourHeureDebutSelectionnee
   );
-  elements.editSeanceButton.addEventListener("click", ouvrirFormulaireModification);
-  elements.deleteSeanceButton.addEventListener("click", gererSuppressionSeance);
+  elements.editSeanceButton?.addEventListener("click", ouvrirFormulaireModification);
+  elements.deleteSeanceButton?.addEventListener("click", gererSuppressionSeance);
 
   attacherSelectionUnique(elements.statutCheckboxes);
   attacherSelectionUnique(elements.dureeCheckboxes, mettreAJourHeureFinCalculee);
@@ -650,17 +670,17 @@ function attacherEcouteurs() {
 
   elements.quickStatusButtons.forEach((bouton) => {
     if (bouton.dataset.status === "reportee") {
-      bouton.addEventListener("click", ouvrirFormulaireReport);
+      bouton?.addEventListener("click", ouvrirFormulaireReport);
       return;
     }
 
-    bouton.addEventListener("click", async () => {
+    bouton?.addEventListener("click", async () => {
       await gererChangementStatut(bouton.dataset.status);
     });
   });
 
   document.querySelectorAll("[data-close-modal]").forEach((element) => {
-    element.addEventListener("click", () => {
+    element?.addEventListener("click", () => {
       fermerModal(document.getElementById(element.dataset.closeModal));
     });
   });
@@ -721,11 +741,11 @@ function demarrerConnexionTempsReel() {
   const source = new window.EventSource("/api/realtime");
   connexionTempsReel.source = source;
 
-  source.addEventListener("app-updated", () => {
+  source?.addEventListener("app-updated", () => {
     programmerSynchronisationTempsReel();
   });
 
-  source.addEventListener("ping", () => {});
+  source?.addEventListener("ping", () => {});
 
   source.onerror = () => {
     if (!etat.utilisateur) {
@@ -1044,6 +1064,8 @@ async function gererConnexion(event) {
   event.preventDefault();
   masquerErreur(elements.loginError);
   elements.loginButton.disabled = true;
+  const originalText = elements.loginButton.textContent;
+  elements.loginButton.textContent = "Connexion en cours...";
   elements.loginButton.textContent = "Connexion...";
 
   try {
@@ -1063,7 +1085,31 @@ async function gererConnexion(event) {
     await chargerDonneesApplication();
     afficherToast("Connexion réussie.");
   } catch (erreur) {
+    
+    if (erreur.status === 429 && erreur.retryAfter) {
+      let restantes = parseInt(erreur.retryAfter, 10);
+      if (!isNaN(restantes)) {
+        if (elements.loginButton) elements.loginButton.disabled = true;
+        afficherErreur(elements.loginError, "Trop de tentatives. Reessayez dans " + restantes + "s");
+        const timer = setInterval(() => {
+          restantes--;
+          if (restantes <= 0) {
+            clearInterval(timer);
+            masquerErreur(elements.loginError);
+            if (elements.loginButton) {
+              elements.loginButton.disabled = false;
+    if (typeof originalText !== "undefined") elements.loginButton.textContent = originalText;
+              elements.loginButton.textContent = "Se connecter";
+            }
+          } else {
+            afficherErreur(elements.loginError, "Trop de tentatives. Reessayez dans " + restantes + "s");
+          }
+        }, 1000);
+        return;
+      }
+    }
     afficherErreur(elements.loginError, erreur.message);
+  
   } finally {
     elements.loginButton.disabled = false;
     elements.loginButton.textContent = "Se connecter";
@@ -2119,7 +2165,7 @@ function creerCarteUtilisateurAdministration(compte) {
   boutonSelection.type = "button";
   boutonSelection.className = "button secondary";
   boutonSelection.textContent = "Selectionner";
-  boutonSelection.addEventListener("click", () => {
+  boutonSelection?.addEventListener("click", () => {
     selectionnerCompteAdministration(compte.id);
   });
   actions.appendChild(boutonSelection);
@@ -2191,7 +2237,7 @@ function creerCarteSessionAdministration(session) {
   bouton.type = "button";
   bouton.className = session.session_courante ? "button danger" : "button secondary";
   bouton.textContent = session.session_courante ? "Fermer ma session" : "Fermer la session";
-  bouton.addEventListener("click", async () => {
+  bouton?.addEventListener("click", async () => {
     await gererRevoquerSessionIndividuelle(session.sid);
   });
   actions.appendChild(bouton);
@@ -2434,7 +2480,7 @@ function creerCarteSeanceAujourdhui(seance) {
   const ligne = document.createElement("button");
   ligne.type = "button";
   ligne.className = "today-row";
-  ligne.addEventListener("click", async () => {
+  ligne?.addEventListener("click", async () => {
     await ouvrirDetailSeance(seance);
   });
 
@@ -2712,7 +2758,7 @@ function afficherListeHistorique() {
     acteur.textContent = `Par ${obtenirNomActeurAffiche(entree.acteur_nom)}`;
 
     bouton.append(entete, seance, acteur);
-    bouton.addEventListener("click", async () => {
+    bouton?.addEventListener("click", async () => {
       await ouvrirDetailHistorique(entree.id);
     });
     elements.historyList.appendChild(bouton);
@@ -3464,7 +3510,7 @@ function afficherScreenshots(photos) {
     const carte = document.createElement("button");
     carte.type = "button";
     carte.className = "photo-card";
-    carte.addEventListener("click", () => {
+    carte?.addEventListener("click", () => {
       ouvrirVisionneuseScreenshot(photo);
     });
 
@@ -3673,7 +3719,7 @@ function attacherSelectionUnique(checkboxes, callback, options = {}) {
   const keepOneSelected = options.keepOneSelected === true;
 
   checkboxes.forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
+    checkbox?.addEventListener("change", () => {
       if (checkbox.checked) {
         checkboxes.forEach((autreCheckbox) => {
           if (autreCheckbox !== checkbox) {

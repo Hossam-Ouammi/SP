@@ -1,4 +1,5 @@
 const express = require("express");
+const compression = require("compression");
 const session = require("express-session");
 const multer = require("multer");
 const path = require("path");
@@ -43,6 +44,7 @@ function appliquerNoCacheStatic(res) {
   res.setHeader("Expires", "0");
 }
 
+app.use(compression());
 app.use(appliquerEnTetesSecurite);
 app.use(desactiverCacheApi);
 app.use(express.json({ limit: "100kb" }));
@@ -104,9 +106,7 @@ app.use(
   })
 );
 
-app.use("/uploads", (req, res) => {
-  res.status(404).end();
-});
+
 
 app.use(
   express.static(path.join(__dirname, "public"), {
@@ -129,9 +129,17 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-app.get("/", (req, res) => {
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "views"));
+app.get("/", async (req, res) => {
   appliquerNoCacheStatic(res);
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  const { chargerUtilisateurAuthentifie } = require("./middleware/auth.middleware");
+  try {
+    const user = await chargerUtilisateurAuthentifie(req, res);
+    res.render("index", { user });
+  } catch (error) {
+    res.render("index", { user: null });
+  }
 });
 
 app.use((req, res) => {

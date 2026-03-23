@@ -41,6 +41,7 @@ export async function envoyerRequete(url, options = {}) {
     const erreur = new Error(donnees.message || "Une erreur est survenue.");
     erreur.status = reponse.status;
     erreur.code = donnees.code || null;
+    erreur.retryAfter = reponse.headers.get("Retry-After");
     throw erreur;
   }
 

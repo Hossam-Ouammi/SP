@@ -74,6 +74,7 @@
         </div>
       </section>
 
+      <% if (typeof user !== "undefined" && user) { %>
       <section id="app-view" class="page app-page hidden">
         <header class="topbar panel">
           <div class="topbar-left">
@@ -331,6 +332,7 @@
                 </div>
               </form>
 
+              <% if (typeof user !== "undefined" && user.est_admin === 1) { %>
               <section id="admin-tools-panel" class="user-admin-shell hidden">
                 <article class="admin-card admin-directory-card">
                   <div class="admin-card-head">
@@ -813,6 +815,7 @@
                   <div id="admin-sessions-list" class="admin-session-list"></div>
                 </article>
               </section>
+              <% } %>
             </div>
           </section>
         </section>
@@ -982,6 +985,7 @@
           </section>
         </section>
       </section>
+    <% } %>
     </main>
 
     <div id="seance-modal" class="modal hidden" aria-hidden="true">
