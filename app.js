@@ -1,5 +1,6 @@
 const express = require("express");
 const compression = require("compression");
+const rateLimit = require("express-rate-limit");
 const session = require("express-session");
 const multer = require("multer");
 const path = require("path");
@@ -44,7 +45,23 @@ function appliquerNoCacheStatic(res) {
   res.setHeader("Expires", "0");
 }
 
-app.use(compression());
+app.use(compression({
+  filter: (req, res) => {
+    if (req.headers["accept"] === "text/event-stream") {
+      return false;
+    }
+    return compression.filter(req, res);
+  }
+}));
+
+const apiLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 1000, // Limit each IP to 1000 requests per 5 minutes
+  message: { message: "Trop de requêtes, veuillez réessayer plus tard." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use("/api/", apiLimiter);
 app.use(appliquerEnTetesSecurite);
 app.use(desactiverCacheApi);
 app.use(express.json({ limit: "100kb" }));
