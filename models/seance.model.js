@@ -24,6 +24,22 @@ async function listerToutesLesSeances() {
   );
 }
 
+async function listerSeancesPourMonetisation() {
+  return all(
+    `
+      SELECT
+        id,
+        compte,
+        est_essai,
+        date,
+        heure_debut,
+        heure_fin,
+        statut_seance
+      FROM seances
+    `
+  );
+}
+
 async function trouverSeanceParId(id) {
   return get(
     `
@@ -144,6 +160,7 @@ async function supprimerSeance(id) {
 
 module.exports = {
   listerToutesLesSeances,
+  listerSeancesPourMonetisation,
   trouverSeanceParId,
   creerSeance,
   mettreAJourSeance,

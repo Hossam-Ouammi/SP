@@ -1,4 +1,4 @@
-const { listerToutesLesSeances } = require("../models/seance.model");
+const { listerSeancesPourMonetisation } = require("../models/seance.model");
 
 const tarifsParCompte = {
   Yassine: 130,
@@ -107,7 +107,7 @@ function calculerMonetisationPourCompte(seances, compte) {
 }
 
 async function recupererMonetisation(req, res) {
-  const seances = await listerToutesLesSeances();
+  const seances = await listerSeancesPourMonetisation();
   const yassine = calculerMonetisationPourCompte(seances, "Yassine");
   const abdo = calculerMonetisationPourCompte(seances, "Abdo");
 
