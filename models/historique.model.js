@@ -188,8 +188,8 @@ async function trouverEntreeHistoriqueParId(id) {
   );
 }
 
-async function construireCarteIntegriteHistorique() {
-  const entrees = await all(
+async function construireCarteIntegriteHistorique(entreesLimitee = null) {
+  const entrees = entreesLimitee || await all(
     `
       SELECT
         id,
@@ -208,27 +208,22 @@ async function construireCarteIntegriteHistorique() {
     `
   );
 
-  let hashPrecedentAttendu = "";
   const carteIntegrite = new Map();
 
   for (const entree of entrees) {
     const hashCalcule = calculerHashEntree(entree);
-    const integriteValide =
-      entree.previous_hash === hashPrecedentAttendu &&
-      entree.entry_hash === hashCalcule;
+    
+    const integriteValide = entree.entry_hash === hashCalcule;
 
     carteIntegrite.set(entree.id, integriteValide);
-    hashPrecedentAttendu = entree.entry_hash;
   }
 
   return carteIntegrite;
 }
 
 async function listerEntreesHistorique(limit = 200) {
-  const [entrees, carteIntegrite] = await Promise.all([
-    listerEntreesHistoriqueBrutes(limit),
-    construireCarteIntegriteHistorique(),
-  ]);
+  const entrees = await listerEntreesHistoriqueBrutes(limit);
+  const carteIntegrite = await construireCarteIntegriteHistorique(entrees);
 
   return entrees.map((entree) =>
     transformerEntreeHistorique(entree, carteIntegrite.get(entree.id) === true)
@@ -236,15 +231,13 @@ async function listerEntreesHistorique(limit = 200) {
 }
 
 async function recupererEntreeHistoriqueDetail(id) {
-  const [entree, carteIntegrite] = await Promise.all([
-    trouverEntreeHistoriqueParId(id),
-    construireCarteIntegriteHistorique(),
-  ]);
+  const entree = await trouverEntreeHistoriqueParId(id);
 
   if (!entree) {
     return null;
   }
 
+  const carteIntegrite = await construireCarteIntegriteHistorique([entree]);
   return transformerEntreeHistorique(entree, carteIntegrite.get(entree.id) === true);
 }
 

@@ -790,6 +790,36 @@ async function initialiserBaseDeDonnees() {
   `);
 
   await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_date ON seances (date)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_heure_debut ON seances (heure_debut)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_compte ON seances (compte)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_cree_par ON seances (cree_par)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_modifie_par ON seances (modifie_par)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_statut_seance ON seances (statut_seance)
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_photos_seance_id ON photos (seance_id)
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_historique_actions_seance_id ON historique_actions (seance_id)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_historique_actions_acteur_id ON historique_actions (acteur_id)
+  `);
+
+  await run(`
     CREATE TABLE IF NOT EXISTS catalogue_options (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
