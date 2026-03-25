@@ -13,7 +13,7 @@
     <link rel="icon" type="image/svg+xml" href="/logo-superprof-inspired.svg" />
     <link rel="shortcut icon" href="/logo-superprof-inspired.svg" />
     <link rel="apple-touch-icon" href="/logo-superprof-inspired.svg" />
-    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/style.css?v=20260325b" />
   </head>
   <body>
     <main>
@@ -101,6 +101,9 @@
           <button class="nav-tab" type="button" data-section-target="dashboard">
             Dashboard
           </button>
+          <button class="nav-tab hidden" type="button" data-section-target="indisponibilites">
+            Indisponibilites
+          </button>
           <button class="nav-tab" type="button" data-section-target="statistiques">
             Statistiques
           </button>
@@ -136,6 +139,112 @@
             </div>
 
             <div id="calendar"></div>
+          </section>
+        </section>
+
+        <section id="indisponibilites-section" class="app-section hidden">
+          <section class="panel admin-panel-shell">
+            <div class="section-heading section-heading-stack">
+              <div>
+                <h2>Indisponibilites</h2>
+                <p class="section-note">
+                  Declare ici les creneaux non disponibles. Aucune seance ne pourra etre ajoutee sur
+                  ces horaires.
+                </p>
+              </div>
+            </div>
+
+            <div class="admin-panel-layout">
+              <form
+                id="admin-unavailability-form"
+                class="stack-form user-password-form user-admin-form admin-action-card"
+                novalidate
+              >
+                <div class="admin-card-head">
+                  <div>
+                    <h3 class="user-form-title">Declarer une indisponibilite</h3>
+                    <p class="section-note">
+                      Bloque un creneau precis pour empecher toute planification.
+                    </p>
+                  </div>
+                </div>
+
+                <label class="field">
+                  <span>Date</span>
+                  <input id="admin-unavailability-date" type="date" />
+                </label>
+
+                <fieldset class="field checkbox-field">
+                  <span>Portee</span>
+                  <div class="checkbox-options">
+                    <label class="checkbox-option">
+                      <input id="admin-unavailability-full-day" type="checkbox" />
+                      <span>Jour complet indisponible</span>
+                    </label>
+                  </div>
+                </fieldset>
+
+                <p id="admin-unavailability-full-day-note" class="section-note hidden">
+                  Cette date sera entierement bloquee dans le calendrier et ne pourra plus etre
+                  cliquee pour ajouter une seance.
+                </p>
+
+                <div id="admin-unavailability-time-fields" class="form-grid">
+                  <label class="field">
+                    <span>Heure de debut</span>
+                    <input
+                      id="admin-unavailability-start"
+                      type="time"
+                      step="1800"
+                    />
+                  </label>
+
+                  <label class="field">
+                    <span>Heure de fin</span>
+                    <input
+                      id="admin-unavailability-end"
+                      type="time"
+                      step="1800"
+                    />
+                  </label>
+                </div>
+
+                <label class="field">
+                  <span>Raison</span>
+                  <input
+                    id="admin-unavailability-reason"
+                    type="text"
+                    maxlength="200"
+                    placeholder="Optionnel"
+                  />
+                </label>
+
+                <p id="admin-unavailability-error" class="form-error hidden"></p>
+
+                <div class="form-actions">
+                  <button
+                    id="admin-unavailability-button"
+                    class="button secondary"
+                    type="submit"
+                  >
+                    Ajouter le creneau
+                  </button>
+                </div>
+              </form>
+
+              <article class="admin-card admin-directory-card">
+                <div class="admin-card-head">
+                  <div>
+                    <h3 class="user-form-title">Creneaux deja bloques</h3>
+                    <p class="section-note">
+                      Supprime un creneau si tu veux le rendre a nouveau disponible.
+                    </p>
+                  </div>
+                </div>
+
+                <div id="admin-unavailability-list" class="admin-session-list"></div>
+              </article>
+            </div>
           </section>
         </section>
 
@@ -452,70 +561,6 @@
                     </form>
 
                     <form
-                      id="admin-unavailability-form"
-                      class="stack-form user-password-form user-admin-form admin-action-card"
-                    >
-                      <div>
-                        <h3 class="user-form-title">Creneaux indisponibles</h3>
-                        <p class="section-note">
-                          Hossam peut bloquer ici des horaires. Les autres utilisateurs ne
-                          pourront pas planifier de seance dessus.
-                        </p>
-                      </div>
-
-                      <label class="field">
-                        <span>Date</span>
-                        <input id="admin-unavailability-date" type="date" required />
-                      </label>
-
-                      <div class="form-grid">
-                        <label class="field">
-                          <span>Heure de debut</span>
-                          <input
-                            id="admin-unavailability-start"
-                            type="time"
-                            step="1800"
-                            required
-                          />
-                        </label>
-
-                        <label class="field">
-                          <span>Heure de fin</span>
-                          <input
-                            id="admin-unavailability-end"
-                            type="time"
-                            step="1800"
-                            required
-                          />
-                        </label>
-                      </div>
-
-                      <label class="field">
-                        <span>Raison</span>
-                        <input
-                          id="admin-unavailability-reason"
-                          type="text"
-                          maxlength="200"
-                          placeholder="Optionnel"
-                        />
-                      </label>
-
-                      <div id="admin-unavailability-list" class="admin-session-list"></div>
-
-                      <p id="admin-unavailability-error" class="form-error hidden"></p>
-
-                      <div class="form-actions">
-                        <button
-                          id="admin-unavailability-button"
-                          class="button secondary"
-                          type="submit"
-                        >
-                          Ajouter le creneau
-                        </button>
-                      </div>
-                    </form>
-
-                    <form
                       id="admin-create-user-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
                     >
@@ -707,6 +752,88 @@
                       <div class="form-actions">
                         <button id="admin-readonly-button" class="button secondary" type="submit">
                           Mettre a jour le mode
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-today-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Afficher Aujourd'hui</h3>
+                        <p class="section-note">
+                          Autorise ou masque le menu Aujourd'hui pour le compte cible.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Compte cible</span>
+                        <select id="admin-today-user-id" required></select>
+                      </label>
+
+                      <div class="security-notice security-notice-subtle">
+                        Etat actuel : <strong id="admin-today-status">-</strong>
+                      </div>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-today-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-today-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button id="admin-today-button" class="button secondary" type="submit">
+                          Mettre a jour Aujourd'hui
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
+                      id="admin-unavailability-access-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Afficher Indisponibilites</h3>
+                        <p class="section-note">
+                          Autorise ou masque le menu Indisponibilites pour le compte cible.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Compte cible</span>
+                        <select id="admin-unavailability-access-user-id" required></select>
+                      </label>
+
+                      <div class="security-notice security-notice-subtle">
+                        Etat actuel : <strong id="admin-unavailability-access-status">-</strong>
+                      </div>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-unavailability-access-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-unavailability-access-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button
+                          id="admin-unavailability-access-button"
+                          class="button secondary"
+                          type="submit"
+                        >
+                          Mettre a jour Indisponibilites
                         </button>
                       </div>
                     </form>
@@ -1399,6 +1526,6 @@
     <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
-    <script type="module" src="/js/ui.js"></script>
+    <script type="module" src="/js/ui.js?v=20260325b"></script>
   </body>
 </html>

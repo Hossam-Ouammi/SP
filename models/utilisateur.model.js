@@ -12,6 +12,8 @@ async function trouverUtilisateurParEmail(email) {
         acces_active,
         mode_lecture_seule,
         peut_voir_monetisation,
+        peut_voir_aujourdhui,
+        peut_voir_indisponibilites,
         session_version,
         doit_changer_mot_de_passe,
         mot_de_passe_change_at,
@@ -36,6 +38,8 @@ async function trouverUtilisateurParNom(nom) {
         acces_active,
         mode_lecture_seule,
         peut_voir_monetisation,
+        peut_voir_aujourdhui,
+        peut_voir_indisponibilites,
         session_version,
         doit_changer_mot_de_passe,
         mot_de_passe_change_at,
@@ -61,6 +65,8 @@ async function trouverUtilisateurParNomOuEmail(identifiant) {
         acces_active,
         mode_lecture_seule,
         peut_voir_monetisation,
+        peut_voir_aujourdhui,
+        peut_voir_indisponibilites,
         session_version,
         doit_changer_mot_de_passe,
         mot_de_passe_change_at,
@@ -87,6 +93,8 @@ async function trouverUtilisateurParId(id) {
         acces_active,
         mode_lecture_seule,
         peut_voir_monetisation,
+        peut_voir_aujourdhui,
+        peut_voir_indisponibilites,
         session_version,
         doit_changer_mot_de_passe,
         mot_de_passe_change_at,
@@ -112,6 +120,8 @@ async function trouverUtilisateurAvecMotDePasseParId(id) {
         acces_active,
         mode_lecture_seule,
         peut_voir_monetisation,
+        peut_voir_aujourdhui,
+        peut_voir_indisponibilites,
         session_version,
         doit_changer_mot_de_passe,
         mot_de_passe_change_at,
@@ -135,6 +145,8 @@ async function creerUtilisateur({
   accesActive = 1,
   modeLectureSeule = 0,
   peutVoirMonetisation = 0,
+  peutVoirAujourdhui = 0,
+  peutVoirIndisponibilites = 0,
   doitChangerMotDePasse = 1,
 }) {
   return run(
@@ -147,9 +159,11 @@ async function creerUtilisateur({
         acces_active,
         mode_lecture_seule,
         peut_voir_monetisation,
+        peut_voir_aujourdhui,
+        peut_voir_indisponibilites,
         doit_changer_mot_de_passe
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       nom,
@@ -159,6 +173,8 @@ async function creerUtilisateur({
       accesActive ? 1 : 0,
       modeLectureSeule ? 1 : 0,
       peutVoirMonetisation ? 1 : 0,
+      peutVoirAujourdhui ? 1 : 0,
+      peutVoirIndisponibilites ? 1 : 0,
       doitChangerMotDePasse ? 1 : 0,
     ]
   );

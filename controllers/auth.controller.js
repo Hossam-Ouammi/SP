@@ -334,6 +334,8 @@ async function connecterUtilisateur(req, res) {
     session_version: utilisateurActualise.session_version,
     est_admin: utilisateurActualise.est_admin,
     peut_voir_monetisation: utilisateurActualise.peut_voir_monetisation,
+    peut_voir_aujourdhui: utilisateurActualise.peut_voir_aujourdhui,
+    peut_voir_indisponibilites: utilisateurActualise.peut_voir_indisponibilites,
   };
   req.session.session_meta = {
     adresse_ip: normaliserIpClient(req),
@@ -436,6 +438,8 @@ async function modifierMotDePasse(req, res) {
     session_version: utilisateurActualise.session_version,
     est_admin: utilisateurActualise.est_admin,
     peut_voir_monetisation: utilisateurActualise.peut_voir_monetisation,
+    peut_voir_aujourdhui: utilisateurActualise.peut_voir_aujourdhui,
+    peut_voir_indisponibilites: utilisateurActualise.peut_voir_indisponibilites,
   };
   req.session.session_meta = {
     ...(req.session.session_meta || {}),

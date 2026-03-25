@@ -6,6 +6,8 @@ const {
   mettreAJourAccesCompte,
   mettreAJourLectureSeuleCompte,
   mettreAJourAccesMonetisationCompte,
+  mettreAJourAccesAujourdhuiCompte,
+  mettreAJourAccesIndisponibilitesCompte,
   listerSessionsActives,
   revoquerSession,
   revoquerSessionsUtilisateur,
@@ -541,6 +543,128 @@ async function mettreAJourAccesMonetisationUtilisateur(req, res) {
   });
 }
 
+async function mettreAJourAccesAujourdhuiUtilisateur(req, res) {
+  const {
+    utilisateur_id: utilisateurId,
+    peut_voir_aujourdhui: peutVoirAujourdhui,
+    mot_de_passe_actuel: motDePasseActuel,
+  } = req.body;
+
+  if (
+    !Number.isInteger(Number(utilisateurId)) ||
+    typeof peutVoirAujourdhui !== "boolean" ||
+    !motDePasseActuel
+  ) {
+    return res.status(400).json({
+      message: "Compte cible, acces Aujourd'hui et mot de passe actuel obligatoires.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(
+      req,
+      res,
+      verification,
+      "admin_update_today_access",
+      {
+        utilisateur_id: Number(utilisateurId),
+        peut_voir_aujourdhui: peutVoirAujourdhui,
+      }
+    );
+  }
+
+  const compteCible = await trouverCompteParId(utilisateurId);
+
+  if (!compteCible) {
+    return res.status(404).json({
+      message: "Compte cible introuvable.",
+    });
+  }
+
+  if (Number(compteCible.est_admin) === 1) {
+    return res.status(400).json({
+      message: "Le menu Aujourd'hui d'un administrateur n'est pas configurable ici.",
+    });
+  }
+
+  await mettreAJourAccesAujourdhuiCompte(compteCible.id, peutVoirAujourdhui);
+
+  await journaliserActionAdmin(req, "admin_update_today_access", "success", {
+    utilisateur_id: compteCible.id,
+    nom: compteCible.nom,
+    peut_voir_aujourdhui: peutVoirAujourdhui,
+  });
+
+  return res.json({
+    message: peutVoirAujourdhui
+      ? `Le menu Aujourd'hui est maintenant visible pour ${compteCible.nom}.`
+      : `Le menu Aujourd'hui a ete masque pour ${compteCible.nom}.`,
+  });
+}
+
+async function mettreAJourAccesIndisponibilitesUtilisateur(req, res) {
+  const {
+    utilisateur_id: utilisateurId,
+    peut_voir_indisponibilites: peutVoirIndisponibilites,
+    mot_de_passe_actuel: motDePasseActuel,
+  } = req.body;
+
+  if (
+    !Number.isInteger(Number(utilisateurId)) ||
+    typeof peutVoirIndisponibilites !== "boolean" ||
+    !motDePasseActuel
+  ) {
+    return res.status(400).json({
+      message: "Compte cible, acces Indisponibilites et mot de passe actuel obligatoires.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(
+      req,
+      res,
+      verification,
+      "admin_update_unavailability_access",
+      {
+        utilisateur_id: Number(utilisateurId),
+        peut_voir_indisponibilites: peutVoirIndisponibilites,
+      }
+    );
+  }
+
+  const compteCible = await trouverCompteParId(utilisateurId);
+
+  if (!compteCible) {
+    return res.status(404).json({
+      message: "Compte cible introuvable.",
+    });
+  }
+
+  if (Number(compteCible.est_admin) === 1) {
+    return res.status(400).json({
+      message: "Le menu Indisponibilites d'un administrateur n'est pas configurable ici.",
+    });
+  }
+
+  await mettreAJourAccesIndisponibilitesCompte(compteCible.id, peutVoirIndisponibilites);
+
+  await journaliserActionAdmin(req, "admin_update_unavailability_access", "success", {
+    utilisateur_id: compteCible.id,
+    nom: compteCible.nom,
+    peut_voir_indisponibilites: peutVoirIndisponibilites,
+  });
+
+  return res.json({
+    message: peutVoirIndisponibilites
+      ? `Le menu Indisponibilites est maintenant visible pour ${compteCible.nom}.`
+      : `Le menu Indisponibilites a ete masque pour ${compteCible.nom}.`,
+  });
+}
+
 async function revoquerSessionAdministration(req, res) {
   const { sid, mot_de_passe_actuel: motDePasseActuel } = req.body;
 
@@ -696,5 +820,7 @@ module.exports = {
   revoquerSessionsUtilisateurAdministration,
   supprimerToutesLesSeancesAdmin,
   supprimerToutHistoriqueAdmin,
+  mettreAJourAccesAujourdhuiUtilisateur,
+  mettreAJourAccesIndisponibilitesUtilisateur,
   mettreAJourAccesMonetisationUtilisateur,
 };

@@ -195,6 +195,14 @@ async function ajouterColonnesSecuriteUtilisateursSiNecessaire() {
       sql: "ALTER TABLE utilisateurs ADD COLUMN peut_voir_monetisation INTEGER DEFAULT 0",
     },
     {
+      nom: "peut_voir_aujourdhui",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN peut_voir_aujourdhui INTEGER DEFAULT 0",
+    },
+    {
+      nom: "peut_voir_indisponibilites",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN peut_voir_indisponibilites INTEGER DEFAULT 0",
+    },
+    {
       nom: "session_version",
       sql: "ALTER TABLE utilisateurs ADD COLUMN session_version INTEGER DEFAULT 1",
     },
@@ -245,6 +253,8 @@ async function ajouterColonnesSecuriteUtilisateursSiNecessaire() {
       acces_active = COALESCE(acces_active, 1),
       mode_lecture_seule = COALESCE(mode_lecture_seule, 0),
       peut_voir_monetisation = COALESCE(peut_voir_monetisation, 0),
+      peut_voir_aujourdhui = COALESCE(peut_voir_aujourdhui, 0),
+      peut_voir_indisponibilites = COALESCE(peut_voir_indisponibilites, 0),
       session_version = COALESCE(session_version, 1),
       doit_changer_mot_de_passe = COALESCE(doit_changer_mot_de_passe, 0),
       echecs_connexion = COALESCE(echecs_connexion, 0),
@@ -265,6 +275,14 @@ async function normaliserRolesUtilisateurs() {
         peut_voir_monetisation = CASE
           WHEN lower(email) = 'hossam@test.com' THEN 1
           ELSE COALESCE(peut_voir_monetisation, 0)
+        END,
+        peut_voir_aujourdhui = CASE
+          WHEN lower(email) = 'hossam@test.com' THEN 1
+          ELSE COALESCE(peut_voir_aujourdhui, 0)
+        END,
+        peut_voir_indisponibilites = CASE
+          WHEN lower(email) = 'hossam@test.com' THEN 1
+          ELSE COALESCE(peut_voir_indisponibilites, 0)
         END
     `
   );
@@ -281,6 +299,22 @@ async function ajouterColonneParentSiNecessaire() {
   await run(`
     UPDATE seances
     SET parent = COALESCE(parent, '')
+  `);
+}
+
+async function ajouterColonneJourCompletIndisponibilitesSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(indisponibilites)");
+  const colonneJourCompletExiste = colonnes.some(
+    (colonne) => colonne.name === "jour_complet"
+  );
+
+  if (!colonneJourCompletExiste) {
+    await run("ALTER TABLE indisponibilites ADD COLUMN jour_complet INTEGER DEFAULT 0");
+  }
+
+  await run(`
+    UPDATE indisponibilites
+    SET jour_complet = COALESCE(jour_complet, 0)
   `);
 }
 
@@ -464,12 +498,14 @@ async function initialiserUtilisateursDeTest() {
           acces_active,
           mode_lecture_seule,
           peut_voir_monetisation,
+          peut_voir_aujourdhui,
+          peut_voir_indisponibilites,
           session_version,
           doit_changer_mot_de_passe,
           mot_de_passe_change_at,
           echecs_connexion
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         utilisateur.nom,
@@ -478,6 +514,8 @@ async function initialiserUtilisateursDeTest() {
         utilisateur.estAdmin,
         1,
         0,
+        utilisateur.estAdmin ? 1 : 0,
+        utilisateur.estAdmin ? 1 : 0,
         utilisateur.estAdmin ? 1 : 0,
         1,
         1,
@@ -707,6 +745,8 @@ async function initialiserBaseDeDonnees() {
       acces_active INTEGER DEFAULT 1,
       mode_lecture_seule INTEGER DEFAULT 0,
       peut_voir_monetisation INTEGER DEFAULT 0,
+      peut_voir_aujourdhui INTEGER DEFAULT 0,
+      peut_voir_indisponibilites INTEGER DEFAULT 0,
       session_version INTEGER DEFAULT 1,
       doit_changer_mot_de_passe INTEGER DEFAULT 0,
       mot_de_passe_change_at TEXT,
@@ -765,6 +805,7 @@ async function initialiserBaseDeDonnees() {
       date TEXT NOT NULL,
       heure_debut TEXT NOT NULL,
       heure_fin TEXT NOT NULL,
+      jour_complet INTEGER DEFAULT 0,
       raison TEXT,
       cree_par INTEGER NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -882,6 +923,7 @@ async function initialiserBaseDeDonnees() {
   await ajouterColonneCompteSiNecessaire();
   await ajouterColonneEssaiSiNecessaire();
   await ajouterColonneParentSiNecessaire();
+  await ajouterColonneJourCompletIndisponibilitesSiNecessaire();
   await initialiserCatalogueParDefaut();
   await normaliserSeancesExistantes();
   await synchroniserCatalogueDepuisSeances();

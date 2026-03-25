@@ -83,6 +83,36 @@ export async function mettreAJourAccesMonetisationCompte(
   });
 }
 
+export async function mettreAJourAccesAujourdhuiCompte(
+  utilisateurId,
+  peutVoirAujourdhui,
+  motDePasseActuel
+) {
+  return envoyerRequete("/api/admin/today-access", {
+    method: "PATCH",
+    body: JSON.stringify({
+      utilisateur_id: Number(utilisateurId),
+      peut_voir_aujourdhui: peutVoirAujourdhui,
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+
+export async function mettreAJourAccesIndisponibilitesCompte(
+  utilisateurId,
+  peutVoirIndisponibilites,
+  motDePasseActuel
+) {
+  return envoyerRequete("/api/admin/unavailability-access", {
+    method: "PATCH",
+    body: JSON.stringify({
+      utilisateur_id: Number(utilisateurId),
+      peut_voir_indisponibilites: peutVoirIndisponibilites,
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+
 export async function revoquerSessionsUtilisateurAdmin(utilisateurId, motDePasseActuel) {
   return envoyerRequete("/api/admin/sessions/revoke-user", {
     method: "POST",

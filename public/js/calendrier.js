@@ -38,8 +38,22 @@ function estHeureValide(heure) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(heure);
 }
 
+function estIndisponibiliteJourComplet(indisponibilite) {
+  return Number(indisponibilite?.jour_complet) === 1;
+}
+
 function normaliserCompte(compte) {
   return typeof compte === "string" ? compte.trim().toLowerCase() : "";
+}
+
+function creerClasseCompte(compte) {
+  const compteNormalise = normaliserCompte(compte);
+
+  if (!compteNormalise) {
+    return "";
+  }
+
+  return `compte-${compteNormalise.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
 }
 
 function obtenirPaletteCompte(seance) {
@@ -134,10 +148,10 @@ function formaterLibelleJourCalendrier(date, options) {
 }
 
 function obtenirAbreviationJourMobile(date) {
-  return formaterLibelleJourCalendrier(date, { weekday: "short" })
+  return formaterLibelleJourCalendrier(date, { weekday: "narrow" })
     .replace(".", "")
     .trim()
-    .slice(0, 2);
+    .slice(0, 1);
 }
 
 function extrairePrenomEtudiant(nomComplet) {
@@ -149,6 +163,28 @@ function extrairePrenomEtudiant(nomComplet) {
     .trim()
     .split(/\s+/)
     .find(Boolean) || "";
+}
+
+function extraireDateIsoDepuisValeurCalendrier(valeur) {
+  const texte = String(valeur || "").trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(texte)) {
+    return texte;
+  }
+
+  const correspondance = texte.match(/^(\d{4}-\d{2}-\d{2})/);
+  return correspondance ? correspondance[1] : "";
+}
+
+function calculerDateSuivante(dateIso) {
+  const dateObjet = new Date(`${dateIso}T12:00:00`);
+
+  if (Number.isNaN(dateObjet.getTime())) {
+    return dateIso;
+  }
+
+  dateObjet.setDate(dateObjet.getDate() + 1);
+  return dateObjet.toISOString().slice(0, 10);
 }
 
 function genererContenuEnteteJour(info) {
@@ -198,21 +234,21 @@ function genererContenuEnteteJour(info) {
 function obtenirOptionsResponsiveCalendrier() {
   if (estCalendrierMobile()) {
     return {
-      initialView: "timeGridWeek",
+      initialView: "dayGridMonth",
       headerToolbar: {
-        left: "title",
-        center: "prev,next today",
+        left: "prev,next",
+        center: "title",
         right: "dayGridMonth,timeGridWeek",
       },
       buttonText: {
-        today: "Auj.",
         month: "Mois",
         week: "Sem.",
       },
       dayHeaderFormat: {
         weekday: "short",
       },
-      dayMaxEvents: 1,
+      dayMaxEvents: 4,
+      fixedWeekCount: true,
     };
   }
 
@@ -264,6 +300,7 @@ function appliquerOptionsResponsive(calendrier) {
   calendrier.setOption("buttonText", options.buttonText);
   calendrier.setOption("dayHeaderFormat", options.dayHeaderFormat);
   calendrier.setOption("dayMaxEvents", options.dayMaxEvents);
+  calendrier.setOption("fixedWeekCount", Boolean(options.fixedWeekCount));
 }
 
 function transformerSeanceEnEvenement(seance) {
@@ -280,10 +317,11 @@ function transformerSeanceEnEvenement(seance) {
   const palette = paletteCompte || palettesStatut[seance.statut_seance] || palettesStatut.planifiee;
   const titreEvenement = extrairePrenomEtudiant(seance.etudiant) || seance.libelle || "Seance";
   const compteNormalise = normaliserCompte(seance.compte);
+  const classeCompte = creerClasseCompte(compteNormalise);
   const classesEvenement = [palette.className];
 
-  if (compteNormalise === "yassine" || compteNormalise === "abdo") {
-    classesEvenement.push(`compte-${compteNormalise}`);
+  if (classeCompte) {
+    classesEvenement.push(classeCompte);
   }
 
   return {
@@ -291,6 +329,7 @@ function transformerSeanceEnEvenement(seance) {
     title: titreEvenement,
     start: `${seance.date}T${seance.heure_debut}`,
     end: `${seance.date}T${seance.heure_fin}`,
+    display: estCalendrierMobile() ? "block" : "auto",
     backgroundColor: palette.backgroundColor,
     borderColor: palette.borderColor,
     textColor: palette.textColor,
@@ -315,11 +354,29 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
     return null;
   }
 
+  if (estIndisponibiliteJourComplet(indisponibilite)) {
+    return {
+      id: `indisponibilite-${indisponibilite.id}`,
+      title: "",
+      start: indisponibilite.date,
+      end: calculerDateSuivante(indisponibilite.date),
+      allDay: true,
+      display: "background",
+      backgroundColor: "rgba(148, 163, 184, 0.22)",
+      classNames: ["indisponibilite-event", "indisponibilite-full-day-event"],
+      extendedProps: {
+        indisponibilite,
+        type: "indisponibilite",
+      },
+    };
+  }
+
   return {
     id: `indisponibilite-${indisponibilite.id}`,
     title: "",
     start: `${indisponibilite.date}T${indisponibilite.heure_debut}`,
     end: `${indisponibilite.date}T${indisponibilite.heure_fin}`,
+    display: estCalendrierMobile() ? "block" : "auto",
     backgroundColor: "#4b5563",
     borderColor: "#374151",
     textColor: "#f8fafc",
@@ -337,7 +394,7 @@ function genererContenuLienPlusEvenements(arg) {
   }
 
   return {
-    domNodes: [creerElementCalendrier("span", "calendar-mobile-more-link", `+${arg.num}`)],
+    domNodes: [creerElementCalendrier("span", "calendar-mobile-more-link", "...")],
   };
 }
 
@@ -379,6 +436,10 @@ function adapterPresentationEvenement(info) {
     return;
   }
 
+  if (typeEvenement === "indisponibilite" && estIndisponibiliteJourComplet(info.event.extendedProps?.indisponibilite)) {
+    return;
+  }
+
   if (typeEvenement === "indisponibilite" && estVueMoisMobile) {
     info.el.classList.add("calendar-mobile-month-indisponibilite");
     return;
@@ -414,7 +475,7 @@ export function initialiserCalendrier(
     selectable: true,
     slotEventOverlap: false,
     eventMinHeight: 34,
-    fixedWeekCount: false,
+    fixedWeekCount: Boolean(optionsResponsive.fixedWeekCount),
     allDaySlot: false,
     nowIndicator: true,
     dayMaxEvents: optionsResponsive.dayMaxEvents,
@@ -448,7 +509,7 @@ export function initialiserCalendrier(
       synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
     },
     dateClick(info) {
-      onDateClick(info.dateStr);
+      onDateClick(extraireDateIsoDepuisValeurCalendrier(info.dateStr));
     },
     eventClick(info) {
       const typeEvenement = info.event.extendedProps?.type;

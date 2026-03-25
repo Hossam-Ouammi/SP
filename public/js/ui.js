@@ -13,6 +13,8 @@ import {
   mettreAJourAccesCompte,
   mettreAJourLectureSeuleCompte,
   mettreAJourAccesMonetisationCompte,
+  mettreAJourAccesAujourdhuiCompte,
+  mettreAJourAccesIndisponibilitesCompte,
   revoquerSessionsUtilisateurAdmin,
   revoquerSessionAdmin,
   supprimerToutesLesSeancesAdmin,
@@ -128,6 +130,7 @@ const elements = {
   navTabs: Array.from(document.querySelectorAll(".nav-tab")),
   todaySection: document.getElementById("aujourdhui-section"),
   dashboardSection: document.getElementById("dashboard-section"),
+  indisponibilitesSection: document.getElementById("indisponibilites-section"),
   statistiquesSection: document.getElementById("statistiques-section"),
   utilisateurSection: document.getElementById("utilisateur-section"),
   monetisationSection: document.getElementById("monetisation-section"),
@@ -180,6 +183,13 @@ const elements = {
   adminAddAccountButton: document.getElementById("admin-add-account-button"),
   adminUnavailabilityForm: document.getElementById("admin-unavailability-form"),
   adminUnavailabilityDate: document.getElementById("admin-unavailability-date"),
+  adminUnavailabilityFullDay: document.getElementById("admin-unavailability-full-day"),
+  adminUnavailabilityFullDayNote: document.getElementById(
+    "admin-unavailability-full-day-note"
+  ),
+  adminUnavailabilityTimeFields: document.getElementById(
+    "admin-unavailability-time-fields"
+  ),
   adminUnavailabilityStart: document.getElementById("admin-unavailability-start"),
   adminUnavailabilityEnd: document.getElementById("admin-unavailability-end"),
   adminUnavailabilityReason: document.getElementById("admin-unavailability-reason"),
@@ -219,6 +229,28 @@ const elements = {
   ),
   adminReadonlyError: document.getElementById("admin-readonly-error"),
   adminReadonlyButton: document.getElementById("admin-readonly-button"),
+  adminTodayForm: document.getElementById("admin-today-form"),
+  adminTodayUserId: document.getElementById("admin-today-user-id"),
+  adminTodayStatus: document.getElementById("admin-today-status"),
+  adminTodayCurrentPassword: document.getElementById("admin-today-current-password"),
+  adminTodayError: document.getElementById("admin-today-error"),
+  adminTodayButton: document.getElementById("admin-today-button"),
+  adminUnavailabilityAccessForm: document.getElementById("admin-unavailability-access-form"),
+  adminUnavailabilityAccessUserId: document.getElementById(
+    "admin-unavailability-access-user-id"
+  ),
+  adminUnavailabilityAccessStatus: document.getElementById(
+    "admin-unavailability-access-status"
+  ),
+  adminUnavailabilityAccessCurrentPassword: document.getElementById(
+    "admin-unavailability-access-current-password"
+  ),
+  adminUnavailabilityAccessError: document.getElementById(
+    "admin-unavailability-access-error"
+  ),
+  adminUnavailabilityAccessButton: document.getElementById(
+    "admin-unavailability-access-button"
+  ),
   adminMonetisationForm: document.getElementById("admin-monetisation-form"),
   adminMonetisationUserId: document.getElementById("admin-monetisation-user-id"),
   adminMonetisationStatus: document.getElementById("admin-monetisation-status"),
@@ -510,18 +542,99 @@ function initialiserChoixHeureDebut() {
 }
 
 function initialiserFormulaireIndisponibilite() {
-  if (!elements.adminUnavailabilityForm || !("reset" in elements.adminUnavailabilityForm)) {
+  const controles = obtenirControlesIndisponibiliteActifs();
+
+  if (!controles.form || !("reset" in controles.form)) {
     return;
   }
 
-  elements.adminUnavailabilityForm.reset();
-  elements.adminUnavailabilityDate.value = obtenirDateLocaleIso();
-  elements.adminUnavailabilityStart.value = recupererHeureDebutParDefaut();
-  elements.adminUnavailabilityEnd.value = calculerHeureFin(
-    elements.adminUnavailabilityStart.value,
+  controles.form.reset();
+  controles.form.dataset.fullDay = "0";
+  controles.dateInput.value = obtenirDateLocaleIso();
+  controles.fullDayInput.checked = false;
+  controles.startInput.value = recupererHeureDebutParDefaut();
+  controles.endInput.value = calculerHeureFin(
+    controles.startInput.value,
     60
   );
-  masquerErreur(elements.adminUnavailabilityError);
+  mettreAJourModeJourCompletIndisponibilite();
+  masquerErreur(controles.errorElement);
+}
+
+function obtenirControlesIndisponibiliteActifs() {
+  const form =
+    document.querySelector("#admin-unavailability-form") || elements.adminUnavailabilityForm;
+
+  return {
+    form,
+    dateInput:
+      form?.querySelector("#admin-unavailability-date") || elements.adminUnavailabilityDate,
+    fullDayInput:
+      form?.querySelector("#admin-unavailability-full-day") ||
+      elements.adminUnavailabilityFullDay,
+    fullDayNote:
+      document.querySelector("#admin-unavailability-full-day-note") ||
+      elements.adminUnavailabilityFullDayNote,
+    timeFields:
+      document.querySelector("#admin-unavailability-time-fields") ||
+      elements.adminUnavailabilityTimeFields,
+    startInput:
+      form?.querySelector("#admin-unavailability-start") || elements.adminUnavailabilityStart,
+    endInput:
+      form?.querySelector("#admin-unavailability-end") || elements.adminUnavailabilityEnd,
+    reasonInput:
+      form?.querySelector("#admin-unavailability-reason") || elements.adminUnavailabilityReason,
+    errorElement:
+      form?.querySelector("#admin-unavailability-error") || elements.adminUnavailabilityError,
+    button:
+      form?.querySelector("#admin-unavailability-button") || elements.adminUnavailabilityButton,
+  };
+}
+
+function mettreAJourModeJourCompletIndisponibilite() {
+  const controles = obtenirControlesIndisponibiliteActifs();
+  const jourComplet = Boolean(controles.fullDayInput?.checked);
+  const conteneurHeures = controles.timeFields;
+  const champsHeures = [controles.startInput, controles.endInput];
+
+  if (controles.form) {
+    controles.form.dataset.fullDay = jourComplet ? "1" : "0";
+  }
+
+  conteneurHeures?.classList.toggle("hidden", jourComplet);
+  controles.fullDayNote?.classList.toggle("hidden", !jourComplet);
+  if (!controles.button?.disabled) {
+    controles.button.textContent = jourComplet
+      ? "Ajouter la journee"
+      : "Ajouter le creneau";
+  }
+  masquerErreur(controles.errorElement);
+
+  champsHeures.forEach((champ) => {
+    if (!champ) {
+      return;
+    }
+
+    champ.disabled = jourComplet;
+    champ.required = !jourComplet;
+  });
+
+  if (jourComplet) {
+    controles.startInput.value = "00:00";
+    controles.endInput.value = "23:59";
+    return;
+  }
+
+  if (!controles.startInput.value) {
+    controles.startInput.value = recupererHeureDebutParDefaut();
+  }
+
+  if (!controles.endInput.value || controles.endInput.value === "23:59") {
+    controles.endInput.value = calculerHeureFin(
+      controles.startInput.value,
+      60
+    );
+  }
 }
 
 function normaliserListeCatalogue(valeurs, valeursParDefaut = []) {
@@ -667,6 +780,11 @@ function attacherEcouteurs() {
     "submit",
     gererMiseAJourLectureSeuleUtilisateur
   );
+  elements.adminTodayForm?.addEventListener("submit", gererMiseAJourAccesAujourdhuiUtilisateur);
+  elements.adminUnavailabilityAccessForm?.addEventListener(
+    "submit",
+    gererMiseAJourAccesIndisponibilitesUtilisateur
+  );
   elements.adminMonetisationForm?.addEventListener(
     "submit",
     gererMiseAJourAccesMonetisationUtilisateur
@@ -677,6 +795,11 @@ function attacherEcouteurs() {
   );
   elements.adminAccessUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminReadonlyUserId?.addEventListener("change", mettreAJourControlesAdministration);
+  elements.adminTodayUserId?.addEventListener("change", mettreAJourControlesAdministration);
+  elements.adminUnavailabilityAccessUserId?.addEventListener(
+    "change",
+    mettreAJourControlesAdministration
+  );
   elements.adminMonetisationUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminLogoutUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminDeleteUserId?.addEventListener("change", mettreAJourControlesAdministration);
@@ -684,6 +807,10 @@ function attacherEcouteurs() {
   elements.adminClearHistoryForm?.addEventListener(
     "submit",
     gererSuppressionToutHistorique
+  );
+  elements.adminUnavailabilityFullDay?.addEventListener(
+    "change",
+    mettreAJourModeJourCompletIndisponibilite
   );
   elements.logoutButton?.addEventListener("click", gererDeconnexion);
   elements.navTabs.forEach((bouton) => {
@@ -913,6 +1040,8 @@ function afficherSectionApplication(section) {
 
   if (utilisateurDoitChangerMotDePasse()) {
     sectionDemandee = "utilisateur";
+  } else if (section === "indisponibilites" && !utilisateurPeutVoirIndisponibilites()) {
+    sectionDemandee = utilisateurPeutVoirAujourdhui() ? "aujourdhui" : "dashboard";
   } else if (section === "aujourdhui" && !utilisateurPeutVoirAujourdhui()) {
     sectionDemandee = "dashboard";
   } else if (section === "monetisation" && !utilisateurPeutVoirMonetisation()) {
@@ -924,6 +1053,7 @@ function afficherSectionApplication(section) {
   const cartes = {
     aujourdhui: elements.todaySection,
     dashboard: elements.dashboardSection,
+    indisponibilites: elements.indisponibilitesSection,
     statistiques: elements.statistiquesSection,
     utilisateur: elements.utilisateurSection,
     monetisation: elements.monetisationSection,
@@ -965,7 +1095,14 @@ function utilisateurPeutVoirMonetisation() {
 }
 
 function utilisateurPeutVoirAujourdhui() {
-  return utilisateurEstHossam();
+  return utilisateurEstHossam() || Number(etat.utilisateur?.peut_voir_aujourdhui) === 1;
+}
+
+function utilisateurPeutVoirIndisponibilites() {
+  return (
+    utilisateurEstHossam() ||
+    Number(etat.utilisateur?.peut_voir_indisponibilites) === 1
+  );
 }
 
 function utilisateurPeutGererIndisponibilites() {
@@ -1000,6 +1137,11 @@ function mettreAJourNavigationProtegee() {
       return;
     }
 
+    if (section === "indisponibilites") {
+      bouton.classList.toggle("hidden", !utilisateurPeutVoirIndisponibilites());
+      return;
+    }
+
     if (section === "aujourdhui") {
       bouton.classList.toggle("hidden", !utilisateurPeutVoirAujourdhui());
       return;
@@ -1022,6 +1164,10 @@ function reinitialiserFormulaireUtilisateur() {
   masquerErreur(elements.adminToggleAccessError);
   elements.adminReadonlyForm.reset();
   masquerErreur(elements.adminReadonlyError);
+  elements.adminTodayForm.reset();
+  masquerErreur(elements.adminTodayError);
+  elements.adminUnavailabilityAccessForm.reset();
+  masquerErreur(elements.adminUnavailabilityAccessError);
   elements.adminMonetisationForm.reset();
   masquerErreur(elements.adminMonetisationError);
   elements.adminLogoutUserForm.reset();
@@ -1078,7 +1224,7 @@ function mettreAJourResumeCompteConnecte() {
     ? "Controle global"
     : "Espace utilisateur";
   elements.adminGuideNote.textContent = estAdministrateur
-    ? "Ajout d'utilisateurs, sessions actives, lecture seule et actions sensibles sont centralises ici."
+    ? "Ajout d'utilisateurs, sessions actives, lecture seule et actions sensibles sont centralises ici. Les indisponibilites ont maintenant leur menu dedie."
     : "Modifiez votre mot de passe et consultez votre derniere connexion depuis cet espace.";
 
   if (boutonUtilisateur) {
@@ -1396,50 +1542,57 @@ async function gererAjoutCompteAdministration(event) {
 
 async function gererCreationIndisponibilite(event) {
   event.preventDefault();
-  masquerErreur(elements.adminUnavailabilityError);
+  const controles = obtenirControlesIndisponibiliteActifs();
+  masquerErreur(controles.errorElement);
 
   if (!utilisateurPeutGererIndisponibilites()) {
-    elements.adminUnavailabilityForm.classList.add("hidden");
+    afficherSectionApplication("dashboard");
     return;
   }
 
-  const date = elements.adminUnavailabilityDate.value;
-  const heureDebut = elements.adminUnavailabilityStart.value;
-  const heureFin = elements.adminUnavailabilityEnd.value;
-  const raison = elements.adminUnavailabilityReason.value.trim();
+  const date = controles.dateInput.value;
+  const jourComplet =
+    controles.form?.dataset.fullDay === "1" ||
+    Boolean(controles.fullDayInput?.checked) ||
+    Boolean(controles.timeFields?.classList.contains("hidden"));
+  const heureDebut = jourComplet ? "00:00" : controles.startInput.value;
+  const heureFin = jourComplet ? "23:59" : controles.endInput.value;
+  const raison = controles.reasonInput.value.trim();
 
-  if (!date || !heureDebut || !heureFin) {
+  if (!date || (!jourComplet && (!heureDebut || !heureFin))) {
     afficherErreur(
-      elements.adminUnavailabilityError,
+      controles.errorElement,
       "Date, heure de debut et heure de fin obligatoires."
     );
     return;
   }
 
   if (!estDateIsoValide(date)) {
-    afficherErreur(elements.adminUnavailabilityError, "La date est invalide.");
+    afficherErreur(controles.errorElement, "La date est invalide.");
     return;
   }
 
-  if (!estHeureDebutSeanceValide(heureDebut) || !estHeureDebutSeanceValide(heureFin)) {
-    afficherErreur(
-      elements.adminUnavailabilityError,
-      "Les heures doivent etre choisies par tranches de 30 minutes."
-    );
-    return;
-  }
+  if (!jourComplet) {
+    if (!estHeureDebutSeanceValide(heureDebut) || !estHeureDebutSeanceValide(heureFin)) {
+      afficherErreur(
+        controles.errorElement,
+        "Les heures doivent etre choisies par tranches de 30 minutes."
+      );
+      return;
+    }
 
-  if (calculerDureeMinutesDepuisHeures(heureDebut, heureFin) <= 0) {
-    afficherErreur(
-      elements.adminUnavailabilityError,
-      "L'heure de fin doit etre posterieure a l'heure de debut."
-    );
-    return;
+    if (calculerDureeMinutesDepuisHeures(heureDebut, heureFin) <= 0) {
+      afficherErreur(
+        controles.errorElement,
+        "L'heure de fin doit etre posterieure a l'heure de debut."
+      );
+      return;
+    }
   }
 
   if (raison.length > 200) {
     afficherErreur(
-      elements.adminUnavailabilityError,
+      controles.errorElement,
       "La raison ne peut pas depasser 200 caracteres."
     );
     return;
@@ -1453,25 +1606,26 @@ async function gererCreationIndisponibilite(event) {
 
   if (conflit) {
     afficherErreur(
-      elements.adminUnavailabilityError,
+      controles.errorElement,
       "Ce creneau chevauche deja une indisponibilite existante."
     );
     return;
   }
 
-  elements.adminUnavailabilityButton.disabled = true;
-  elements.adminUnavailabilityButton.textContent = "Ajout...";
+  controles.button.disabled = true;
+  controles.button.textContent = "Ajout...";
 
   try {
     await creerIndisponibilite({
       date,
       heure_debut: heureDebut,
       heure_fin: heureFin,
+      jour_complet: jourComplet,
       raison,
     });
     initialiserFormulaireIndisponibilite();
     await Promise.all([chargerIndisponibilites(), chargerHistorique()]);
-    afficherToast("Creneau indisponible ajoute.");
+    afficherToast(jourComplet ? "Journee indisponible ajoutee." : "Creneau indisponible ajoute.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -1479,22 +1633,23 @@ async function gererCreationIndisponibilite(event) {
     }
 
     if (erreur.status === 403) {
-      elements.adminUnavailabilityForm.classList.add("hidden");
       afficherSectionApplication("dashboard");
       afficherToast(erreur.message, "error");
       return;
     }
 
-    afficherErreur(elements.adminUnavailabilityError, erreur.message);
+    afficherErreur(controles.errorElement, erreur.message);
   } finally {
-    elements.adminUnavailabilityButton.disabled = false;
-    elements.adminUnavailabilityButton.textContent = "Ajouter le creneau";
+    if (controles.button) {
+      controles.button.disabled = false;
+    }
+    mettreAJourModeJourCompletIndisponibilite();
   }
 }
 
 async function gererSuppressionIndisponibilite(indisponibiliteId) {
   if (!utilisateurPeutGererIndisponibilites()) {
-    elements.adminUnavailabilityForm.classList.add("hidden");
+    afficherSectionApplication("dashboard");
     return;
   }
 
@@ -1507,7 +1662,9 @@ async function gererSuppressionIndisponibilite(indisponibiliteId) {
   }
 
   const confirmation = window.confirm(
-    `Supprimer le creneau indisponible du ${formatDate(indisponibilite.date)} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin} ?`
+    estIndisponibiliteJourCompletClient(indisponibilite)
+      ? `Supprimer la journee indisponible du ${formatDate(indisponibilite.date)} ?`
+      : `Supprimer le creneau indisponible du ${formatDate(indisponibilite.date)} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin} ?`
   );
 
   if (!confirmation) {
@@ -1525,7 +1682,6 @@ async function gererSuppressionIndisponibilite(indisponibiliteId) {
     }
 
     if (erreur.status === 403) {
-      elements.adminUnavailabilityForm.classList.add("hidden");
       afficherSectionApplication("dashboard");
       afficherToast(erreur.message, "error");
       return;
@@ -1778,6 +1934,129 @@ async function gererMiseAJourAccesMonetisationUtilisateur(event) {
     afficherErreur(elements.adminMonetisationError, erreur.message);
   } finally {
     elements.adminMonetisationButton.disabled = false;
+    mettreAJourControlesAdministration();
+  }
+}
+
+async function gererMiseAJourAccesAujourdhuiUtilisateur(event) {
+  event.preventDefault();
+  masquerErreur(elements.adminTodayError);
+
+  if (!utilisateurPeutVoirAdministration()) {
+    elements.adminToolsPanel.classList.add("hidden");
+    return;
+  }
+
+  const utilisateurId = Number(elements.adminTodayUserId.value);
+  const compte = obtenirCompteAdministrationParId(utilisateurId);
+
+  if (!compte) {
+    afficherErreur(elements.adminTodayError, "Selectionnez un compte valide.");
+    return;
+  }
+
+  const nouvelAccesAujourdhui = Number(compte.peut_voir_aujourdhui) !== 1;
+  const confirmation = window.confirm(
+    nouvelAccesAujourdhui
+      ? `Afficher le menu Aujourd'hui a ${compte.nom} ?`
+      : `Masquer le menu Aujourd'hui pour ${compte.nom} ?`
+  );
+
+  if (!confirmation) {
+    return;
+  }
+
+  elements.adminTodayButton.disabled = true;
+  elements.adminTodayButton.textContent = "Mise a jour...";
+
+  try {
+    const resultat = await mettreAJourAccesAujourdhuiCompte(
+      utilisateurId,
+      nouvelAccesAujourdhui,
+      elements.adminTodayCurrentPassword.value
+    );
+    elements.adminTodayForm.reset();
+    await chargerAdministrationSiAutorise();
+    afficherToast(resultat.message);
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      elements.adminToolsPanel.classList.add("hidden");
+      afficherSectionApplication("dashboard");
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherErreur(elements.adminTodayError, erreur.message);
+  } finally {
+    elements.adminTodayButton.disabled = false;
+    mettreAJourControlesAdministration();
+  }
+}
+
+async function gererMiseAJourAccesIndisponibilitesUtilisateur(event) {
+  event.preventDefault();
+  masquerErreur(elements.adminUnavailabilityAccessError);
+
+  if (!utilisateurPeutVoirAdministration()) {
+    elements.adminToolsPanel.classList.add("hidden");
+    return;
+  }
+
+  const utilisateurId = Number(elements.adminUnavailabilityAccessUserId.value);
+  const compte = obtenirCompteAdministrationParId(utilisateurId);
+
+  if (!compte) {
+    afficherErreur(
+      elements.adminUnavailabilityAccessError,
+      "Selectionnez un compte valide."
+    );
+    return;
+  }
+
+  const nouvelAccesIndisponibilites = Number(compte.peut_voir_indisponibilites) !== 1;
+  const confirmation = window.confirm(
+    nouvelAccesIndisponibilites
+      ? `Afficher le menu Indisponibilites a ${compte.nom} ?`
+      : `Masquer le menu Indisponibilites pour ${compte.nom} ?`
+  );
+
+  if (!confirmation) {
+    return;
+  }
+
+  elements.adminUnavailabilityAccessButton.disabled = true;
+  elements.adminUnavailabilityAccessButton.textContent = "Mise a jour...";
+
+  try {
+    const resultat = await mettreAJourAccesIndisponibilitesCompte(
+      utilisateurId,
+      nouvelAccesIndisponibilites,
+      elements.adminUnavailabilityAccessCurrentPassword.value
+    );
+    elements.adminUnavailabilityAccessForm.reset();
+    await chargerAdministrationSiAutorise();
+    afficherToast(resultat.message);
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      elements.adminToolsPanel.classList.add("hidden");
+      afficherSectionApplication("dashboard");
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherErreur(elements.adminUnavailabilityAccessError, erreur.message);
+  } finally {
+    elements.adminUnavailabilityAccessButton.disabled = false;
     mettreAJourControlesAdministration();
   }
 }
@@ -2250,6 +2529,14 @@ function formaterEtatMonetisationCompte(compte) {
   return Number(compte?.peut_voir_monetisation) === 1 ? "Visible" : "Masquee";
 }
 
+function formaterEtatAujourdhuiCompte(compte) {
+  return Number(compte?.peut_voir_aujourdhui) === 1 ? "Visible" : "Masque";
+}
+
+function formaterEtatIndisponibilitesCompte(compte) {
+  return Number(compte?.peut_voir_indisponibilites) === 1 ? "Visible" : "Masque";
+}
+
 function creerBadgeAdministration(texte, type) {
   const badge = document.createElement("span");
   definirBadgeAdmin(badge, texte, type);
@@ -2299,6 +2586,8 @@ function selectionnerCompteAdministration(utilisateurId) {
     elements.adminResetUserId,
     elements.adminAccessUserId,
     elements.adminReadonlyUserId,
+    elements.adminTodayUserId,
+    elements.adminUnavailabilityAccessUserId,
     elements.adminMonetisationUserId,
     elements.adminLogoutUserId,
   ].forEach((select) => {
@@ -2470,8 +2759,20 @@ function afficherSessionsAdministration() {
   });
 }
 
+function estIndisponibiliteJourCompletClient(indisponibilite) {
+  return Number(indisponibilite?.jour_complet) === 1;
+}
+
 function construireLibelleIndisponibilite(indisponibilite) {
   return `${formatDate(indisponibilite.date)} · ${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`;
+}
+
+function construireLibelleIndisponibiliteAdministration(indisponibilite) {
+  if (estIndisponibiliteJourCompletClient(indisponibilite)) {
+    return `${formatDate(indisponibilite.date)} - Jour complet`;
+  }
+
+  return `${formatDate(indisponibilite.date)} - ${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`;
 }
 
 function afficherListeIndisponibilitesAdministration() {
@@ -2496,19 +2797,26 @@ function afficherListeIndisponibilitesAdministration() {
 
     const titre = document.createElement("h4");
     titre.className = "admin-session-title";
-    titre.textContent = construireLibelleIndisponibilite(indisponibilite);
+    titre.textContent = construireLibelleIndisponibiliteAdministration(indisponibilite);
 
     const badges = document.createElement("div");
     badges.className = "admin-session-badges";
     badges.appendChild(creerBadgeAdministration("Indisponible", "warning"));
+    if (estIndisponibiliteJourCompletClient(indisponibilite)) {
+      badges.appendChild(creerBadgeAdministration("Jour complet", "warning"));
+    }
 
     entete.append(titre, badges);
 
     const details = document.createElement("div");
     details.className = "admin-session-meta";
-    details.textContent = indisponibilite.raison
-      ? `Raison : ${indisponibilite.raison}`
-      : "Aucune raison renseignee.";
+    details.textContent = estIndisponibiliteJourCompletClient(indisponibilite)
+      ? indisponibilite.raison
+        ? `Jour entier bloque. Raison : ${indisponibilite.raison}`
+        : "Jour entier bloque."
+      : indisponibilite.raison
+        ? `Raison : ${indisponibilite.raison}`
+        : "Aucune raison renseignee.";
 
     contenu.append(entete, details);
 
@@ -2535,6 +2843,10 @@ function mettreAJourControlesAdministration() {
   const compteSuppression = obtenirCompteAdministrationParId(elements.adminDeleteUserId.value);
   const compteAcces = obtenirCompteAdministrationParId(elements.adminAccessUserId.value);
   const compteLectureSeule = obtenirCompteAdministrationParId(elements.adminReadonlyUserId.value);
+  const compteAujourdhui = obtenirCompteAdministrationParId(elements.adminTodayUserId.value);
+  const compteIndisponibilites = obtenirCompteAdministrationParId(
+    elements.adminUnavailabilityAccessUserId.value
+  );
   const compteMonetisation = obtenirCompteAdministrationParId(
     elements.adminMonetisationUserId.value
   );
@@ -2572,6 +2884,26 @@ function mettreAJourControlesAdministration() {
       ? `Retirer la lecture seule`
       : `Activer la lecture seule`
     : "Mettre a jour le mode";
+
+  elements.adminTodayStatus.textContent = compteAujourdhui
+    ? formaterEtatAujourdhuiCompte(compteAujourdhui)
+    : "-";
+  elements.adminTodayButton.disabled = !compteAujourdhui;
+  elements.adminTodayButton.textContent = compteAujourdhui
+    ? Number(compteAujourdhui.peut_voir_aujourdhui) === 1
+      ? `Masquer Aujourd'hui`
+      : `Afficher Aujourd'hui`
+    : "Mettre a jour Aujourd'hui";
+
+  elements.adminUnavailabilityAccessStatus.textContent = compteIndisponibilites
+    ? formaterEtatIndisponibilitesCompte(compteIndisponibilites)
+    : "-";
+  elements.adminUnavailabilityAccessButton.disabled = !compteIndisponibilites;
+  elements.adminUnavailabilityAccessButton.textContent = compteIndisponibilites
+    ? Number(compteIndisponibilites.peut_voir_indisponibilites) === 1
+      ? `Masquer Indisponibilites`
+      : `Afficher Indisponibilites`
+    : "Mettre a jour Indisponibilites";
 
   elements.adminMonetisationStatus.textContent = compteMonetisation
     ? formaterEtatMonetisationCompte(compteMonetisation)
@@ -2639,6 +2971,16 @@ function mettreAJourPanneauAdministration() {
     "Aucun collaborateur"
   );
   remplirSelectComptes(
+    elements.adminTodayUserId,
+    obtenirComptesCiblables({ exclureAdministrateurs: true }),
+    "Aucun collaborateur"
+  );
+  remplirSelectComptes(
+    elements.adminUnavailabilityAccessUserId,
+    obtenirComptesCiblables({ exclureAdministrateurs: true }),
+    "Aucun collaborateur"
+  );
+  remplirSelectComptes(
     elements.adminMonetisationUserId,
     obtenirComptesCiblables({ exclureAdministrateurs: true }),
     "Aucun collaborateur"
@@ -2677,6 +3019,8 @@ function viderAdministration() {
     elements.adminResetUserId,
     elements.adminAccessUserId,
     elements.adminReadonlyUserId,
+    elements.adminTodayUserId,
+    elements.adminUnavailabilityAccessUserId,
     elements.adminMonetisationUserId,
     elements.adminLogoutUserId,
   ].forEach((select) => {
@@ -2686,15 +3030,21 @@ function viderAdministration() {
 
   elements.adminToggleAccessStatus.textContent = "-";
   elements.adminReadonlyStatus.textContent = "-";
+  elements.adminTodayStatus.textContent = "-";
+  elements.adminUnavailabilityAccessStatus.textContent = "-";
   elements.adminMonetisationStatus.textContent = "-";
   elements.adminDeleteUserButton.textContent = "Supprimer l'utilisateur";
   elements.adminToggleAccessButton.textContent = "Mettre a jour l'acces";
   elements.adminReadonlyButton.textContent = "Mettre a jour le mode";
+  elements.adminTodayButton.textContent = "Mettre a jour Aujourd'hui";
+  elements.adminUnavailabilityAccessButton.textContent = "Mettre a jour Indisponibilites";
   elements.adminMonetisationButton.textContent = "Mettre a jour Monetisation";
   elements.adminLogoutUserButton.textContent = "Couper les sessions";
   elements.adminDeleteUserButton.disabled = true;
   elements.adminToggleAccessButton.disabled = true;
   elements.adminReadonlyButton.disabled = true;
+  elements.adminTodayButton.disabled = true;
+  elements.adminUnavailabilityAccessButton.disabled = true;
   elements.adminMonetisationButton.disabled = true;
   elements.adminLogoutUserButton.disabled = true;
   elements.adminToggleAccessButton.classList.remove("danger");
@@ -3436,6 +3786,16 @@ function ouvrirFormulaireCreation(dateSelectionnee = "") {
     return;
   }
 
+  const dateIsoSelectionnee = extraireDateIsoDepuisValeurCalendrier(dateSelectionnee);
+
+  if (dateIsoSelectionnee && estJourIntegralementIndisponible(dateIsoSelectionnee)) {
+    afficherToast(
+      `Le ${formatDate(dateIsoSelectionnee)} est indisponible toute la journee.`,
+      "warning"
+    );
+    return;
+  }
+
   elements.seanceForm.reset();
   masquerErreur(elements.seanceFormError);
   elements.seanceForm.dataset.mode = "creation";
@@ -3452,8 +3812,8 @@ function ouvrirFormulaireCreation(dateSelectionnee = "") {
   definirHeureDebutSelectionnee(recupererHeureDebutParDefaut());
   viderFichiersSelectionnes();
 
-  if (dateSelectionnee) {
-    elements.date.value = dateSelectionnee;
+  if (dateIsoSelectionnee) {
+    elements.date.value = dateIsoSelectionnee;
   }
 
   mettreAJourHeureFinCalculee();
@@ -3619,13 +3979,11 @@ async function gererSoumissionSeance(event) {
   }
 
   const mode = elements.seanceForm.dataset.mode || "creation";
-  const conflitIndisponibilite = utilisateurEstHossam()
-    ? null
-    : trouverIndisponibiliteChevauchanteLocale({
-        date: donneesSeance.date,
-        heure_debut: donneesSeance.heure_debut,
-        heure_fin: heureFinCalculee,
-      });
+  const conflitIndisponibilite = trouverIndisponibiliteChevauchanteLocale({
+    date: donneesSeance.date,
+    heure_debut: donneesSeance.heure_debut,
+    heure_fin: heureFinCalculee,
+  });
 
   if (
     conflitIndisponibilite &&
@@ -3695,12 +4053,15 @@ async function gererSoumissionSeance(event) {
 
 function gererClicIndisponibilite(indisponibilite) {
   const raison = String(indisponibilite?.raison || "").trim();
+  const messagePlage = estIndisponibiliteJourCompletClient(indisponibilite)
+    ? "Jour complet indisponible"
+    : `Creneau indisponible : ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}`;
 
   if (utilisateurPeutGererIndisponibilites()) {
     afficherToast(
       raison
-        ? `Creneau indisponible : ${indisponibilite.heure_debut}-${indisponibilite.heure_fin} (${raison}).`
-        : `Creneau indisponible : ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}.`,
+        ? `${messagePlage} (${raison}).`
+        : `${messagePlage}.`,
       "warning"
     );
     return;
@@ -3708,8 +4069,12 @@ function gererClicIndisponibilite(indisponibilite) {
 
   afficherToast(
     raison
-      ? `Hossam a bloque ce creneau : ${raison}.`
-      : "Ce creneau a ete marque comme indisponible par Hossam.",
+      ? estIndisponibiliteJourCompletClient(indisponibilite)
+        ? `Hossam a bloque toute cette journee : ${raison}.`
+        : `Hossam a bloque ce creneau : ${raison}.`
+      : estIndisponibiliteJourCompletClient(indisponibilite)
+        ? "Cette journee a ete marquee comme indisponible par Hossam."
+        : "Ce creneau a ete marque comme indisponible par Hossam.",
     "warning"
   );
 }
@@ -4035,9 +4400,31 @@ function trouverIndisponibiliteChevauchanteLocale({
   }) || null;
 }
 
+function estJourIntegralementIndisponible(date) {
+  return (
+    etat.indisponibilites.find(
+      (indisponibilite) =>
+        indisponibilite.date === date && estIndisponibiliteJourCompletClient(indisponibilite)
+    ) || null
+  );
+}
+
+function extraireDateIsoDepuisValeurCalendrier(valeur) {
+  const texte = String(valeur || "").trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(texte)) {
+    return texte;
+  }
+
+  const correspondance = texte.match(/^(\d{4}-\d{2}-\d{2})/);
+  return correspondance ? correspondance[1] : "";
+}
+
 function construireMessageIndisponibiliteClient(indisponibilite) {
   const raison = String(indisponibilite?.raison || "").trim();
-  const base = `Ce creneau est indisponible le ${indisponibilite.date} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin}.`;
+  const base = estIndisponibiliteJourCompletClient(indisponibilite)
+    ? `Cette journee est indisponible le ${indisponibilite.date}.`
+    : `Ce creneau est indisponible le ${indisponibilite.date} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin}.`;
 
   if (!raison) {
     return base;

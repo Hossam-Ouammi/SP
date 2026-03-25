@@ -27,19 +27,27 @@ async function trouverIndisponibiliteParId(id) {
   );
 }
 
-async function creerIndisponibilite({ date, heureDebut, heureFin, raison, creePar }) {
+async function creerIndisponibilite({
+  date,
+  heureDebut,
+  heureFin,
+  jourComplet = 0,
+  raison,
+  creePar,
+}) {
   const resultat = await run(
     `
       INSERT INTO indisponibilites (
         date,
         heure_debut,
         heure_fin,
+        jour_complet,
         raison,
         cree_par
       )
-      VALUES (?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?)
     `,
-    [date, heureDebut, heureFin, raison, creePar]
+    [date, heureDebut, heureFin, jourComplet ? 1 : 0, raison, creePar]
   );
 
   return trouverIndisponibiliteParId(resultat.id);

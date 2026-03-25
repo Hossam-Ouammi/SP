@@ -7,6 +7,9 @@ const {
 } = require("../models/indisponibilite.model");
 const { creerEntreeHistorique } = require("../models/historique.model");
 
+const HEURE_DEBUT_JOUR_COMPLET = "00:00";
+const HEURE_FIN_JOUR_COMPLET = "23:59";
+
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
 }
@@ -39,33 +42,40 @@ function convertirHeureEnMinutes(heure) {
   return heures * 60 + minutes;
 }
 
+function estIndisponibiliteJourComplet(indisponibilite) {
+  return Number(indisponibilite?.jour_complet) === 1;
+}
+
 function construireLibelleIndisponibilite(indisponibilite) {
+  if (estIndisponibiliteJourComplet(indisponibilite)) {
+    return `Indisponibilite - ${indisponibilite.date} (jour complet)`;
+  }
+
   return `Indisponibilite - ${indisponibilite.date} ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}`;
 }
 
 function transformerIndisponibilitePourClient(indisponibilite) {
   return {
     ...indisponibilite,
+    jour_complet: estIndisponibiliteJourComplet(indisponibilite) ? 1 : 0,
     raison: indisponibilite.raison || "",
     libelle: construireLibelleIndisponibilite(indisponibilite),
   };
 }
 
 function construireDetailsCreation(indisponibilite) {
+  const plage = estIndisponibiliteJourComplet(indisponibilite)
+    ? "Jour complet"
+    : `${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`;
+
   return {
     changements: [
       { champ: "date", label: "Date", avant: "-", apres: indisponibilite.date },
       {
-        champ: "heure_debut",
-        label: "Heure de debut",
+        champ: "plage",
+        label: "Plage",
         avant: "-",
-        apres: indisponibilite.heure_debut,
-      },
-      {
-        champ: "heure_fin",
-        label: "Heure de fin",
-        avant: "-",
-        apres: indisponibilite.heure_fin,
+        apres: plage,
       },
       {
         champ: "raison",
@@ -78,19 +88,17 @@ function construireDetailsCreation(indisponibilite) {
 }
 
 function construireDetailsSuppression(indisponibilite) {
+  const plage = estIndisponibiliteJourComplet(indisponibilite)
+    ? "Jour complet"
+    : `${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`;
+
   return {
     changements: [
       { champ: "date", label: "Date", avant: indisponibilite.date, apres: "-" },
       {
-        champ: "heure_debut",
-        label: "Heure de debut",
-        avant: indisponibilite.heure_debut,
-        apres: "-",
-      },
-      {
-        champ: "heure_fin",
-        label: "Heure de fin",
-        avant: indisponibilite.heure_fin,
+        champ: "plage",
+        label: "Plage",
+        avant: plage,
         apres: "-",
       },
       {
@@ -113,11 +121,21 @@ async function recupererIndisponibilites(req, res) {
 
 async function ajouterIndisponibilite(req, res) {
   const date = normaliserTexte(req.body.date);
-  const heureDebut = normaliserTexte(req.body.heure_debut);
-  const heureFin = normaliserTexte(req.body.heure_fin);
+  const jourComplet =
+    req.body.jour_complet === true ||
+    req.body.jour_complet === "true" ||
+    req.body.jour_complet === "on" ||
+    req.body.jour_complet === 1 ||
+    req.body.jour_complet === "1" ||
+    (
+      normaliserTexte(req.body.heure_debut) === HEURE_DEBUT_JOUR_COMPLET &&
+      normaliserTexte(req.body.heure_fin) === HEURE_FIN_JOUR_COMPLET
+    );
+  let heureDebut = normaliserTexte(req.body.heure_debut);
+  let heureFin = normaliserTexte(req.body.heure_fin);
   const raison = normaliserTexte(req.body.raison);
 
-  if (!date || !heureDebut || !heureFin) {
+  if (!date || (!jourComplet && (!heureDebut || !heureFin))) {
     return res.status(400).json({
       message: "Date, heure de debut et heure de fin obligatoires.",
     });
@@ -129,16 +147,21 @@ async function ajouterIndisponibilite(req, res) {
     });
   }
 
-  if (!estHeureCreneauValide(heureDebut) || !estHeureCreneauValide(heureFin)) {
-    return res.status(400).json({
-      message: "Les heures doivent etre choisies par tranches de 30 minutes.",
-    });
-  }
+  if (jourComplet) {
+    heureDebut = HEURE_DEBUT_JOUR_COMPLET;
+    heureFin = HEURE_FIN_JOUR_COMPLET;
+  } else {
+    if (!estHeureCreneauValide(heureDebut) || !estHeureCreneauValide(heureFin)) {
+      return res.status(400).json({
+        message: "Les heures doivent etre choisies par tranches de 30 minutes.",
+      });
+    }
 
-  if (convertirHeureEnMinutes(heureFin) <= convertirHeureEnMinutes(heureDebut)) {
-    return res.status(400).json({
-      message: "L'heure de fin doit etre posterieure a l'heure de debut.",
-    });
+    if (convertirHeureEnMinutes(heureFin) <= convertirHeureEnMinutes(heureDebut)) {
+      return res.status(400).json({
+        message: "L'heure de fin doit etre posterieure a l'heure de debut.",
+      });
+    }
   }
 
   if (raison.length > 200) {
@@ -164,6 +187,7 @@ async function ajouterIndisponibilite(req, res) {
     date,
     heureDebut,
     heureFin,
+    jourComplet,
     raison,
     creePar: req.utilisateur.id,
   });
@@ -172,14 +196,18 @@ async function ajouterIndisponibilite(req, res) {
     seanceId: null,
     seanceLibelle: construireLibelleIndisponibilite(indisponibilite),
     actionType: "indisponibilite_creee",
-    actionLabel: "Creation d'un creneau indisponible",
+    actionLabel: jourComplet
+      ? "Creation d'une journee indisponible"
+      : "Creation d'un creneau indisponible",
     acteurId: req.utilisateur?.id,
     acteurNom: req.utilisateur?.nom,
     details: construireDetailsCreation(indisponibilite),
   });
 
   return res.status(201).json({
-    message: "Le creneau indisponible a ete ajoute.",
+    message: jourComplet
+      ? "La journee indisponible a ete ajoutee."
+      : "Le creneau indisponible a ete ajoute.",
     indisponibilite: transformerIndisponibilitePourClient(indisponibilite),
   });
 }
@@ -207,14 +235,18 @@ async function supprimerUneIndisponibilite(req, res) {
     seanceId: null,
     seanceLibelle: construireLibelleIndisponibilite(indisponibilite),
     actionType: "indisponibilite_supprimee",
-    actionLabel: "Suppression d'un creneau indisponible",
+    actionLabel: estIndisponibiliteJourComplet(indisponibilite)
+      ? "Suppression d'une journee indisponible"
+      : "Suppression d'un creneau indisponible",
     acteurId: req.utilisateur?.id,
     acteurNom: req.utilisateur?.nom,
     details: construireDetailsSuppression(indisponibilite),
   });
 
   return res.json({
-    message: "Le creneau indisponible a ete supprime.",
+    message: estIndisponibiliteJourComplet(indisponibilite)
+      ? "La journee indisponible a ete supprimee."
+      : "Le creneau indisponible a ete supprime.",
   });
 }
 

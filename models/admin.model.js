@@ -71,6 +71,8 @@ async function listerComptesAdministration() {
       acces_active,
       mode_lecture_seule,
       peut_voir_monetisation,
+      peut_voir_aujourdhui,
+      peut_voir_indisponibilites,
       doit_changer_mot_de_passe,
       dernier_login_at,
       dernier_login_ip,
@@ -93,6 +95,8 @@ async function trouverCompteParId(utilisateurId) {
         acces_active,
         mode_lecture_seule,
         peut_voir_monetisation,
+        peut_voir_aujourdhui,
+        peut_voir_indisponibilites,
         doit_changer_mot_de_passe,
         dernier_login_at,
         dernier_login_ip,
@@ -135,6 +139,8 @@ async function trouverCompteParEmail(email) {
         acces_active,
         mode_lecture_seule,
         peut_voir_monetisation,
+        peut_voir_aujourdhui,
+        peut_voir_indisponibilites,
         doit_changer_mot_de_passe,
         dernier_login_at,
         dernier_login_ip,
@@ -183,6 +189,31 @@ async function mettreAJourAccesMonetisationCompte(utilisateurId, peutVoirMonetis
       WHERE id = ?
     `,
     [peutVoirMonetisation ? 1 : 0, utilisateurId]
+  );
+}
+
+async function mettreAJourAccesAujourdhuiCompte(utilisateurId, peutVoirAujourdhui) {
+  return run(
+    `
+      UPDATE utilisateurs
+      SET peut_voir_aujourdhui = ?
+      WHERE id = ?
+    `,
+    [peutVoirAujourdhui ? 1 : 0, utilisateurId]
+  );
+}
+
+async function mettreAJourAccesIndisponibilitesCompte(
+  utilisateurId,
+  peutVoirIndisponibilites
+) {
+  return run(
+    `
+      UPDATE utilisateurs
+      SET peut_voir_indisponibilites = ?
+      WHERE id = ?
+    `,
+    [peutVoirIndisponibilites ? 1 : 0, utilisateurId]
   );
 }
 
@@ -357,6 +388,8 @@ module.exports = {
   mettreAJourAccesCompte,
   mettreAJourLectureSeuleCompte,
   mettreAJourAccesMonetisationCompte,
+  mettreAJourAccesAujourdhuiCompte,
+  mettreAJourAccesIndisponibilitesCompte,
   listerSessionsActives,
   revoquerSession,
   revoquerSessionsUtilisateur,

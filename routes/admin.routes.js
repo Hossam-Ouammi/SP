@@ -8,6 +8,8 @@ const {
   reinitialiserMotDePasseCompte,
   mettreAJourAccesUtilisateur,
   mettreAJourLectureSeuleUtilisateur,
+  mettreAJourAccesAujourdhuiUtilisateur,
+  mettreAJourAccesIndisponibilitesUtilisateur,
   mettreAJourAccesMonetisationUtilisateur,
   revoquerSessionAdministration,
   revoquerSessionsUtilisateurAdministration,
@@ -46,6 +48,14 @@ router.patch(
 router.patch(
   "/read-only",
   notifierMiseAJourApplication(mettreAJourLectureSeuleUtilisateur, "administration")
+);
+router.patch(
+  "/today-access",
+  notifierMiseAJourApplication(mettreAJourAccesAujourdhuiUtilisateur, "administration")
+);
+router.patch(
+  "/unavailability-access",
+  notifierMiseAJourApplication(mettreAJourAccesIndisponibilitesUtilisateur, "administration")
 );
 router.patch(
   "/monetisation-access",

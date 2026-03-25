@@ -12,7 +12,6 @@ const { listerCatalogueOptions } = require("../models/catalogue.model");
 const { trouverIndisponibiliteChevauchante } = require("../models/indisponibilite.model");
 const { recupererPhotosParSeance } = require("../models/photo.model");
 const { creerEntreeHistorique } = require("../models/historique.model");
-const { utilisateurEstHossam } = require("../middleware/auth.middleware");
 const { resoudreCheminScreenshot } = require("../utils/screenshot-storage");
 
 const statutsSeanceValides = ["planifiee", "faite", "annulee", "reportee"];
@@ -114,9 +113,15 @@ function formaterDuree(dureeMinutes) {
   return `${dureeMinutes} min`;
 }
 
+function estIndisponibiliteJourComplet(indisponibilite) {
+  return Number(indisponibilite?.jour_complet) === 1;
+}
+
 function construireMessageIndisponibilite(indisponibilite) {
   const raison = normaliserTexte(indisponibilite?.raison);
-  const base = `Ce creneau est marque comme indisponible par Hossam le ${indisponibilite.date} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin}.`;
+  const base = estIndisponibiliteJourComplet(indisponibilite)
+    ? `Cette journee est marquee comme indisponible par Hossam le ${indisponibilite.date}.`
+    : `Ce creneau est marque comme indisponible par Hossam le ${indisponibilite.date} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin}.`;
 
   if (!raison) {
     return base;
@@ -137,11 +142,7 @@ function creneauSeanceEquivalent(seance, donneesSeance) {
   );
 }
 
-async function recupererConflitIndisponibilite(req, donneesSeance) {
-  if (utilisateurEstHossam(req.utilisateur)) {
-    return null;
-  }
-
+async function recupererConflitIndisponibilite(donneesSeance) {
   return trouverIndisponibiliteChevauchante({
     date: donneesSeance.date,
     heureDebut: donneesSeance.heure_debut,
@@ -491,7 +492,7 @@ async function ajouterSeance(req, res) {
     });
   }
 
-  const conflitIndisponibilite = await recupererConflitIndisponibilite(req, donneesSeance);
+  const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesSeance);
 
   if (conflitIndisponibilite) {
     return res.status(400).json({
@@ -538,7 +539,7 @@ async function modifierSeance(req, res) {
     return res.status(400).json({ message: erreurs.join(" ") });
   }
 
-  const conflitIndisponibilite = await recupererConflitIndisponibilite(req, donneesSeance);
+  const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesSeance);
 
   if (conflitIndisponibilite && !creneauSeanceEquivalent(seanceExistante, donneesSeance)) {
     return res.status(400).json({
