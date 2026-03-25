@@ -2892,11 +2892,23 @@ button {
   }
 
   .modal-header {
+    position: sticky;
+    top: -14px;
+    z-index: 4;
+    margin: -14px -14px 14px;
+    padding: 14px 14px 12px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.92);
     margin-bottom: 14px;
   }
 
   .modal-header h3 {
     font-size: 1.08rem;
+  }
+
+  .modal-header .icon-button {
+    flex: 0 0 auto;
   }
 
   .form-section {
