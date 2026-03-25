@@ -9,6 +9,7 @@ const fs = require("fs");
 const authRoutes = require("./routes/auth.routes");
 const adminRoutes = require("./routes/admin.routes");
 const historiqueRoutes = require("./routes/historique.routes");
+const indisponibilitesRoutes = require("./routes/indisponibilites.routes");
 const monetisationRoutes = require("./routes/monetisation.routes");
 const realtimeRoutes = require("./routes/realtime.routes");
 const seancesRoutes = require("./routes/seances.routes");
@@ -137,6 +138,7 @@ app.use(
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/historique", historiqueRoutes);
+app.use("/api/indisponibilites", indisponibilitesRoutes);
 app.use("/api/monetisation", monetisationRoutes);
 app.use("/api/realtime", realtimeRoutes);
 app.use("/api/seances", seancesRoutes);

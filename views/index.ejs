@@ -452,6 +452,70 @@
                     </form>
 
                     <form
+                      id="admin-unavailability-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Creneaux indisponibles</h3>
+                        <p class="section-note">
+                          Hossam peut bloquer ici des horaires. Les autres utilisateurs ne
+                          pourront pas planifier de seance dessus.
+                        </p>
+                      </div>
+
+                      <label class="field">
+                        <span>Date</span>
+                        <input id="admin-unavailability-date" type="date" required />
+                      </label>
+
+                      <div class="form-grid">
+                        <label class="field">
+                          <span>Heure de debut</span>
+                          <input
+                            id="admin-unavailability-start"
+                            type="time"
+                            step="1800"
+                            required
+                          />
+                        </label>
+
+                        <label class="field">
+                          <span>Heure de fin</span>
+                          <input
+                            id="admin-unavailability-end"
+                            type="time"
+                            step="1800"
+                            required
+                          />
+                        </label>
+                      </div>
+
+                      <label class="field">
+                        <span>Raison</span>
+                        <input
+                          id="admin-unavailability-reason"
+                          type="text"
+                          maxlength="200"
+                          placeholder="Optionnel"
+                        />
+                      </label>
+
+                      <div id="admin-unavailability-list" class="admin-session-list"></div>
+
+                      <p id="admin-unavailability-error" class="form-error hidden"></p>
+
+                      <div class="form-actions">
+                        <button
+                          id="admin-unavailability-button"
+                          class="button secondary"
+                          type="submit"
+                        >
+                          Ajouter le creneau
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
                       id="admin-create-user-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
                     >

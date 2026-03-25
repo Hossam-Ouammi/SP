@@ -27,6 +27,9 @@ import {
   changerStatutSeance,
   televerserPhotosDeSeance,
   recupererPhotosDeSeance,
+  recupererIndisponibilites,
+  creerIndisponibilite,
+  supprimerIndisponibilite,
   recupererHistoriqueActions,
   recupererDetailHistorique,
   recupererMonetisation,
@@ -78,6 +81,7 @@ const cleConnexionMemorisee = "gestion-seances-connexion-memorisee";
 const etat = {
   utilisateur: null,
   seances: [],
+  indisponibilites: [],
   historique: [],
   monetisation: null,
   administration: null,
@@ -174,6 +178,14 @@ const elements = {
   ),
   adminAddAccountError: document.getElementById("admin-add-account-error"),
   adminAddAccountButton: document.getElementById("admin-add-account-button"),
+  adminUnavailabilityForm: document.getElementById("admin-unavailability-form"),
+  adminUnavailabilityDate: document.getElementById("admin-unavailability-date"),
+  adminUnavailabilityStart: document.getElementById("admin-unavailability-start"),
+  adminUnavailabilityEnd: document.getElementById("admin-unavailability-end"),
+  adminUnavailabilityReason: document.getElementById("admin-unavailability-reason"),
+  adminUnavailabilityList: document.getElementById("admin-unavailability-list"),
+  adminUnavailabilityError: document.getElementById("admin-unavailability-error"),
+  adminUnavailabilityButton: document.getElementById("admin-unavailability-button"),
   adminCreateUserCurrentPassword: document.getElementById(
     "admin-create-user-current-password"
   ),
@@ -405,8 +417,17 @@ function utilisateurDoitChangerMotDePasse() {
   return Number(etat.utilisateur?.doit_changer_mot_de_passe) === 1;
 }
 
+function rafraichirEvenementsCalendrier() {
+  if (!etat.calendrier) {
+    return;
+  }
+
+  mettreAJourEvenements(etat.calendrier, etat.seances, etat.indisponibilites);
+}
+
 function viderDonneesApplication() {
   etat.seances = [];
+  etat.indisponibilites = [];
   etat.historique = [];
   etat.monetisation = null;
   etat.administration = null;
@@ -418,7 +439,7 @@ function viderDonneesApplication() {
   etat.seanceSelectionnee = null;
 
   if (etat.calendrier) {
-    mettreAJourEvenements(etat.calendrier, []);
+    rafraichirEvenementsCalendrier();
   }
 
   mettreAJourResume();
@@ -426,6 +447,7 @@ function viderDonneesApplication() {
   viderDetailHistorique();
   viderMonetisation();
   viderAdministration();
+  afficherListeIndisponibilitesAdministration();
   rendreOptionsCatalogueSeance();
 }
 
@@ -438,6 +460,7 @@ async function chargerDonneesApplication() {
   await Promise.all([
     chargerOptionsSeancesDisponibles(),
     chargerSeances(),
+    chargerIndisponibilites(),
     chargerHistorique(),
     chargerMonetisationSiAutorise(),
     chargerAdministrationSiAutorise(),
@@ -448,6 +471,7 @@ async function initialiserApplication() {
   appliquerConnexionMemorisee();
   mettreAJourVisibiliteMotDePasseConnexion();
   initialiserChoixHeureDebut();
+  initialiserFormulaireIndisponibilite();
   initialiserCatalogueSeanceParDefaut();
   attacherEcouteurs();
 
@@ -483,6 +507,21 @@ function initialiserChoixHeureDebut() {
   elements.heureDebutMinuteSelect.innerHTML = minutesDebutDisponibles
     .map((minute) => `<option value="${minute}">${minute}</option>`)
     .join("");
+}
+
+function initialiserFormulaireIndisponibilite() {
+  if (!elements.adminUnavailabilityForm || !("reset" in elements.adminUnavailabilityForm)) {
+    return;
+  }
+
+  elements.adminUnavailabilityForm.reset();
+  elements.adminUnavailabilityDate.value = obtenirDateLocaleIso();
+  elements.adminUnavailabilityStart.value = recupererHeureDebutParDefaut();
+  elements.adminUnavailabilityEnd.value = calculerHeureFin(
+    elements.adminUnavailabilityStart.value,
+    60
+  );
+  masquerErreur(elements.adminUnavailabilityError);
 }
 
 function normaliserListeCatalogue(valeurs, valeursParDefaut = []) {
@@ -613,6 +652,7 @@ function attacherEcouteurs() {
   elements.userPasswordForm?.addEventListener("submit", gererModificationMotDePasse);
   elements.adminAddSubjectForm?.addEventListener("submit", gererAjoutMatiereAdministration);
   elements.adminAddAccountForm?.addEventListener("submit", gererAjoutCompteAdministration);
+  elements.adminUnavailabilityForm?.addEventListener("submit", gererCreationIndisponibilite);
   elements.adminCreateUserForm?.addEventListener("submit", gererCreationUtilisateurAdmin);
   elements.adminDeleteUserForm?.addEventListener("submit", gererSuppressionUtilisateurAdmin);
   elements.adminResetPasswordForm?.addEventListener(
@@ -819,6 +859,7 @@ async function synchroniserApplicationDepuisTempsReel() {
             }
           : {}
       ),
+      chargerIndisponibilites(),
       chargerHistorique(),
       chargerMonetisationSiAutorise(),
       chargerAdministrationSiAutorise(),
@@ -841,9 +882,10 @@ function initialiserCalendrierSiNecessaire() {
   etat.calendrier = initialiserCalendrier(elements.calendar, {
     onDateClick: ouvrirFormulaireCreation,
     onEventClick: ouvrirDetailSeance,
+    onIndisponibiliteClick: gererClicIndisponibilite,
   });
 
-  mettreAJourEvenements(etat.calendrier, etat.seances);
+  rafraichirEvenementsCalendrier();
 }
 
 function rafraichirCalendrierSiVisible(sectionDemandee = etat.sectionActive) {
@@ -926,6 +968,10 @@ function utilisateurPeutVoirAujourdhui() {
   return utilisateurEstHossam();
 }
 
+function utilisateurPeutGererIndisponibilites() {
+  return utilisateurEstHossam() && !utilisateurDoitChangerMotDePasse();
+}
+
 function utilisateurEstEnLectureSeule() {
   return !utilisateurPeutVoirAdministration() && Number(etat.utilisateur?.mode_lecture_seule) === 1;
 }
@@ -986,6 +1032,9 @@ function reinitialiserFormulaireUtilisateur() {
   masquerErreur(elements.adminClearSeancesError);
   elements.adminClearHistoryForm.reset();
   masquerErreur(elements.adminClearHistoryError);
+  elements.adminUnavailabilityForm?.reset?.();
+  masquerErreur(elements.adminUnavailabilityError);
+  initialiserFormulaireIndisponibilite();
 }
 
 function definirBadgeAdmin(element, texte, type) {
@@ -1343,6 +1392,147 @@ async function gererAjoutCompteAdministration(event) {
     libelleBouton: "Ajouter le compte",
     messageSucces: "Compte ajouté.",
   });
+}
+
+async function gererCreationIndisponibilite(event) {
+  event.preventDefault();
+  masquerErreur(elements.adminUnavailabilityError);
+
+  if (!utilisateurPeutGererIndisponibilites()) {
+    elements.adminUnavailabilityForm.classList.add("hidden");
+    return;
+  }
+
+  const date = elements.adminUnavailabilityDate.value;
+  const heureDebut = elements.adminUnavailabilityStart.value;
+  const heureFin = elements.adminUnavailabilityEnd.value;
+  const raison = elements.adminUnavailabilityReason.value.trim();
+
+  if (!date || !heureDebut || !heureFin) {
+    afficherErreur(
+      elements.adminUnavailabilityError,
+      "Date, heure de debut et heure de fin obligatoires."
+    );
+    return;
+  }
+
+  if (!estDateIsoValide(date)) {
+    afficherErreur(elements.adminUnavailabilityError, "La date est invalide.");
+    return;
+  }
+
+  if (!estHeureDebutSeanceValide(heureDebut) || !estHeureDebutSeanceValide(heureFin)) {
+    afficherErreur(
+      elements.adminUnavailabilityError,
+      "Les heures doivent etre choisies par tranches de 30 minutes."
+    );
+    return;
+  }
+
+  if (calculerDureeMinutesDepuisHeures(heureDebut, heureFin) <= 0) {
+    afficherErreur(
+      elements.adminUnavailabilityError,
+      "L'heure de fin doit etre posterieure a l'heure de debut."
+    );
+    return;
+  }
+
+  if (raison.length > 200) {
+    afficherErreur(
+      elements.adminUnavailabilityError,
+      "La raison ne peut pas depasser 200 caracteres."
+    );
+    return;
+  }
+
+  const conflit = trouverIndisponibiliteChevauchanteLocale({
+    date,
+    heure_debut: heureDebut,
+    heure_fin: heureFin,
+  });
+
+  if (conflit) {
+    afficherErreur(
+      elements.adminUnavailabilityError,
+      "Ce creneau chevauche deja une indisponibilite existante."
+    );
+    return;
+  }
+
+  elements.adminUnavailabilityButton.disabled = true;
+  elements.adminUnavailabilityButton.textContent = "Ajout...";
+
+  try {
+    await creerIndisponibilite({
+      date,
+      heure_debut: heureDebut,
+      heure_fin: heureFin,
+      raison,
+    });
+    initialiserFormulaireIndisponibilite();
+    await Promise.all([chargerIndisponibilites(), chargerHistorique()]);
+    afficherToast("Creneau indisponible ajoute.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      elements.adminUnavailabilityForm.classList.add("hidden");
+      afficherSectionApplication("dashboard");
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherErreur(elements.adminUnavailabilityError, erreur.message);
+  } finally {
+    elements.adminUnavailabilityButton.disabled = false;
+    elements.adminUnavailabilityButton.textContent = "Ajouter le creneau";
+  }
+}
+
+async function gererSuppressionIndisponibilite(indisponibiliteId) {
+  if (!utilisateurPeutGererIndisponibilites()) {
+    elements.adminUnavailabilityForm.classList.add("hidden");
+    return;
+  }
+
+  const indisponibilite = etat.indisponibilites.find(
+    (item) => Number(item.id) === Number(indisponibiliteId)
+  );
+
+  if (!indisponibilite) {
+    return;
+  }
+
+  const confirmation = window.confirm(
+    `Supprimer le creneau indisponible du ${formatDate(indisponibilite.date)} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin} ?`
+  );
+
+  if (!confirmation) {
+    return;
+  }
+
+  try {
+    const resultat = await supprimerIndisponibilite(indisponibilite.id);
+    await Promise.all([chargerIndisponibilites(), chargerHistorique()]);
+    afficherToast(resultat.message || "Creneau indisponible supprime.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      elements.adminUnavailabilityForm.classList.add("hidden");
+      afficherSectionApplication("dashboard");
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherToast(erreur.message, "error");
+  }
 }
 
 async function gererReinitialisationMotDePasseCompte(event) {
@@ -1820,7 +2010,7 @@ async function gererSuppressionToutHistorique(event) {
 async function chargerSeances(options = {}) {
   const seances = await recupererSeances();
   etat.seances = seances;
-  mettreAJourEvenements(etat.calendrier, seances);
+  rafraichirEvenementsCalendrier();
   mettreAJourResume();
   rafraichirCalendrierSiVisible();
 
@@ -1842,6 +2032,24 @@ async function chargerSeances(options = {}) {
       fermerModal(elements.detailModal);
       etat.seanceSelectionnee = null;
     }
+  }
+}
+
+async function chargerIndisponibilites() {
+  try {
+    etat.indisponibilites = await recupererIndisponibilites();
+    rafraichirEvenementsCalendrier();
+    afficherListeIndisponibilitesAdministration();
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    etat.indisponibilites = [];
+    rafraichirEvenementsCalendrier();
+    afficherListeIndisponibilitesAdministration();
+    afficherToast(erreur.message, "error");
   }
 }
 
@@ -1915,6 +2123,7 @@ async function chargerAdministrationSiAutorise() {
       rendreOptionsCatalogueSeance();
     }
     mettreAJourPanneauAdministration();
+    afficherListeIndisponibilitesAdministration();
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -2261,6 +2470,67 @@ function afficherSessionsAdministration() {
   });
 }
 
+function construireLibelleIndisponibilite(indisponibilite) {
+  return `${formatDate(indisponibilite.date)} · ${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`;
+}
+
+function afficherListeIndisponibilitesAdministration() {
+  const indisponibilites = Array.isArray(etat.indisponibilites) ? etat.indisponibilites : [];
+  elements.adminUnavailabilityList.innerHTML = "";
+
+  if (indisponibilites.length === 0) {
+    elements.adminUnavailabilityList.innerHTML =
+      '<div class="admin-session-empty">Aucun creneau indisponible pour le moment.</div>';
+    return;
+  }
+
+  indisponibilites.forEach((indisponibilite) => {
+    const carte = document.createElement("article");
+    carte.className = "admin-session-item";
+
+    const contenu = document.createElement("div");
+    contenu.className = "admin-session-main";
+
+    const entete = document.createElement("div");
+    entete.className = "admin-session-head";
+
+    const titre = document.createElement("h4");
+    titre.className = "admin-session-title";
+    titre.textContent = construireLibelleIndisponibilite(indisponibilite);
+
+    const badges = document.createElement("div");
+    badges.className = "admin-session-badges";
+    badges.appendChild(creerBadgeAdministration("Indisponible", "warning"));
+
+    entete.append(titre, badges);
+
+    const details = document.createElement("div");
+    details.className = "admin-session-meta";
+    details.textContent = indisponibilite.raison
+      ? `Raison : ${indisponibilite.raison}`
+      : "Aucune raison renseignee.";
+
+    contenu.append(entete, details);
+
+    const actions = document.createElement("div");
+    actions.className = "admin-session-actions";
+
+    if (utilisateurPeutGererIndisponibilites()) {
+      const bouton = document.createElement("button");
+      bouton.type = "button";
+      bouton.className = "button danger";
+      bouton.textContent = "Supprimer";
+      bouton?.addEventListener("click", async () => {
+        await gererSuppressionIndisponibilite(indisponibilite.id);
+      });
+      actions.appendChild(bouton);
+    }
+
+    carte.append(contenu, actions);
+    elements.adminUnavailabilityList.appendChild(carte);
+  });
+}
+
 function mettreAJourControlesAdministration() {
   const compteSuppression = obtenirCompteAdministrationParId(elements.adminDeleteUserId.value);
   const compteAcces = obtenirCompteAdministrationParId(elements.adminAccessUserId.value);
@@ -2333,9 +2603,14 @@ function mettreAJourPanneauAdministration() {
   elements.adminActiveUsers.textContent = String(comptesActifs.length);
   elements.adminReadonlyUsers.textContent = String(comptesLectureSeule.length);
   elements.adminActiveSessions.textContent = String(sessions.length);
+  elements.adminUnavailabilityForm.classList.toggle(
+    "hidden",
+    !utilisateurPeutGererIndisponibilites()
+  );
 
   afficherListeUtilisateursAdministration();
   afficherSessionsAdministration();
+  afficherListeIndisponibilitesAdministration();
   afficherListeCatalogueAdministration(
     elements.adminSubjectList,
     matieres,
@@ -2390,6 +2665,12 @@ function viderAdministration() {
     '<div class="admin-user-empty">Aucune matière disponible.</div>';
   elements.adminAccountList.innerHTML =
     '<div class="admin-user-empty">Aucun compte disponible.</div>';
+  elements.adminUnavailabilityList.innerHTML =
+    '<div class="admin-session-empty">Aucun creneau indisponible pour le moment.</div>';
+  elements.adminUnavailabilityForm.classList.toggle(
+    "hidden",
+    !utilisateurPeutGererIndisponibilites()
+  );
 
   [
     elements.adminDeleteUserId,
@@ -2954,6 +3235,22 @@ function obtenirPresentationActionHistorique(entree) {
     };
   }
 
+  if (entree?.action_type === "indisponibilite_creee") {
+    return {
+      label: "Creation d'un creneau indisponible",
+      badgeLabel: "Indispo",
+      tone: "blocked",
+    };
+  }
+
+  if (entree?.action_type === "indisponibilite_supprimee") {
+    return {
+      label: "Suppression d'un creneau indisponible",
+      badgeLabel: "Indispo",
+      tone: "blocked",
+    };
+  }
+
   if (entree?.action_type === "seance_supprimee") {
     return {
       label: "Suppression de la séance",
@@ -3322,6 +3619,32 @@ async function gererSoumissionSeance(event) {
   }
 
   const mode = elements.seanceForm.dataset.mode || "creation";
+  const conflitIndisponibilite = utilisateurEstHossam()
+    ? null
+    : trouverIndisponibiliteChevauchanteLocale({
+        date: donneesSeance.date,
+        heure_debut: donneesSeance.heure_debut,
+        heure_fin: heureFinCalculee,
+      });
+
+  if (
+    conflitIndisponibilite &&
+    !(
+      mode === "modification" &&
+      creneauSeanceEquivalent(
+        etat.seanceSelectionnee,
+        donneesSeance.date,
+        donneesSeance.heure_debut,
+        heureFinCalculee
+      )
+    )
+  ) {
+    afficherErreur(
+      elements.seanceFormError,
+      construireMessageIndisponibiliteClient(conflitIndisponibilite)
+    );
+    return;
+  }
 
   elements.saveSeanceButton.disabled = true;
   elements.saveSeanceButton.textContent =
@@ -3368,6 +3691,27 @@ async function gererSoumissionSeance(event) {
     elements.saveSeanceButton.textContent =
       mode === "creation" ? "Enregistrer" : "Sauvegarder";
   }
+}
+
+function gererClicIndisponibilite(indisponibilite) {
+  const raison = String(indisponibilite?.raison || "").trim();
+
+  if (utilisateurPeutGererIndisponibilites()) {
+    afficherToast(
+      raison
+        ? `Creneau indisponible : ${indisponibilite.heure_debut}-${indisponibilite.heure_fin} (${raison}).`
+        : `Creneau indisponible : ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}.`,
+      "warning"
+    );
+    return;
+  }
+
+  afficherToast(
+    raison
+      ? `Hossam a bloque ce creneau : ${raison}.`
+      : "Ce creneau a ete marque comme indisponible par Hossam.",
+    "warning"
+  );
 }
 
 async function ouvrirDetailSeance(seance) {
@@ -3660,6 +4004,46 @@ function calculerDureeMinutesDepuisHeures(heureDebut, heureFin) {
   const difference = totalFin - totalDebut;
 
   return difference > 0 ? difference : 0;
+}
+
+function creneauSeanceEquivalent(seance, date, heureDebut, heureFin) {
+  if (!seance) {
+    return false;
+  }
+
+  return (
+    seance.date === date &&
+    seance.heure_debut === heureDebut &&
+    seance.heure_fin === heureFin
+  );
+}
+
+function trouverIndisponibiliteChevauchanteLocale({
+  date,
+  heure_debut: heureDebut,
+  heure_fin: heureFin,
+}) {
+  return etat.indisponibilites.find((indisponibilite) => {
+    if (indisponibilite.date !== date) {
+      return false;
+    }
+
+    return (
+      calculerDureeMinutesDepuisHeures(indisponibilite.heure_debut, heureFin) > 0 &&
+      calculerDureeMinutesDepuisHeures(heureDebut, indisponibilite.heure_fin) > 0
+    );
+  }) || null;
+}
+
+function construireMessageIndisponibiliteClient(indisponibilite) {
+  const raison = String(indisponibilite?.raison || "").trim();
+  const base = `Ce creneau est indisponible le ${indisponibilite.date} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin}.`;
+
+  if (!raison) {
+    return base;
+  }
+
+  return `${base} Raison : ${raison}.`;
 }
 
 function formaterDureeHistorique(dureeMinutes) {

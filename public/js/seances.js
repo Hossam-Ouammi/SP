@@ -65,6 +65,26 @@ export async function recupererPhotosDeSeance(seanceId) {
   return resultat.photos;
 }
 
+export async function recupererIndisponibilites() {
+  const resultat = await envoyerRequete("/api/indisponibilites");
+  return resultat.indisponibilites;
+}
+
+export async function creerIndisponibilite(donneesIndisponibilite) {
+  const resultat = await envoyerRequete("/api/indisponibilites", {
+    method: "POST",
+    body: JSON.stringify(donneesIndisponibilite),
+  });
+
+  return resultat.indisponibilite;
+}
+
+export async function supprimerIndisponibilite(indisponibiliteId) {
+  return envoyerRequete(`/api/indisponibilites/${indisponibiliteId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function recupererHistoriqueActions() {
   const resultat = await envoyerRequete("/api/historique");
   return resultat.historique;

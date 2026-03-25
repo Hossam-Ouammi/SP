@@ -14,6 +14,7 @@ Application web locale pour gérer des séances de cours entre plusieurs comptes
 
 - Connexion par identifiant ou email + mot de passe
 - Changement obligatoire du mot de passe initial
+- Créneaux d'indisponibilité gérés par Hossam
 - Calendrier mensuel et hebdomadaire
 - Vue `Aujourd'hui`
 - Ajout, modification, suppression et changement de statut d'une séance
@@ -115,6 +116,12 @@ gestion-seances/
 - `PUT /api/seances/:id`
 - `PATCH /api/seances/:id/statut`
 - `DELETE /api/seances/:id`
+
+### Indisponibilites
+
+- `GET /api/indisponibilites`
+- `POST /api/indisponibilites`
+- `DELETE /api/indisponibilites/:id`
 
 ### Screenshots
 

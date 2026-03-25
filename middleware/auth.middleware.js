@@ -112,6 +112,16 @@ function verifierAccesAdministratifHossam(req, res, next) {
   return next();
 }
 
+function verifierAccesHossamUniquement(req, res, next) {
+  if (!utilisateurEstHossam(req.utilisateur)) {
+    return res.status(403).json({
+      message: "Seul Hossam peut gerer les indisponibilites.",
+    });
+  }
+
+  return next();
+}
+
 function verifierModeEcritureAutorise(req, res, next) {
   if (utilisateurEstAdministrateur(req.utilisateur)) {
     return next();
@@ -145,6 +155,7 @@ module.exports = {
   verifierAuthentification,
   verifierCompteSecurise,
   verifierAccesAdministratifHossam,
+  verifierAccesHossamUniquement,
   verifierAccesMonetisation,
   chargerUtilisateurAuthentifie,
   verifierModeEcritureAutorise,

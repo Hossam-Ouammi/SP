@@ -9,8 +9,10 @@ const {
   supprimerSeance,
 } = require("../models/seance.model");
 const { listerCatalogueOptions } = require("../models/catalogue.model");
+const { trouverIndisponibiliteChevauchante } = require("../models/indisponibilite.model");
 const { recupererPhotosParSeance } = require("../models/photo.model");
 const { creerEntreeHistorique } = require("../models/historique.model");
+const { utilisateurEstHossam } = require("../middleware/auth.middleware");
 const { resoudreCheminScreenshot } = require("../utils/screenshot-storage");
 
 const statutsSeanceValides = ["planifiee", "faite", "annulee", "reportee"];
@@ -110,6 +112,41 @@ function formaterDuree(dureeMinutes) {
   }
 
   return `${dureeMinutes} min`;
+}
+
+function construireMessageIndisponibilite(indisponibilite) {
+  const raison = normaliserTexte(indisponibilite?.raison);
+  const base = `Ce creneau est marque comme indisponible par Hossam le ${indisponibilite.date} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin}.`;
+
+  if (!raison) {
+    return base;
+  }
+
+  return `${base} Raison : ${raison}.`;
+}
+
+function creneauSeanceEquivalent(seance, donneesSeance) {
+  if (!seance || !donneesSeance) {
+    return false;
+  }
+
+  return (
+    seance.date === donneesSeance.date &&
+    seance.heure_debut === donneesSeance.heure_debut &&
+    seance.heure_fin === donneesSeance.heure_fin
+  );
+}
+
+async function recupererConflitIndisponibilite(req, donneesSeance) {
+  if (utilisateurEstHossam(req.utilisateur)) {
+    return null;
+  }
+
+  return trouverIndisponibiliteChevauchante({
+    date: donneesSeance.date,
+    heureDebut: donneesSeance.heure_debut,
+    heureFin: donneesSeance.heure_fin,
+  });
 }
 
 function normaliserValeurHistorique(champ, valeur) {
@@ -454,6 +491,14 @@ async function ajouterSeance(req, res) {
     });
   }
 
+  const conflitIndisponibilite = await recupererConflitIndisponibilite(req, donneesSeance);
+
+  if (conflitIndisponibilite) {
+    return res.status(400).json({
+      message: construireMessageIndisponibilite(conflitIndisponibilite),
+    });
+  }
+
   const nouvelleSeance = await creerSeance({
     ...donneesSeance,
     cree_par: req.utilisateur.id,
@@ -491,6 +536,14 @@ async function modifierSeance(req, res) {
 
   if (erreurs.length > 0) {
     return res.status(400).json({ message: erreurs.join(" ") });
+  }
+
+  const conflitIndisponibilite = await recupererConflitIndisponibilite(req, donneesSeance);
+
+  if (conflitIndisponibilite && !creneauSeanceEquivalent(seanceExistante, donneesSeance)) {
+    return res.status(400).json({
+      message: construireMessageIndisponibilite(conflitIndisponibilite),
+    });
   }
 
   const seanceMiseAJour = await mettreAJourSeance(req.params.id, {

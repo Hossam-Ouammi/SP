@@ -760,6 +760,20 @@ async function initialiserBaseDeDonnees() {
   `);
 
   await run(`
+    CREATE TABLE IF NOT EXISTS indisponibilites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      heure_debut TEXT NOT NULL,
+      heure_fin TEXT NOT NULL,
+      raison TEXT,
+      cree_par INTEGER NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (cree_par) REFERENCES utilisateurs (id)
+    )
+  `);
+
+  await run(`
     CREATE TABLE IF NOT EXISTS historique_actions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       seance_id INTEGER,
@@ -812,6 +826,15 @@ async function initialiserBaseDeDonnees() {
 
   await run(`
     CREATE INDEX IF NOT EXISTS idx_photos_seance_id ON photos (seance_id)
+  `);
+
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_indisponibilites_date
+    ON indisponibilites (date, heure_debut)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_indisponibilites_cree_par
+    ON indisponibilites (cree_par)
   `);
 
   await run(`

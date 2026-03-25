@@ -115,14 +115,94 @@ function estCalendrierCompact() {
   return globalThis.matchMedia?.("(max-width: 720px)")?.matches ?? false;
 }
 
+function creerElementCalendrier(tagName, className, texte) {
+  const element = document.createElement(tagName);
+
+  if (className) {
+    element.className = className;
+  }
+
+  if (typeof texte === "string") {
+    element.textContent = texte;
+  }
+
+  return element;
+}
+
+function formaterLibelleJourCalendrier(date, options) {
+  return new Intl.DateTimeFormat("fr-FR", options).format(date);
+}
+
+function obtenirAbreviationJourMobile(date) {
+  return formaterLibelleJourCalendrier(date, { weekday: "short" })
+    .replace(".", "")
+    .trim()
+    .slice(0, 2);
+}
+
+function extrairePrenomEtudiant(nomComplet) {
+  if (typeof nomComplet !== "string") {
+    return "";
+  }
+
+  return nomComplet
+    .trim()
+    .split(/\s+/)
+    .find(Boolean) || "";
+}
+
+function genererContenuEnteteJour(info) {
+  if (info.view.type === "dayGridMonth" && estCalendrierMobile()) {
+    return {
+      domNodes: [
+        creerElementCalendrier("span", "calendar-monthday-header", obtenirAbreviationJourMobile(info.date)),
+      ],
+    };
+  }
+
+  if (info.view.type !== "timeGridWeek") {
+    return info.text;
+  }
+
+  const conteneur = creerElementCalendrier("span", "calendar-weekday-header");
+  const formatJour = estCalendrierMobile() ? { weekday: "narrow" } : { weekday: "short" };
+
+  conteneur.append(
+    creerElementCalendrier(
+      "span",
+      "calendar-weekday-label",
+      formaterLibelleJourCalendrier(info.date, formatJour)
+    ),
+    creerElementCalendrier(
+      "span",
+      "calendar-weekday-date",
+      formaterLibelleJourCalendrier(info.date, { day: "numeric" })
+    )
+  );
+
+  if (!estCalendrierMobile()) {
+    conteneur.append(
+      creerElementCalendrier(
+        "span",
+        "calendar-weekday-month",
+        formaterLibelleJourCalendrier(info.date, { month: "short" }).replace(".", "")
+      )
+    );
+  }
+
+  return {
+    domNodes: [conteneur],
+  };
+}
+
 function obtenirOptionsResponsiveCalendrier() {
   if (estCalendrierMobile()) {
     return {
       initialView: "timeGridWeek",
       headerToolbar: {
-        left: "prev,next",
-        center: "title",
-        right: "today dayGridMonth,timeGridWeek",
+        left: "title",
+        center: "prev,next today",
+        right: "dayGridMonth,timeGridWeek",
       },
       buttonText: {
         today: "Auj.",
@@ -131,7 +211,6 @@ function obtenirOptionsResponsiveCalendrier() {
       },
       dayHeaderFormat: {
         weekday: "short",
-        day: "numeric",
       },
       dayMaxEvents: 1,
     };
@@ -199,7 +278,7 @@ function transformerSeanceEnEvenement(seance) {
 
   const paletteCompte = obtenirPaletteCompte(seance);
   const palette = paletteCompte || palettesStatut[seance.statut_seance] || palettesStatut.planifiee;
-  const titreEvenement = seance.libelle || `${seance.matiere} - ${seance.etudiant}`;
+  const titreEvenement = extrairePrenomEtudiant(seance.etudiant) || seance.libelle || "Seance";
   const compteNormalise = normaliserCompte(seance.compte);
   const classesEvenement = [palette.className];
 
@@ -218,11 +297,102 @@ function transformerSeanceEnEvenement(seance) {
     classNames: classesEvenement,
     extendedProps: {
       seance,
+      type: "seance",
     },
   };
 }
 
-export function initialiserCalendrier(element, { onDateClick, onEventClick }) {
+function transformerIndisponibiliteEnEvenement(indisponibilite) {
+  if (
+    !estDateIsoValide(indisponibilite.date) ||
+    !estHeureValide(indisponibilite.heure_debut) ||
+    !estHeureValide(indisponibilite.heure_fin)
+  ) {
+    console.warn(
+      "Indisponibilite ignoree dans le calendrier car date/heure invalide :",
+      indisponibilite.id
+    );
+    return null;
+  }
+
+  return {
+    id: `indisponibilite-${indisponibilite.id}`,
+    title: "",
+    start: `${indisponibilite.date}T${indisponibilite.heure_debut}`,
+    end: `${indisponibilite.date}T${indisponibilite.heure_fin}`,
+    backgroundColor: "#4b5563",
+    borderColor: "#374151",
+    textColor: "#f8fafc",
+    classNames: ["indisponibilite-event"],
+    extendedProps: {
+      indisponibilite,
+      type: "indisponibilite",
+    },
+  };
+}
+
+function genererContenuLienPlusEvenements(arg) {
+  if (!estCalendrierMobile()) {
+    return arg.text;
+  }
+
+  return {
+    domNodes: [creerElementCalendrier("span", "calendar-mobile-more-link", `+${arg.num}`)],
+  };
+}
+
+function synchroniserEtatVisuelCalendrier(element, typeVue) {
+  if (!element) {
+    return;
+  }
+
+  element.dataset.calendarMobile = estCalendrierMobile() ? "true" : "false";
+  element.dataset.calendarView = typeVue || "";
+}
+
+function adapterPresentationEvenement(info) {
+  const typeEvenement = info.event.extendedProps?.type;
+  const estVueMoisMobile = info.view.type === "dayGridMonth" && estCalendrierMobile();
+  const estVueSemaineMobile = info.view.type === "timeGridWeek" && estCalendrierMobile();
+
+  info.el.classList.remove(
+    "calendar-mobile-month-seance",
+    "calendar-mobile-month-indisponibilite",
+    "calendar-mobile-week-seance",
+    "calendar-mobile-week-indisponibilite"
+  );
+  info.el.style.removeProperty("--calendar-name-length");
+
+  if (typeEvenement === "seance") {
+    const prenom = String(info.event.title || "").trim();
+    info.el.style.setProperty("--calendar-name-length", String(Math.max(prenom.length, 1)));
+
+    if (estVueMoisMobile) {
+      info.el.classList.add("calendar-mobile-month-seance");
+      return;
+    }
+
+    if (estVueSemaineMobile) {
+      info.el.classList.add("calendar-mobile-week-seance");
+    }
+
+    return;
+  }
+
+  if (typeEvenement === "indisponibilite" && estVueMoisMobile) {
+    info.el.classList.add("calendar-mobile-month-indisponibilite");
+    return;
+  }
+
+  if (typeEvenement === "indisponibilite" && estVueSemaineMobile) {
+    info.el.classList.add("calendar-mobile-week-indisponibilite");
+  }
+}
+
+export function initialiserCalendrier(
+  element,
+  { onDateClick, onEventClick, onIndisponibiliteClick }
+) {
   const plugins = recupererPluginsCalendrier();
 
   if (!globalThis.FullCalendar?.Calendar || plugins.length === 0) {
@@ -240,17 +410,28 @@ export function initialiserCalendrier(element, { onDateClick, onEventClick }) {
     initialView: optionsResponsive.initialView,
     firstDay: 1,
     height: "auto",
+    expandRows: true,
     selectable: true,
+    slotEventOverlap: false,
+    eventMinHeight: 34,
     fixedWeekCount: false,
     allDaySlot: false,
+    nowIndicator: true,
     dayMaxEvents: optionsResponsive.dayMaxEvents,
     headerToolbar: optionsResponsive.headerToolbar,
     buttonText: optionsResponsive.buttonText,
     dayHeaderFormat: optionsResponsive.dayHeaderFormat,
+    dayHeaderContent: genererContenuEnteteJour,
+    moreLinkContent: genererContenuLienPlusEvenements,
+    displayEventTime: false,
     eventTimeFormat: {
       hour: "2-digit",
       minute: "2-digit",
       meridiem: false,
+    },
+    eventDidMount: adapterPresentationEvenement,
+    datesSet(info) {
+      synchroniserEtatVisuelCalendrier(element, info.view.type);
     },
     windowResize() {
       const vueActive = calendrier.view?.type;
@@ -263,25 +444,40 @@ export function initialiserCalendrier(element, { onDateClick, onEventClick }) {
       } else if (vueActive === "timeGridWeek" && !estCalendrierCompact()) {
         calendrier.changeView("dayGridMonth");
       }
+
+      synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
     },
     dateClick(info) {
       onDateClick(info.dateStr);
     },
     eventClick(info) {
+      const typeEvenement = info.event.extendedProps?.type;
+
+      if (typeEvenement === "indisponibilite") {
+        onIndisponibiliteClick?.(info.event.extendedProps.indisponibilite);
+        return;
+      }
+
       onEventClick(info.event.extendedProps.seance);
     },
     events: [],
   });
 
   calendrier.render();
+  synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
   return calendrier;
 }
 
-export function mettreAJourEvenements(calendrier, seances) {
+export function mettreAJourEvenements(calendrier, seances = [], indisponibilites = []) {
   if (!calendrier) {
     return;
   }
 
   calendrier.removeAllEvents();
-  calendrier.addEventSource(seances.map(transformerSeanceEnEvenement).filter(Boolean));
+  calendrier.addEventSource(
+    [
+      ...seances.map(transformerSeanceEnEvenement),
+      ...indisponibilites.map(transformerIndisponibiliteEnEvenement),
+    ].filter(Boolean)
+  );
 }
