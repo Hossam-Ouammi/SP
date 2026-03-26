@@ -32,6 +32,15 @@ export async function ajouterElementCatalogueAdmin(type, valeur, motDePasseActue
   });
 }
 
+export async function supprimerElementCatalogueAdmin(elementId, motDePasseActuel) {
+  return envoyerRequete(`/api/admin/catalogue-items/${Number(elementId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+
 export async function reinitialiserMotDePasseCompte(utilisateurId, motDePasseActuel) {
   return envoyerRequete("/api/admin/reset-password", {
     method: "POST",
@@ -145,6 +154,49 @@ export async function supprimerToutesLesSeancesAdmin(motDePasseActuel) {
 export async function supprimerToutHistoriqueAdmin(motDePasseActuel) {
   return envoyerRequete("/api/admin/clear-history", {
     method: "POST",
+    body: JSON.stringify({
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+export async function recupererJournalAuthAdmin(limit = 200) {
+  return envoyerRequete(`/api/admin/audit-logins?limit=${limit}`);
+}
+
+export async function recupererSessionsAdmin() {
+  const resultat = await envoyerRequete("/api/admin/sessions");
+  return resultat.sessions;
+}
+
+export async function revoquerSessionSpecifiqueAdmin(sessionId, motDePasseActuel) {
+  return envoyerRequete("/api/admin/sessions/revoke-sid", {
+    method: "POST",
+    body: JSON.stringify({
+      sid: sessionId,
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+
+export async function recupererIpsBloqueesAdmin() {
+  const resultat = await envoyerRequete("/api/admin/blocked-ips");
+  return resultat.ips;
+}
+
+export async function bloquerIpAdmin(ip, raison, motDePasseActuel) {
+  return envoyerRequete("/api/admin/blocked-ips", {
+    method: "POST",
+    body: JSON.stringify({
+      ip,
+      raison,
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+
+export async function debloquerIpAdmin(ip, motDePasseActuel) {
+  return envoyerRequete(`/api/admin/blocked-ips/${encodeURIComponent(ip)}`, {
+    method: "DELETE",
     body: JSON.stringify({
       mot_de_passe_actuel: motDePasseActuel,
     }),

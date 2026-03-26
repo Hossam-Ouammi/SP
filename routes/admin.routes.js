@@ -3,6 +3,7 @@ const express = require("express");
 const {
   recupererVueAdministration,
   ajouterElementCatalogueAdministration,
+  supprimerElementCatalogueAdministration,
   creerUtilisateurAdministration,
   supprimerUtilisateurAdministration,
   reinitialiserMotDePasseCompte,
@@ -15,6 +16,12 @@ const {
   revoquerSessionsUtilisateurAdministration,
   supprimerToutesLesSeancesAdmin,
   supprimerToutHistoriqueAdmin,
+  recupererJournalAuthentification,
+  recupererToutesLesSessions,
+  revoquerSessionSpecifique,
+  recupererIpsBloquees,
+  bloquerNouvelleIp,
+  debloquerIpExistante,
 } = require("../controllers/admin.controller");
 const {
   verifierAuthentification,
@@ -31,6 +38,10 @@ router.get("/", recupererVueAdministration);
 router.post(
   "/catalogue-items",
   notifierMiseAJourApplication(ajouterElementCatalogueAdministration, "catalogue")
+);
+router.delete(
+  "/catalogue-items/:id",
+  notifierMiseAJourApplication(supprimerElementCatalogueAdministration, "catalogue")
 );
 router.post("/users", notifierMiseAJourApplication(creerUtilisateurAdministration, "administration"));
 router.delete(
@@ -77,5 +88,22 @@ router.post(
   "/clear-history",
   notifierMiseAJourApplication(supprimerToutHistoriqueAdmin, "historique")
 );
+
+router.get("/audit-logins", recupererJournalAuthentification);
+router.get("/sessions", recupererToutesLesSessions);
+router.post(
+  "/sessions/revoke-sid",
+  notifierMiseAJourApplication(revoquerSessionSpecifique, "administration")
+);
+router.get("/blocked-ips", recupererIpsBloquees);
+router.post(
+  "/blocked-ips",
+  notifierMiseAJourApplication(bloquerNouvelleIp, "administration")
+);
+router.delete(
+  "/blocked-ips/:ip",
+  notifierMiseAJourApplication(debloquerIpExistante, "administration")
+);
+
 
 module.exports = router;

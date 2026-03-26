@@ -1,5 +1,8 @@
 node_modules/
 database/database.db
+database/*.db-wal
+database/*.db-shm
+database.db
 database/.audit-secret
 database/.session-secret
 public/uploads/*

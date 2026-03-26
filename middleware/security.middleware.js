@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const net = require("net");
 
 function genererTokenCsrf() {
   return crypto.randomBytes(32).toString("hex");
@@ -113,6 +114,50 @@ function verifierProtectionCsrf(req, res, next) {
   return next();
 }
 
+function normaliserValeurIp(valeur) {
+  let ip = String(valeur || "").trim();
+
+  if (!ip) {
+    return "";
+  }
+
+  if (ip === "::1") {
+    return "127.0.0.1";
+  }
+
+  if (ip.startsWith("::ffff:")) {
+    ip = ip.slice(7);
+  }
+
+  const ipEntouree = ip.match(/^\[(.+)\](?::\d+)?$/);
+  if (ipEntouree) {
+    ip = ipEntouree[1];
+  }
+
+  if (net.isIP(ip)) {
+    return ip;
+  }
+
+  if (/^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(ip)) {
+    const sansPort = ip.replace(/:\d+$/, "");
+    if (net.isIP(sansPort)) {
+      return sansPort;
+    }
+  }
+
+  return ip;
+}
+
+function normaliserIpClient(req) {
+  const forwardedFor = String(req.headers["x-forwarded-for"] || "")
+    .split(",")[0]
+    .trim();
+  const ip = normaliserValeurIp(
+    forwardedFor || req.ip || req.socket?.remoteAddress || ""
+  );
+  return ip || "ip-inconnue";
+}
+
 module.exports = {
   appliquerEnTetesSecurite,
   desactiverCacheApi,
@@ -120,4 +165,5 @@ module.exports = {
   attacherTokenCsrf,
   verifierProtectionCsrf,
   genererTokenCsrf,
+  normaliserIpClient,
 };

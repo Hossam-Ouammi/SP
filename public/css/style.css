@@ -835,6 +835,59 @@ button {
   color: var(--accent-strong);
 }
 
+.stats-comparison-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 10px;
+  table-layout: fixed;
+}
+
+.stats-comparison-table thead th {
+  padding: 0 18px 6px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  text-align: right;
+}
+
+.stats-comparison-table thead th:first-child {
+  text-align: left;
+}
+
+.stats-comparison-table tbody td {
+  padding: 16px 18px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+  font-size: 0.96rem;
+  font-weight: 600;
+  text-align: right;
+  vertical-align: middle;
+}
+
+.stats-comparison-table tbody tr td:first-child {
+  border-left: 1px solid var(--border);
+  border-top-left-radius: var(--radius-md);
+  border-bottom-left-radius: var(--radius-md);
+  text-align: left;
+}
+
+.stats-comparison-table tbody tr td:last-child {
+  border-right: 1px solid var(--border);
+  border-top-right-radius: var(--radius-md);
+  border-bottom-right-radius: var(--radius-md);
+}
+
+.stats-comparison-table tbody td strong {
+  font-size: 1rem;
+}
+
+.stats-comparison-table tbody td .badge-faite {
+  display: inline-flex;
+}
+
 .calendar-panel {
   min-width: 0;
   overflow: hidden;
@@ -1626,6 +1679,50 @@ button {
   font-weight: 600;
 }
 
+.admin-catalog-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #eff6ff;
+}
+
+.admin-catalog-item-label {
+  color: #315287;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.admin-catalog-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.admin-catalog-remove:hover {
+  background: #fecaca;
+  color: #b91c1c;
+  transform: translateY(-1px);
+}
+
+.admin-catalog-remove:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  transform: none;
+}
+
 .admin-panel-shell {
   display: grid;
   gap: 18px;
@@ -2033,6 +2130,12 @@ button {
   border-color: #fde68a;
   background: #fffdf4;
   color: #92400e;
+}
+
+.security-notice-success {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #065f46;
 }
 
 .user-password-help {
@@ -2740,6 +2843,99 @@ button {
     grid-template-columns: 1fr;
   }
 
+  #detail-modal .detail-layout {
+    gap: 14px;
+  }
+
+  #detail-modal .detail-card {
+    gap: 14px;
+  }
+
+  #detail-modal .detail-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 4px;
+    padding: 10px 0;
+  }
+
+  #detail-modal .detail-row strong {
+    text-align: left;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  #detail-modal .detail-description {
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(248, 250, 252, 0.72);
+  }
+
+  #detail-modal .detail-description p {
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+
+  #detail-modal .detail-actions .button,
+  #detail-modal .quick-actions .button {
+    width: 100%;
+  }
+
+  #detail-modal .photo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .history-panel-detail {
+    display: none;
+  }
+
+  #history-detail-modal {
+    place-items: start center;
+  }
+
+  #history-detail-modal .modal-panel {
+    width: min(100%, 100%);
+  }
+
+  #history-detail-modal .history-detail {
+    gap: 14px;
+  }
+
+  #history-detail-modal .detail-list {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  #history-detail-modal .detail-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(248, 250, 252, 0.72);
+  }
+
+  #history-detail-modal .detail-row span {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  #history-detail-modal .detail-row strong {
+    text-align: left;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  #history-detail-modal .history-changes {
+    gap: 12px;
+  }
+
   .modal {
     padding: 10px;
   }
@@ -2927,6 +3123,66 @@ button {
     font-size: 0.9rem;
   }
 
+  .stats-comparison-table {
+    display: block;
+    border-spacing: 0;
+  }
+
+  .stats-comparison-table thead {
+    display: none;
+  }
+
+  .stats-comparison-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .stats-comparison-table tbody tr {
+    display: grid;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+    box-shadow: var(--shadow-xs);
+    overflow: hidden;
+  }
+
+  .stats-comparison-table tbody td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 12px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    font-size: 0.9rem;
+    text-align: left;
+  }
+
+  .stats-comparison-table tbody td + td {
+    border-top: 1px solid rgba(226, 232, 240, 0.9);
+  }
+
+  .stats-comparison-table tbody td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .stats-comparison-table tbody td:first-child {
+    padding-top: 13px;
+    padding-bottom: 13px;
+    background: rgba(248, 250, 252, 0.72);
+  }
+
+  .stats-comparison-table tbody td:first-child strong {
+    font-size: 1rem;
+  }
+
   .history-count {
     min-width: 32px;
     min-height: 26px;
@@ -3006,8 +3262,44 @@ button {
     padding: 16px;
   }
 
+  #detail-title,
   .detail-title {
     font-size: 1.1rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  #detail-modal .detail-badges {
+    gap: 6px;
+  }
+
+  #detail-modal .status-badge {
+    min-height: 34px;
+    padding: 7px 10px;
+    font-size: 0.8rem;
+  }
+
+  #detail-modal .detail-card h4 {
+    font-size: 0.96rem;
+  }
+
+  #detail-modal .detail-row span {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  #detail-modal .detail-row strong {
+    font-size: 0.96rem;
+  }
+
+  #detail-modal .photo-grid {
+    gap: 10px;
+  }
+
+  #history-detail-modal .history-change-card {
+    padding: 14px;
   }
 
   #calendar {

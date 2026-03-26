@@ -5,6 +5,9 @@ const {
   listerCatalogueOptions,
   trouverValeurCatalogue,
   ajouterValeurCatalogue,
+  trouverValeurCatalogueParId,
+  compterUtilisationValeurCatalogue,
+  supprimerValeurCatalogueParId,
 } = require("./catalogue.model");
 const {
   storageUploadsDirectory,
@@ -309,6 +312,7 @@ async function supprimerToutHistorique() {
   `);
 
   await run("DELETE FROM historique_actions");
+  await run("DELETE FROM journal_auth");
 
   return {
     totalHistorique: Number(resume?.total_historique || 0),
@@ -326,6 +330,18 @@ async function trouverElementCatalogue(type, valeur) {
 
 async function ajouterElementCatalogue(type, valeur) {
   return ajouterValeurCatalogue(type, valeur);
+}
+
+async function trouverElementCatalogueParId(elementId) {
+  return trouverValeurCatalogueParId(elementId);
+}
+
+async function compterUtilisationElementCatalogue(type, valeur) {
+  return compterUtilisationValeurCatalogue(type, valeur);
+}
+
+async function supprimerElementCatalogue(elementId) {
+  return supprimerValeurCatalogueParId(elementId);
 }
 
 async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemplacementId) {
@@ -348,6 +364,14 @@ async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemp
         WHERE modifie_par = ?
       `,
       [utilisateurRemplacementId, utilisateurId]
+    );
+    const seancesLegacyDetachees = await run(
+      `
+        UPDATE seances
+        SET utilisateur_id = NULL
+        WHERE utilisateur_id = ?
+      `,
+      [utilisateurId]
     );
     await run(
       `
@@ -373,6 +397,7 @@ async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemp
       totalSessionsSupprimees,
       totalSeancesCreeesReattribuees: Number(seancesCreees?.changes || 0),
       totalSeancesModifieesReattribuees: Number(seancesModifiees?.changes || 0),
+      totalSeancesLegacyDetachees: Number(seancesLegacyDetachees?.changes || 0),
       totalUtilisateursSupprimes: Number(suppression?.changes || 0),
     };
   } catch (erreur) {
@@ -397,6 +422,9 @@ module.exports = {
   supprimerToutHistorique,
   recupererCatalogueAdministration,
   trouverElementCatalogue,
+  trouverElementCatalogueParId,
   ajouterElementCatalogue,
+  compterUtilisationElementCatalogue,
+  supprimerElementCatalogue,
   supprimerUtilisateurAdministration,
 };

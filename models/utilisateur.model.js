@@ -19,6 +19,7 @@ async function trouverUtilisateurParEmail(email) {
         mot_de_passe_change_at,
         dernier_login_at,
         dernier_login_ip,
+        tarif_horaire,
         created_at
       FROM utilisateurs
       WHERE email = ?
@@ -45,6 +46,7 @@ async function trouverUtilisateurParNom(nom) {
         mot_de_passe_change_at,
         dernier_login_at,
         dernier_login_ip,
+        tarif_horaire,
         created_at
       FROM utilisateurs
       WHERE lower(nom) = lower(?)
@@ -74,7 +76,8 @@ async function trouverUtilisateurParNomOuEmail(identifiant) {
         premier_echec_connexion_at,
         bloque_jusqua,
         dernier_login_at,
-        dernier_login_ip
+        dernier_login_ip,
+        tarif_horaire
       FROM utilisateurs
       WHERE lower(nom) = lower(?) OR lower(email) = lower(?)
     `,
@@ -100,6 +103,7 @@ async function trouverUtilisateurParId(id) {
         mot_de_passe_change_at,
         dernier_login_at,
         dernier_login_ip,
+        tarif_horaire,
         created_at
       FROM utilisateurs
       WHERE id = ?
@@ -129,7 +133,8 @@ async function trouverUtilisateurAvecMotDePasseParId(id) {
         premier_echec_connexion_at,
         bloque_jusqua,
         dernier_login_at,
-        dernier_login_ip
+        dernier_login_ip,
+        tarif_horaire
       FROM utilisateurs
       WHERE id = ?
     `,
@@ -148,6 +153,7 @@ async function creerUtilisateur({
   peutVoirAujourdhui = 0,
   peutVoirIndisponibilites = 0,
   doitChangerMotDePasse = 1,
+  tarifHoraire = 100,
 }) {
   return run(
     `
@@ -161,9 +167,10 @@ async function creerUtilisateur({
         peut_voir_monetisation,
         peut_voir_aujourdhui,
         peut_voir_indisponibilites,
-        doit_changer_mot_de_passe
+        doit_changer_mot_de_passe,
+        tarif_horaire
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       nom,
@@ -176,6 +183,7 @@ async function creerUtilisateur({
       peutVoirAujourdhui ? 1 : 0,
       peutVoirIndisponibilites ? 1 : 0,
       doitChangerMotDePasse ? 1 : 0,
+      tarifHoraire,
     ]
   );
 }
@@ -248,7 +256,27 @@ async function mettreAJourEtatEchecConnexion(
     [echecsConnexion, premierEchecConnexionAt, bloqueJusqua, id]
   );
 }
-
+async function listerCompteUtilisateurs() {
+  const { all } = require("./db");
+  return all(
+    `
+      SELECT
+        id,
+        nom,
+        email,
+        est_admin,
+        acces_active,
+        mode_lecture_seule,
+        peut_voir_monetisation,
+        peut_voir_aujourdhui,
+        peut_voir_indisponibilites,
+        tarif_horaire,
+        created_at
+      FROM utilisateurs
+      ORDER BY id ASC
+    `
+  );
+}
 module.exports = {
   trouverUtilisateurParEmail,
   trouverUtilisateurParNom,
@@ -260,4 +288,5 @@ module.exports = {
   reinitialiserMotDePasseUtilisateur,
   mettreAJourEtatConnexionReussie,
   mettreAJourEtatEchecConnexion,
+  listerCompteUtilisateurs,
 };

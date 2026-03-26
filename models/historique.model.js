@@ -99,7 +99,7 @@ async function creerEntreeHistorique({
   const createdAt = new Date().toISOString();
   const entree = {
     seance_id: seanceId || null,
-    seance_libelle: seanceLibelle || "Séance inconnue",
+    seance_libelle: seanceLibelle || "Seance inconnue",
     action_type: actionType,
     action_label: actionLabel,
     acteur_id: acteurId || null,
@@ -189,33 +189,73 @@ async function trouverEntreeHistoriqueParId(id) {
 }
 
 async function construireCarteIntegriteHistorique(entreesLimitee = null) {
-  const entrees = entreesLimitee || await all(
-    `
-      SELECT
-        id,
-        seance_id,
-        seance_libelle,
-        action_type,
-        action_label,
-        acteur_id,
-        acteur_nom,
-        details_json,
-        previous_hash,
-        entry_hash,
-        created_at
-      FROM historique_actions
-      ORDER BY id ASC
-    `
-  );
+  let entrees = entreesLimitee;
+
+  if (Array.isArray(entreesLimitee)) {
+    if (entreesLimitee.length === 0) {
+      return new Map();
+    }
+
+    const idMaximum = entreesLimitee.reduce((maximum, entree) => {
+      const id = Number(entree?.id || 0);
+      return id > maximum ? id : maximum;
+    }, 0);
+
+    entrees = await all(
+      `
+        SELECT
+          id,
+          seance_id,
+          seance_libelle,
+          action_type,
+          action_label,
+          acteur_id,
+          acteur_nom,
+          details_json,
+          previous_hash,
+          entry_hash,
+          created_at
+        FROM historique_actions
+        WHERE id <= ?
+        ORDER BY id ASC
+      `,
+      [idMaximum]
+    );
+  } else {
+    entrees = await all(
+      `
+        SELECT
+          id,
+          seance_id,
+          seance_libelle,
+          action_type,
+          action_label,
+          acteur_id,
+          acteur_nom,
+          details_json,
+          previous_hash,
+          entry_hash,
+          created_at
+        FROM historique_actions
+        ORDER BY id ASC
+      `
+    );
+  }
 
   const carteIntegrite = new Map();
+  let hashPrecedentAttendu = "";
+  let chaineValideJusquaIci = true;
 
   for (const entree of entrees) {
     const hashCalcule = calculerHashEntree(entree);
-    
-    const integriteValide = entree.entry_hash === hashCalcule;
+    const previousHashValide = String(entree.previous_hash || "") === hashPrecedentAttendu;
+    const hashCourantValide = entree.entry_hash === hashCalcule;
+    const integriteValide =
+      chaineValideJusquaIci && previousHashValide && hashCourantValide;
 
     carteIntegrite.set(entree.id, integriteValide);
+    hashPrecedentAttendu = String(entree.entry_hash || "");
+    chaineValideJusquaIci = integriteValide;
   }
 
   return carteIntegrite;

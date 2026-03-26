@@ -24,6 +24,7 @@ const {
   verifierProtectionCsrf,
   attacherTokenCsrf,
 } = require("./middleware/security.middleware");
+const { verifierIpBlocklist } = require("./middleware/ip-blocklist.middleware");
 const { assurerDossiersScreenshots } = require("./utils/screenshot-storage");
 const {
   SESSION_COOKIE_NAME,
@@ -45,6 +46,8 @@ function appliquerNoCacheStatic(res) {
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
 }
+
+app.use(verifierIpBlocklist);
 
 app.use(compression({
   filter: (req, res) => {
@@ -123,8 +126,6 @@ app.use(
     setHeaders: appliquerNoCacheStatic,
   })
 );
-
-
 
 app.use(
   express.static(path.join(__dirname, "public"), {

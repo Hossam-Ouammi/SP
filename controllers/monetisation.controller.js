@@ -1,9 +1,10 @@
 const { listerSeancesPourMonetisation } = require("../models/seance.model");
+const { listerCompteUtilisateurs } = require("../models/utilisateur.model");
 
-const tarifsParCompte = {
-  Yassine: 130,
-  Abdo: 90,
-};
+const CONFIGURATION_COMPTES_MONETISATION = [
+  { nom: "Yassine", tarif_par_defaut: 130 },
+  { nom: "Abdo", tarif_par_defaut: 90 },
+];
 
 function estHeureValide(heure) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(heure || ""));
@@ -64,24 +65,9 @@ function calculerMontantSeance(seance, tarifUnitaire) {
   return (tarifUnitaire * dureeMinutes) / 60;
 }
 
-function normaliserCompte(compte) {
-  const valeur = String(compte || "").trim().toLowerCase();
-
-  if (valeur === "yassine") {
-    return "Yassine";
-  }
-
-  if (valeur === "abdo" || valeur === "ami") {
-    return "Abdo";
-  }
-
-  return "";
-}
-
-function calculerMonetisationPourCompte(seances, compte) {
-  const tarifUnitaire = tarifsParCompte[compte] || 0;
+function calculerMonetisationPourCompte(seances, nomCompte, tarifUnitaire) {
   const seancesDuCompte = seances.filter(
-    (seance) => normaliserCompte(seance.compte) === compte
+    (seance) => (seance.compte || "").trim().toLowerCase() === nomCompte.toLowerCase()
   );
   const seancesFacturables = seancesDuCompte.filter(
     (seance) =>
@@ -106,22 +92,50 @@ function calculerMonetisationPourCompte(seances, compte) {
   };
 }
 
-async function recupererMonetisation(req, res) {
-  const seances = await listerSeancesPourMonetisation();
-  const yassine = calculerMonetisationPourCompte(seances, "Yassine");
-  const abdo = calculerMonetisationPourCompte(seances, "Abdo");
+function normaliserCleCompte(valeur) {
+  return String(valeur || "").trim().toLowerCase();
+}
 
-  return res.json({
-    monetisation: {
-      montant_abdo_a_payer: abdo.montant_du,
-      montant_total: yassine.montant_du + abdo.montant_du,
-      nombre_total_facturable: yassine.seances_facturables + abdo.seances_facturables,
-      comptes: {
-        Yassine: yassine,
-        Abdo: abdo,
+async function recupererMonetisation(req, res) {
+  try {
+    const [seances, utilisateurs] = await Promise.all([
+      listerSeancesPourMonetisation(),
+      listerCompteUtilisateurs(),
+    ]);
+
+    const utilisateursParNom = new Map(
+      utilisateurs.map((utilisateur) => [normaliserCleCompte(utilisateur.nom), utilisateur])
+    );
+
+    const statsComptes = {};
+    let montantTotal = 0;
+    let nombreTotalFacturable = 0;
+
+    CONFIGURATION_COMPTES_MONETISATION.forEach((compteConfigure) => {
+      const utilisateur = utilisateursParNom.get(normaliserCleCompte(compteConfigure.nom));
+      const tarifUnitaire = Number(utilisateur?.tarif_horaire || compteConfigure.tarif_par_defaut || 0);
+      const stats = calculerMonetisationPourCompte(
+        seances,
+        compteConfigure.nom,
+        tarifUnitaire
+      );
+
+      statsComptes[compteConfigure.nom] = stats;
+      montantTotal += stats.montant_du;
+      nombreTotalFacturable += stats.seances_facturables;
+    });
+
+    return res.json({
+      monetisation: {
+        montant_total: montantTotal,
+        nombre_total_facturable: nombreTotalFacturable,
+        comptes: statsComptes,
       },
-    },
-  });
+    });
+  } catch (error) {
+    console.error("Erreur monetisation:", error);
+    return res.status(500).json({ message: "Erreur lors du calcul de la monetisation." });
+  }
 }
 
 module.exports = {

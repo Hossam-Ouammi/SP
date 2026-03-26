@@ -15,16 +15,24 @@ const requeteSeanceComplete = `
   LEFT JOIN utilisateurs AS modificateur ON modificateur.id = seances.modifie_par
 `;
 
-async function listerToutesLesSeances() {
+async function listerToutesLesSeances(utilisateurId = null) {
+  const clauseWhere = utilisateurId ? "WHERE seances.utilisateur_id = ?" : "";
+  const parametres = utilisateurId ? [utilisateurId] : [];
+
   return all(
     `
       ${requeteSeanceComplete}
+      ${clauseWhere}
       ORDER BY seances.date ASC, seances.heure_debut ASC
-    `
+    `,
+    parametres
   );
 }
 
-async function listerSeancesPourMonetisation() {
+async function listerSeancesPourMonetisation(utilisateurId = null) {
+  const clauseWhere = utilisateurId ? "WHERE utilisateur_id = ?" : "";
+  const parametres = utilisateurId ? [utilisateurId] : [];
+
   return all(
     `
       SELECT
@@ -36,17 +44,22 @@ async function listerSeancesPourMonetisation() {
         heure_fin,
         statut_seance
       FROM seances
-    `
+      ${clauseWhere}
+    `,
+    parametres
   );
 }
 
-async function trouverSeanceParId(id) {
+async function trouverSeanceParId(id, utilisateurId = null) {
+  const clauseWhereExtra = utilisateurId ? "AND seances.utilisateur_id = ?" : "";
+  const parametres = utilisateurId ? [id, utilisateurId] : [id];
+
   return get(
     `
       ${requeteSeanceComplete}
-      WHERE seances.id = ?
+      WHERE seances.id = ? ${clauseWhereExtra}
     `,
-    [id]
+    parametres
   );
 }
 
@@ -68,9 +81,10 @@ async function creerSeance(donneesSeance) {
         statut_paiement,
         description,
         cree_par,
-        modifie_par
+        modifie_par,
+        utilisateur_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       donneesSeance.titre,
@@ -88,13 +102,14 @@ async function creerSeance(donneesSeance) {
       donneesSeance.description,
       donneesSeance.cree_par,
       donneesSeance.modifie_par,
+      donneesSeance.utilisateur_id,
     ]
   );
 
-  return trouverSeanceParId(resultat.id);
+  return trouverSeanceParId(resultat.id, donneesSeance.utilisateur_id);
 }
 
-async function mettreAJourSeance(id, donneesSeance) {
+async function mettreAJourSeance(id, donneesSeance, utilisateurId = null) {
   await run(
     `
       UPDATE seances
@@ -114,7 +129,7 @@ async function mettreAJourSeance(id, donneesSeance) {
         description = ?,
         modifie_par = ?,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      WHERE id = ? ${utilisateurId ? "AND utilisateur_id = ?" : ""}
     `,
     [
       donneesSeance.titre,
@@ -132,13 +147,17 @@ async function mettreAJourSeance(id, donneesSeance) {
       donneesSeance.description,
       donneesSeance.modifie_par,
       id,
+      ...(utilisateurId ? [utilisateurId] : []),
     ]
   );
 
-  return trouverSeanceParId(id);
+  return trouverSeanceParId(id, utilisateurId);
 }
 
-async function mettreAJourStatutSeance(id, statutSeance, utilisateurId) {
+async function mettreAJourStatutSeance(id, statutSeance, acteurId, utilisateurId = null) {
+  const clauseWhere = utilisateurId ? "AND utilisateur_id = ?" : "";
+  const parametres = utilisateurId ? [statutSeance, acteurId, id, utilisateurId] : [statutSeance, acteurId, id];
+
   await run(
     `
       UPDATE seances
@@ -146,16 +165,19 @@ async function mettreAJourStatutSeance(id, statutSeance, utilisateurId) {
         statut_seance = ?,
         modifie_par = ?,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      WHERE id = ? ${clauseWhere}
     `,
-    [statutSeance, utilisateurId, id]
+    parametres
   );
 
-  return trouverSeanceParId(id);
+  return trouverSeanceParId(id, utilisateurId);
 }
 
-async function supprimerSeance(id) {
-  return run("DELETE FROM seances WHERE id = ?", [id]);
+async function supprimerSeance(id, utilisateurId = null) {
+  const clauseWhere = utilisateurId ? "AND utilisateur_id = ?" : "";
+  const parametres = utilisateurId ? [id, utilisateurId] : [id];
+
+  return run(`DELETE FROM seances WHERE id = ? ${clauseWhere}`, parametres);
 }
 
 module.exports = {

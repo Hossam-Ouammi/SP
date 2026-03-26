@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
@@ -13,7 +13,7 @@
     <link rel="icon" type="image/svg+xml" href="/logo-superprof-inspired.svg" />
     <link rel="shortcut icon" href="/logo-superprof-inspired.svg" />
     <link rel="apple-touch-icon" href="/logo-superprof-inspired.svg" />
-    <link rel="stylesheet" href="/css/style.css?v=20260325b" />
+    <link rel="stylesheet" href="/css/style.css?v=20260326b" />
   </head>
   <body>
     <main>
@@ -26,7 +26,7 @@
               <p>Acces partage pour les deux utilisateurs.</p>
             </div>
 
-            <form id="login-form" class="stack-form">
+            <form id="login-form" class="stack-form" method="post" action="/">
               <label class="field">
                 <span>Identifiant</span>
                 <input
@@ -74,7 +74,6 @@
         </div>
       </section>
 
-      <% if (typeof user !== "undefined" && user) { %>
       <section id="app-view" class="page app-page hidden">
         <header class="topbar panel">
           <div class="topbar-left">
@@ -249,7 +248,7 @@
         </section>
 
         <section id="statistiques-section" class="app-section hidden">
-          <section class="statistics-overview-grid">
+          <div id="stats-accounts-overview" class="statistics-overview-grid">
             <article class="panel stat-overview-card stat-overview-card-primary">
               <span class="stat-overview-label">Total general</span>
               <strong id="total-count" class="stat-overview-value">0</strong>
@@ -264,7 +263,7 @@
               <span class="stat-overview-label">Compte Abdo</span>
               <strong id="stats-abdo-total" class="stat-overview-value">0</strong>
             </article>
-          </section>
+          </div>
 
           <section class="panel stats-compare-panel">
             <div class="section-heading section-heading-stack">
@@ -274,7 +273,7 @@
               </div>
             </div>
 
-            <div class="stats-table">
+            <div id="stats-accounts-table" class="stats-table">
               <div class="stats-table-row stats-table-head">
                 <span>Indicateur</span>
                 <strong>Yassine</strong>
@@ -441,7 +440,6 @@
                 </div>
               </form>
 
-              <% if (typeof user !== "undefined" && user.est_admin === 1) { %>
               <section id="admin-tools-panel" class="user-admin-shell hidden">
                 <article class="admin-card admin-directory-card">
                   <div class="admin-card-head">
@@ -567,7 +565,7 @@
                       <div>
                         <h3 class="user-form-title">Ajouter un utilisateur</h3>
                         <p class="section-note">
-                          Le nouveau compte demarre avec 123456 et devra le changer.
+                          Le nouveau compte demarre avec un code temporaire unique et devra le changer.
                         </p>
                       </div>
 
@@ -592,6 +590,10 @@
                       </label>
 
                       <p id="admin-create-user-error" class="form-error hidden"></p>
+                      <div
+                        id="admin-create-user-result"
+                        class="security-notice security-notice-success hidden"
+                      ></div>
 
                       <div class="form-actions">
                         <button id="admin-create-user-button" class="button primary" type="submit">
@@ -642,7 +644,7 @@
                       <div>
                         <h3 class="user-form-title">Reinitialiser un mot de passe</h3>
                         <p class="section-note">
-                          Reinitialise le compte cible a 123456.
+                          Genere un code temporaire unique. Pense a le copier: il ne sera pas stocke en clair.
                         </p>
                       </div>
 
@@ -662,6 +664,10 @@
                       </label>
 
                       <p id="admin-reset-password-error" class="form-error hidden"></p>
+                      <div
+                        id="admin-reset-password-result"
+                        class="security-notice security-notice-success hidden"
+                      ></div>
 
                       <div class="form-actions">
                         <button
@@ -1005,8 +1011,63 @@
 
                   <div id="admin-sessions-list" class="admin-session-list"></div>
                 </article>
+
+                <article class="admin-card admin-audit-card">
+                  <div class="admin-card-head">
+                    <div>
+                      <h3 class="user-form-title">Journal d'audit</h3>
+                      <p class="section-note">
+                        Suivez les tentatives de connexion et les actions sensibles.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div id="admin-audit-log-list" class="admin-session-list"></div>
+                </article>
+
+                <article class="admin-card admin-blacklist-card">
+                  <div class="admin-card-head">
+                    <div>
+                      <h3 class="user-form-title">Blacklist IP</h3>
+                      <p class="section-note">
+                        Bloquez une adresse IP et gerer les blocages existants.
+                      </p>
+                    </div>
+                  </div>
+
+                  <form id="admin-block-ip-form" class="stack-form">
+                    <label class="field">
+                      <span>Adresse IP</span>
+                      <input id="admin-block-ip-address" type="text" required />
+                    </label>
+
+                    <label class="field">
+                      <span>Raison</span>
+                      <input id="admin-block-ip-reason" type="text" maxlength="160" />
+                    </label>
+
+                    <label class="field">
+                      <span>Votre mot de passe actuel</span>
+                      <input
+                        id="admin-block-ip-password"
+                        type="password"
+                        autocomplete="current-password"
+                        required
+                      />
+                    </label>
+
+                    <p id="admin-block-ip-error" class="form-error hidden"></p>
+
+                    <div class="form-actions">
+                      <button id="admin-block-ip-button" class="button danger" type="submit">
+                        Bloquer l'IP
+                      </button>
+                    </div>
+                  </form>
+
+                  <div id="admin-blocked-ips-list" class="admin-session-list"></div>
+                </article>
               </section>
-              <% } %>
             </div>
           </section>
         </section>
@@ -1176,8 +1237,48 @@
           </section>
         </section>
       </section>
-    <% } %>
     </main>
+
+    <div id="history-detail-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="history-detail-modal"></div>
+      <div class="modal-panel modal-large">
+        <div class="modal-header">
+          <div class="modal-heading">
+            <h3>Detail</h3>
+            <p id="history-detail-modal-subtitle" class="modal-subtitle hidden"></p>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="history-detail-modal">
+            x
+          </button>
+        </div>
+
+        <div id="history-detail-modal-content" class="history-detail history-detail-modal">
+          <div class="detail-list">
+            <div class="detail-row">
+              <span>Action</span>
+              <strong id="history-detail-modal-action">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Seance</span>
+              <strong id="history-detail-modal-seance">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Par</span>
+              <strong id="history-detail-modal-actor">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Date</span>
+              <strong id="history-detail-modal-date">-</strong>
+            </div>
+          </div>
+
+          <div class="history-changes">
+            <h3 id="history-detail-modal-changes-title">Details</h3>
+            <div id="history-detail-modal-changes-list" class="history-changes-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div id="seance-modal" class="modal hidden" aria-hidden="true">
       <div class="modal-backdrop" data-close-modal="seance-modal"></div>
@@ -1526,6 +1627,6 @@
     <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
-    <script type="module" src="/js/ui.js?v=20260325b"></script>
+    <script type="module" src="/js/ui.js?v=20260326b"></script>
   </body>
 </html>

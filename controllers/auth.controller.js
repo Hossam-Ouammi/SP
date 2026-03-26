@@ -9,8 +9,9 @@ const {
   mettreAJourEtatEchecConnexion,
 } = require("../models/utilisateur.model");
 const { enregistrerEvenementAuth } = require("../models/journal-auth.model");
-const { genererTokenCsrf } = require("../middleware/security.middleware");
+const { genererTokenCsrf, normaliserIpClient } = require("../middleware/security.middleware");
 const { chargerUtilisateurAuthentifie } = require("../middleware/auth.middleware");
+const { motDePasseRespectePolitique } = require("../utils/security");
 const {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_MS,
@@ -25,12 +26,7 @@ const FENETRE_TENTATIVES_COMPTE_MS = 15 * 60 * 1000;
 const DUREE_BLOCAGE_COMPTE_MS = 15 * 60 * 1000;
 const MAX_TENTATIVES_COMPTE = 5;
 
-function normaliserIpClient(req) {
-  const enteteTransmis = String(req.headers["x-forwarded-for"] || "")
-    .split(",")[0]
-    .trim();
-  return enteteTransmis || req.ip || "ip-inconnue";
-}
+
 
 function obtenirUserAgent(req) {
   return String(req.headers["user-agent"] || "").slice(0, 400);
@@ -95,17 +91,6 @@ function enregistrerEchecConnexionIp(req) {
 
 function reinitialiserTentativesConnexionIp(req) {
   tentativesConnexionParIp.delete(normaliserIpClient(req));
-}
-
-function motDePasseRespectePolitique(motDePasse) {
-  const valeur = String(motDePasse || "");
-  return (
-    valeur.length >= 12 &&
-    /[a-z]/.test(valeur) &&
-    /[A-Z]/.test(valeur) &&
-    /\d/.test(valeur) &&
-    /[^A-Za-z0-9]/.test(valeur)
-  );
 }
 
 function calculerSecondesRestantes(dateIso) {

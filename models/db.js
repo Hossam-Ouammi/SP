@@ -11,7 +11,7 @@ const {
 
 const databaseDirectory = path.join(__dirname, "..", "database");
 const databasePath = process.env.DATABASE_PATH || path.join(databaseDirectory, "database.db");
-const activerDonneesExemple = process.env.SEED_DEMO_DATA === "true";
+const activerDonneesExemple = process.env.SEED_DEMO_DATA === "true" && process.env.NODE_ENV !== "production";
 const matieresParDefaut = ["Maths", "Physique chimie", "Python", "C++"];
 const comptesParDefaut = ["Abdo", "Yassine"];
 
@@ -115,17 +115,17 @@ function calculerHashHistorique(entree) {
 
 function construireListeCreationHistorique(seance) {
   return [
-    { champ: "etudiant", label: "Étudiant", avant: "-", apres: seance.etudiant },
-    { champ: "matiere", label: "Matière", avant: "-", apres: seance.matiere },
+    { champ: "etudiant", label: "Etudiant", avant: "-", apres: seance.etudiant },
+    { champ: "matiere", label: "Matiere", avant: "-", apres: seance.matiere },
     { champ: "compte", label: "Compte", avant: "-", apres: seance.compte || "Abdo" },
     {
       champ: "est_essai",
-      label: "Séance d'essai",
+      label: "Seance d'essai",
       avant: "-",
       apres: Number(seance.est_essai) === 1 ? "Oui" : "Non",
     },
     { champ: "date", label: "Date", avant: "-", apres: seance.date },
-    { champ: "heure_debut", label: "Heure de début", avant: "-", apres: seance.heure_debut },
+    { champ: "heure_debut", label: "Heure de debut", avant: "-", apres: seance.heure_debut },
     { champ: "heure_fin", label: "Heure de fin", avant: "-", apres: seance.heure_fin },
     {
       champ: "statut_seance",
@@ -235,6 +235,10 @@ async function ajouterColonnesSecuriteUtilisateursSiNecessaire() {
       sql: "ALTER TABLE utilisateurs ADD COLUMN dernier_login_ip TEXT",
     },
     {
+      nom: "tarif_horaire",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN tarif_horaire INTEGER DEFAULT 100",
+    },
+    {
       nom: "created_at",
       sql: "ALTER TABLE utilisateurs ADD COLUMN created_at TEXT",
     },
@@ -302,6 +306,15 @@ async function ajouterColonneParentSiNecessaire() {
   `);
 }
 
+async function ajouterColonneUtilisateurIdSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(seances)");
+  const colonneExiste = colonnes.some((colonne) => colonne.name === "utilisateur_id");
+
+  if (!colonneExiste) {
+    await run("ALTER TABLE seances ADD COLUMN utilisateur_id INTEGER REFERENCES utilisateurs(id)");
+  }
+}
+
 async function ajouterColonneJourCompletIndisponibilitesSiNecessaire() {
   const colonnes = await all("PRAGMA table_info(indisponibilites)");
   const colonneJourCompletExiste = colonnes.some(
@@ -315,6 +328,253 @@ async function ajouterColonneJourCompletIndisponibilitesSiNecessaire() {
   await run(`
     UPDATE indisponibilites
     SET jour_complet = COALESCE(jour_complet, 0)
+  `);
+}
+
+async function ajouterColonnesSeancesSystemeSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(seances)");
+  const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
+  const migrations = [
+    {
+      nom: "created_at",
+      sql: "ALTER TABLE seances ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    {
+      nom: "updated_at",
+      sql: "ALTER TABLE seances ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    {
+      nom: "revision",
+      sql: "ALTER TABLE seances ADD COLUMN revision INTEGER DEFAULT 1",
+    },
+    {
+      nom: "deleted_at",
+      sql: "ALTER TABLE seances ADD COLUMN deleted_at TEXT",
+    },
+    {
+      nom: "deleted_by",
+      sql: "ALTER TABLE seances ADD COLUMN deleted_by INTEGER REFERENCES utilisateurs(id)",
+    },
+  ];
+
+  for (const migration of migrations) {
+    if (!colonnesExistantes.has(migration.nom)) {
+      await run(migration.sql);
+    }
+  }
+
+  await run(`
+    UPDATE seances
+    SET
+      created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
+      updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP),
+      revision = COALESCE(revision, 1)
+  `);
+}
+
+async function ajouterColonnesIndisponibilitesSystemeSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(indisponibilites)");
+  const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
+  const migrations = [
+    {
+      nom: "cree_par",
+      sql: "ALTER TABLE indisponibilites ADD COLUMN cree_par INTEGER REFERENCES utilisateurs(id)",
+    },
+    {
+      nom: "created_at",
+      sql: "ALTER TABLE indisponibilites ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    {
+      nom: "updated_at",
+      sql: "ALTER TABLE indisponibilites ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+  ];
+
+  for (const migration of migrations) {
+    if (!colonnesExistantes.has(migration.nom)) {
+      await run(migration.sql);
+    }
+  }
+
+  if (colonnesExistantes.has("utilisateur_id")) {
+    await run(`
+      UPDATE indisponibilites
+      SET cree_par = COALESCE(cree_par, utilisateur_id)
+    `);
+  }
+
+  await run(`
+    UPDATE indisponibilites
+    SET
+      jour_complet = COALESCE(jour_complet, 0),
+      created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
+      updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+  `);
+}
+
+async function ajouterColonneCreatedAtCatalogueSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(catalogue_options)");
+  const colonneCreatedAtExiste = colonnes.some((colonne) => colonne.name === "created_at");
+
+  if (!colonneCreatedAtExiste) {
+    await run("ALTER TABLE catalogue_options ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP");
+  }
+
+  await run(`
+    UPDATE catalogue_options
+    SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)
+  `);
+}
+
+async function ajouterColonnesJournalAuthSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(journal_auth)");
+  const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
+
+  if (colonnesExistantes.size === 0) {
+    return;
+  }
+
+  const migrations = [
+    {
+      nom: "identifiant",
+      sql: "ALTER TABLE journal_auth ADD COLUMN identifiant TEXT DEFAULT ''",
+    },
+    {
+      nom: "adresse_ip",
+      sql: "ALTER TABLE journal_auth ADD COLUMN adresse_ip TEXT",
+    },
+    {
+      nom: "details_json",
+      sql: "ALTER TABLE journal_auth ADD COLUMN details_json TEXT",
+    },
+  ];
+
+  for (const migration of migrations) {
+    if (!colonnesExistantes.has(migration.nom)) {
+      await run(migration.sql);
+    }
+  }
+
+  const colonnesApresMigration = await all("PRAGMA table_info(journal_auth)");
+  const colonnesApresMigrationExistantes = new Set(
+    colonnesApresMigration.map((colonne) => colonne.name)
+  );
+
+  if (
+    colonnesApresMigrationExistantes.has("ip_adresse") &&
+    colonnesApresMigrationExistantes.has("adresse_ip")
+  ) {
+    await run(`
+      UPDATE journal_auth
+      SET adresse_ip = COALESCE(NULLIF(adresse_ip, ''), NULLIF(ip_adresse, ''))
+    `);
+  }
+
+  await run(`
+    UPDATE journal_auth
+    SET identifiant = COALESCE(
+      NULLIF(identifiant, ''),
+      (
+        SELECT COALESCE(utilisateurs.nom, utilisateurs.email, '')
+        FROM utilisateurs
+        WHERE utilisateurs.id = journal_auth.utilisateur_id
+      ),
+      ''
+    )
+  `);
+
+  if (
+    colonnesApresMigrationExistantes.has("details") &&
+    colonnesApresMigrationExistantes.has("details_json")
+  ) {
+    const lignesLegacy = await all(`
+      SELECT id, details, details_json
+      FROM journal_auth
+      WHERE COALESCE(details, '') <> ''
+    `);
+
+    for (const ligne of lignesLegacy) {
+      if (ligne.details_json) {
+        continue;
+      }
+
+      let detailsJson = null;
+
+      try {
+        JSON.parse(ligne.details);
+        detailsJson = ligne.details;
+      } catch (error) {
+        detailsJson = JSON.stringify({
+          legacy_details: ligne.details,
+        });
+      }
+
+      await run(
+        `
+          UPDATE journal_auth
+          SET details_json = ?
+          WHERE id = ?
+        `,
+        [detailsJson, ligne.id]
+      );
+    }
+  }
+}
+
+async function synchroniserHistoriqueActionsSiNecessaire() {
+  const tables = await all(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table' AND name IN ('historique', 'historique_actions')
+  `);
+  const tablesExistantes = new Set(tables.map((table) => table.name));
+
+  if (!tablesExistantes.has("historique_actions") || !tablesExistantes.has("historique")) {
+    return;
+  }
+
+  const totalHistoriqueActions = await get(
+    "SELECT COUNT(*) AS total FROM historique_actions"
+  );
+
+  if (Number(totalHistoriqueActions?.total || 0) > 0) {
+    return;
+  }
+
+  const colonnesHistorique = await all("PRAGMA table_info(historique)");
+  const colonnesHistoriqueExistantes = new Set(
+    colonnesHistorique.map((colonne) => colonne.name)
+  );
+  const expressionActeurNom = colonnesHistoriqueExistantes.has("acteur_nom")
+    ? "COALESCE(acteur_nom, 'Utilisateur inconnu')"
+    : "'Utilisateur inconnu'";
+
+  await run(`
+    INSERT INTO historique_actions (
+      seance_id,
+      seance_libelle,
+      action_type,
+      action_label,
+      acteur_id,
+      acteur_nom,
+      details_json,
+      previous_hash,
+      entry_hash,
+      created_at
+    )
+    SELECT
+      seance_id,
+      COALESCE(seance_libelle, 'Seance inconnue'),
+      action_type,
+      action_label,
+      acteur_id,
+      ${expressionActeurNom},
+      COALESCE(details_json, '{}'),
+      COALESCE(previous_hash, ''),
+      COALESCE(hash, ''),
+      COALESCE(created_at, CURRENT_TIMESTAMP)
+    FROM historique
+    ORDER BY id ASC
   `);
 }
 
@@ -388,10 +648,14 @@ async function normaliserSeancesExistantes() {
     `
       UPDATE seances
       SET description = CASE description
-        WHEN 'Revision des equations et exercices guides.' THEN 'Révision des équations et exercices guidés.'
-        WHEN 'Mecanique et resolution d''exercices.' THEN 'Mécanique et résolution d''exercices.'
-        WHEN 'Seance deplacee apres changement d''horaire.' THEN 'Séance déplacée après changement d''horaire.'
-        WHEN 'Seance annulee a la demande de l''etudiant.' THEN 'Séance annulée à la demande de l''étudiant.'
+        WHEN 'Révision des équations et exercices guidés.' THEN 'Revision des equations et exercices guides.'
+        WHEN 'Revision des equations et exercices guides.' THEN 'Revision des equations et exercices guides.'
+        WHEN 'Mécanique et résolution d''exercices.' THEN 'Mecanique et resolution d''exercices.'
+        WHEN 'Mecanique et resolution d''exercices.' THEN 'Mecanique et resolution d''exercices.'
+        WHEN 'Séance déplacée après changement d''horaire.' THEN 'Seance deplacee apres changement d''horaire.'
+        WHEN 'Seance deplacee apres changement d''horaire.' THEN 'Seance deplacee apres changement d''horaire.'
+        WHEN 'Séance annulée à la demande de l''étudiant.' THEN 'Seance annulee a la demande de l''etudiant.'
+        WHEN 'Seance annulee a la demande de l''etudiant.' THEN 'Seance annulee a la demande de l''etudiant.'
         ELSE description
       END
     `
@@ -503,9 +767,10 @@ async function initialiserUtilisateursDeTest() {
           session_version,
           doit_changer_mot_de_passe,
           mot_de_passe_change_at,
-          echecs_connexion
+          echecs_connexion,
+          tarif_horaire
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         utilisateur.nom,
@@ -521,6 +786,7 @@ async function initialiserUtilisateursDeTest() {
         1,
         null,
         0,
+        utilisateur.nom === "Hossam" ? 150 : 100
       ]
     );
   }
@@ -565,7 +831,7 @@ async function initialiserSeancesExemple() {
       heure_debut: "18:00",
       heure_fin: "19:30",
       statut_seance: "planifiee",
-      description: "Révision des équations et exercices guidés.",
+      description: "Revision des equations et exercices guides.",
       cree_par: hossam.id,
       modifie_par: hossam.id,
     },
@@ -578,7 +844,7 @@ async function initialiserSeancesExemple() {
       heure_debut: "17:00",
       heure_fin: "18:00",
       statut_seance: "faite",
-      description: "Mécanique et résolution d'exercices.",
+      description: "Mecanique et resolution d'exercices.",
       cree_par: abdoUtilisateur.id,
       modifie_par: abdoUtilisateur.id,
     },
@@ -591,7 +857,7 @@ async function initialiserSeancesExemple() {
       heure_debut: "19:00",
       heure_fin: "20:00",
       statut_seance: "reportee",
-      description: "Séance déplacée après changement d'horaire.",
+      description: "Seance deplacee apres changement d'horaire.",
       cree_par: hossam.id,
       modifie_par: abdoUtilisateur.id,
     },
@@ -604,7 +870,7 @@ async function initialiserSeancesExemple() {
       heure_debut: "15:30",
       heure_fin: "16:30",
       statut_seance: "annulee",
-      description: "Séance annulée à la demande de l'étudiant.",
+      description: "Seance annulee a la demande de l'etudiant.",
       cree_par: abdoUtilisateur.id,
       modifie_par: hossam.id,
     },
@@ -614,7 +880,6 @@ async function initialiserSeancesExemple() {
     await run(
       `
         INSERT INTO seances (
-          titre,
           etudiant,
           matiere,
           compte,
@@ -623,16 +888,14 @@ async function initialiserSeancesExemple() {
           heure_debut,
           heure_fin,
           statut_seance,
-          prix,
-          statut_paiement,
           description,
           cree_par,
-          modifie_par
+          modifie_par,
+          titre
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
-        `${seance.matiere} - ${seance.etudiant}`,
         seance.etudiant,
         seance.matiere,
         seance.compte,
@@ -641,96 +904,12 @@ async function initialiserSeancesExemple() {
         seance.heure_debut,
         seance.heure_fin,
         seance.statut_seance,
-        0,
-        "non_payee",
         seance.description,
         seance.cree_par,
         seance.modifie_par,
+        `${seance.matiere} - ${seance.etudiant}`,
       ]
     );
-  }
-}
-
-async function initialiserHistoriqueExistant() {
-  const resultat = await get("SELECT COUNT(*) AS total FROM historique_actions");
-
-  if (resultat.total > 0) {
-    return;
-  }
-
-  const seances = await all(
-    `
-      SELECT
-        seances.*,
-        createur.nom AS createur_nom
-      FROM seances
-      LEFT JOIN utilisateurs AS createur ON createur.id = seances.cree_par
-      ORDER BY seances.id ASC
-    `
-  );
-
-  let hashPrecedent = "";
-
-  for (const seance of seances) {
-    const entree = {
-      seance_id: seance.id,
-      seance_libelle: `${seance.matiere} - ${seance.etudiant}`,
-      action_type: "initialisation",
-      action_label: "Initialisation de la séance",
-      acteur_id: seance.cree_par,
-      acteur_nom: seance.createur_nom || "Utilisateur inconnu",
-      details_json: JSON.stringify({
-        type: "creation",
-        changements: construireListeCreationHistorique(seance),
-      }),
-      previous_hash: hashPrecedent,
-      created_at: seance.created_at || new Date().toISOString(),
-    };
-    const entryHash = calculerHashHistorique(entree);
-
-    await run(
-      `
-        INSERT INTO historique_actions (
-          seance_id,
-          seance_libelle,
-          action_type,
-          action_label,
-          acteur_id,
-          acteur_nom,
-          details_json,
-          previous_hash,
-          entry_hash,
-          created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        entree.seance_id,
-        entree.seance_libelle,
-        entree.action_type,
-        entree.action_label,
-        entree.acteur_id,
-        entree.acteur_nom,
-        entree.details_json,
-        entree.previous_hash,
-        entryHash,
-        entree.created_at,
-      ]
-    );
-
-    hashPrecedent = entryHash;
-  }
-}
-
-async function migrerScreenshotsVersStockagePrive() {
-  const photos = await all(`
-    SELECT id, chemin_fichier
-    FROM photos
-    ORDER BY id ASC
-  `);
-
-  for (const photo of photos) {
-    await migrerScreenshotVersStockagePrive(photo);
   }
 }
 
@@ -739,63 +918,35 @@ async function initialiserBaseDeDonnees() {
     CREATE TABLE IF NOT EXISTS utilisateurs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nom TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      mot_de_passe TEXT NOT NULL,
-      est_admin INTEGER DEFAULT 0,
-      acces_active INTEGER DEFAULT 1,
-      mode_lecture_seule INTEGER DEFAULT 0,
-      peut_voir_monetisation INTEGER DEFAULT 0,
-      peut_voir_aujourdhui INTEGER DEFAULT 0,
-      peut_voir_indisponibilites INTEGER DEFAULT 0,
-      session_version INTEGER DEFAULT 1,
-      doit_changer_mot_de_passe INTEGER DEFAULT 0,
-      mot_de_passe_change_at TEXT,
-      echecs_connexion INTEGER DEFAULT 0,
-      premier_echec_connexion_at TEXT,
-      bloque_jusqua TEXT,
-      dernier_login_at TEXT,
-      dernier_login_ip TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      email TEXT UNIQUE NOT NULL,
+      mot_de_passe TEXT NOT NULL
     )
-  `);
-
-  await run(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_utilisateurs_nom_unique
-    ON utilisateurs (nom COLLATE NOCASE)
   `);
 
   await run(`
     CREATE TABLE IF NOT EXISTS seances (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      titre TEXT NOT NULL,
+      titre TEXT,
       etudiant TEXT NOT NULL,
+      parent TEXT DEFAULT '',
       matiere TEXT NOT NULL,
-      parent TEXT,
-      compte TEXT,
+      compte TEXT DEFAULT 'Abdo',
       est_essai INTEGER DEFAULT 0,
       date TEXT NOT NULL,
       heure_debut TEXT NOT NULL,
       heure_fin TEXT NOT NULL,
-      statut_seance TEXT NOT NULL,
-      prix REAL NOT NULL,
-      statut_paiement TEXT NOT NULL,
+      statut_seance TEXT NOT NULL DEFAULT 'planifiee',
+      prix REAL DEFAULT 0,
+      statut_paiement TEXT DEFAULT 'non_payee',
       description TEXT,
-      cree_par INTEGER NOT NULL,
-      modifie_par INTEGER NOT NULL,
+      cree_par INTEGER REFERENCES utilisateurs(id),
+      modifie_par INTEGER REFERENCES utilisateurs(id),
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (cree_par) REFERENCES utilisateurs (id),
-      FOREIGN KEY (modifie_par) REFERENCES utilisateurs (id)
-    )
-  `);
-
-  await run(`
-    CREATE TABLE IF NOT EXISTS photos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      seance_id INTEGER NOT NULL,
-      chemin_fichier TEXT NOT NULL,
-      nom_fichier TEXT NOT NULL,
-      FOREIGN KEY (seance_id) REFERENCES seances (id) ON DELETE CASCADE
+      revision INTEGER DEFAULT 1,
+      deleted_at TEXT,
+      deleted_by INTEGER REFERENCES utilisateurs(id),
+      utilisateur_id INTEGER REFERENCES utilisateurs(id)
     )
   `);
 
@@ -803,31 +954,77 @@ async function initialiserBaseDeDonnees() {
     CREATE TABLE IF NOT EXISTS indisponibilites (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       date TEXT NOT NULL,
-      heure_debut TEXT NOT NULL,
-      heure_fin TEXT NOT NULL,
+      heure_debut TEXT,
+      heure_fin TEXT,
       jour_complet INTEGER DEFAULT 0,
       raison TEXT,
-      cree_par INTEGER NOT NULL,
+      cree_par INTEGER REFERENCES utilisateurs(id),
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (cree_par) REFERENCES utilisateurs (id)
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS historique (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      seance_id INTEGER REFERENCES seances(id),
+      acteur_id INTEGER REFERENCES utilisateurs(id),
+      action_type TEXT NOT NULL,
+      action_label TEXT NOT NULL,
+      details_json TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      previous_hash TEXT,
+      hash TEXT NOT NULL,
+      seance_libelle TEXT
     )
   `);
 
   await run(`
     CREATE TABLE IF NOT EXISTS historique_actions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      seance_id INTEGER,
+      seance_id INTEGER REFERENCES seances(id),
       seance_libelle TEXT NOT NULL,
       action_type TEXT NOT NULL,
       action_label TEXT NOT NULL,
-      acteur_id INTEGER,
+      acteur_id INTEGER REFERENCES utilisateurs(id),
       acteur_nom TEXT NOT NULL,
       details_json TEXT NOT NULL,
       previous_hash TEXT NOT NULL,
       entry_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (acteur_id) REFERENCES utilisateurs (id)
+      created_at TEXT NOT NULL
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS photos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      seance_id INTEGER NOT NULL REFERENCES seances(id) ON DELETE CASCADE,
+      chemin_fichier TEXT NOT NULL,
+      nom_fichier TEXT NOT NULL
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS catalogue_options (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      valeur TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(type, valeur)
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS journal_auth (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      utilisateur_id INTEGER REFERENCES utilisateurs(id),
+      identifiant TEXT NOT NULL DEFAULT '',
+      action_type TEXT NOT NULL,
+      resultat TEXT NOT NULL,
+      adresse_ip TEXT,
+      user_agent TEXT,
+      details_json TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -842,102 +1039,49 @@ async function initialiserBaseDeDonnees() {
   `);
 
   await run(`
-    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at
-    ON sessions (expires_at)
-  `);
-
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_seances_date ON seances (date)
-  `);
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_seances_heure_debut ON seances (heure_debut)
-  `);
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_seances_compte ON seances (compte)
-  `);
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_seances_cree_par ON seances (cree_par)
-  `);
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_seances_modifie_par ON seances (modifie_par)
-  `);
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_seances_statut_seance ON seances (statut_seance)
-  `);
-
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_photos_seance_id ON photos (seance_id)
-  `);
-
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_indisponibilites_date
-    ON indisponibilites (date, heure_debut)
-  `);
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_indisponibilites_cree_par
-    ON indisponibilites (cree_par)
-  `);
-
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_historique_actions_seance_id ON historique_actions (seance_id)
-  `);
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_historique_actions_acteur_id ON historique_actions (acteur_id)
-  `);
-
-  await run(`
-    CREATE TABLE IF NOT EXISTS catalogue_options (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL,
-      valeur TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS blocked_ips (
+      ip TEXT PRIMARY KEY,
+      raison TEXT,
+      cree_par INTEGER REFERENCES utilisateurs(id),
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
   await run(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_catalogue_type_valeur_unique
-    ON catalogue_options (type, valeur COLLATE NOCASE)
+    CREATE INDEX IF NOT EXISTS idx_journal_auth_date ON journal_auth(created_at)
   `);
-
   await run(`
-    CREATE TABLE IF NOT EXISTS journal_auth (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      utilisateur_id INTEGER,
-      identifiant TEXT NOT NULL,
-      action_type TEXT NOT NULL,
-      resultat TEXT NOT NULL,
-      adresse_ip TEXT,
-      user_agent TEXT,
-      details_json TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (utilisateur_id) REFERENCES utilisateurs (id)
-    )
+    CREATE INDEX IF NOT EXISTS idx_historique_actions_date ON historique_actions(created_at)
   `);
-
   await run(`
-    CREATE INDEX IF NOT EXISTS idx_journal_auth_created_at
-    ON journal_auth (created_at DESC)
+    CREATE INDEX IF NOT EXISTS idx_photos_seance_id ON photos(seance_id)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)
   `);
 
-  await ajouterColonnesSecuriteUtilisateursSiNecessaire();
   await ajouterColonneCompteSiNecessaire();
   await ajouterColonneEssaiSiNecessaire();
-  await ajouterColonneParentSiNecessaire();
-  await ajouterColonneJourCompletIndisponibilitesSiNecessaire();
-  await initialiserCatalogueParDefaut();
-  await normaliserSeancesExistantes();
-  await synchroniserCatalogueDepuisSeances();
-  await initialiserUtilisateursDeTest();
-  await normaliserNomsUtilisateurs();
+  await ajouterColonnesSecuriteUtilisateursSiNecessaire();
   await normaliserRolesUtilisateurs();
-  await marquerComptesTemporairesCommeASecuriser();
+  await ajouterColonneParentSiNecessaire();
+  await ajouterColonneUtilisateurIdSiNecessaire();
+  await ajouterColonnesSeancesSystemeSiNecessaire();
+  await ajouterColonneJourCompletIndisponibilitesSiNecessaire();
+  await ajouterColonnesIndisponibilitesSystemeSiNecessaire();
+  await ajouterColonneCreatedAtCatalogueSiNecessaire();
+  await ajouterColonnesJournalAuthSiNecessaire();
+  await synchroniserHistoriqueActionsSiNecessaire();
+  await initialiserCatalogueParDefaut();
+  await synchroniserCatalogueDepuisSeances();
 
   if (activerDonneesExemple) {
+    await initialiserUtilisateursDeTest();
+    await normaliserNomsUtilisateurs();
     await initialiserSeancesExemple();
-    await initialiserHistoriqueExistant();
+    await marquerComptesTemporairesCommeASecuriser();
+    await normaliserSeancesExistantes();
   }
-
-  await migrerScreenshotsVersStockagePrive();
 }
 
 module.exports = {
@@ -946,5 +1090,6 @@ module.exports = {
   get,
   all,
   initialiserBaseDeDonnees,
-  databasePath,
+  calculerHashHistorique,
+  construireListeCreationHistorique,
 };

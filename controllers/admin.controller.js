@@ -1,5 +1,16 @@
+const net = require("net");
 const bcrypt = require("bcryptjs");
+const { genererMotDePasseAleatoire } = require("../utils/security");
+const { normaliserIpClient } = require("../middleware/security.middleware");
 
+const {
+  creerUtilisateur,
+  trouverUtilisateurParId,
+  trouverUtilisateurAvecMotDePasseParId,
+  trouverUtilisateurParEmail,
+  trouverUtilisateurParNom,
+  reinitialiserMotDePasseUtilisateur,
+} = require("../models/utilisateur.model");
 const {
   listerComptesAdministration,
   trouverCompteParId,
@@ -15,25 +26,24 @@ const {
   supprimerToutHistorique,
   recupererCatalogueAdministration,
   trouverElementCatalogue,
+  trouverElementCatalogueParId,
   ajouterElementCatalogue,
+  compterUtilisationElementCatalogue,
+  supprimerElementCatalogue,
   supprimerUtilisateurAdministration: supprimerUtilisateurAdministrationModele,
 } = require("../models/admin.model");
 const {
-  trouverUtilisateurAvecMotDePasseParId,
-  trouverUtilisateurParEmail,
-  trouverUtilisateurParNom,
-  trouverUtilisateurParId,
-  creerUtilisateur,
-  reinitialiserMotDePasseUtilisateur,
-} = require("../models/utilisateur.model");
-const { enregistrerEvenementAuth } = require("../models/journal-auth.model");
-
-function normaliserIpClient(req) {
-  const enteteTransmis = String(req.headers["x-forwarded-for"] || "")
-    .split(",")[0]
-    .trim();
-  return enteteTransmis || req.ip || "ip-inconnue";
-}
+  enregistrerEvenementAuth,
+  listerJournalAuth,
+} = require("../models/journal-auth.model");
+const {
+  supprimerSession,
+} = require("../models/session.model");
+const {
+  listerIpsBloquees,
+  bloquerIp,
+  debloquerIp,
+} = require("../models/ip-blocklist.model");
 
 function obtenirUserAgent(req) {
   return String(req.headers["user-agent"] || "").slice(0, 400);
@@ -98,10 +108,12 @@ function repondreErreurVerification(req, res, verification, actionType, details)
 }
 
 async function recupererVueAdministration(req, res) {
-  const [comptes, sessions, catalogue] = await Promise.all([
+  const [comptes, sessions, catalogue, journalAuth, ipsBloquees] = await Promise.all([
     listerComptesAdministration(),
     listerSessionsActives(req.sessionID),
     recupererCatalogueAdministration(),
+    listerJournalAuth(200),
+    listerIpsBloquees(),
   ]);
 
   return res.json({
@@ -109,6 +121,8 @@ async function recupererVueAdministration(req, res) {
       comptes,
       sessions,
       catalogue,
+      journal_auth: journalAuth,
+      ips_bloquees: ipsBloquees,
     },
   });
 }
@@ -169,6 +183,62 @@ async function ajouterElementCatalogueAdministration(req, res) {
         ? `La matiere ${elementCatalogue.valeur} a ete ajoutee.`
         : `Le compte ${elementCatalogue.valeur} a ete ajoute.`,
     element: elementCatalogue,
+  });
+}
+
+async function supprimerElementCatalogueAdministration(req, res) {
+  const elementId = Number(req.params.id);
+  const { mot_de_passe_actuel: motDePasseActuel } = req.body;
+
+  if (!Number.isInteger(elementId) || elementId <= 0 || !motDePasseActuel) {
+    return res.status(400).json({
+      message: "Element cible et mot de passe actuel obligatoires.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(req, res, verification, "admin_delete_catalog_item", {
+      element_id: elementId,
+    });
+  }
+
+  const elementCatalogue = await trouverElementCatalogueParId(elementId);
+
+  if (!elementCatalogue) {
+    return res.status(404).json({
+      message: "Element du catalogue introuvable.",
+    });
+  }
+
+  const totalUtilisations = await compterUtilisationElementCatalogue(
+    elementCatalogue.type,
+    elementCatalogue.valeur
+  );
+
+  if (totalUtilisations > 0) {
+    return res.status(400).json({
+      message:
+        elementCatalogue.type === "matiere"
+          ? `Impossible de supprimer cette matiere : elle est encore utilisee dans ${totalUtilisations} seance(s).`
+          : `Impossible de supprimer ce compte : il est encore utilise dans ${totalUtilisations} seance(s).`,
+    });
+  }
+
+  await supprimerElementCatalogue(elementCatalogue.id);
+
+  await journaliserActionAdmin(req, "admin_delete_catalog_item", "success", {
+    element_id: elementCatalogue.id,
+    type: elementCatalogue.type,
+    valeur: elementCatalogue.valeur,
+  });
+
+  return res.json({
+    message:
+      elementCatalogue.type === "matiere"
+        ? `La matiere ${elementCatalogue.valeur} a ete supprimee.`
+        : `Le compte ${elementCatalogue.valeur} a ete supprime.`,
   });
 }
 
@@ -235,7 +305,8 @@ async function creerUtilisateurAdministration(req, res) {
     });
   }
 
-  const motDePasseHash = await bcrypt.hash("123456", 12);
+  const motDePasseTemporaire = genererMotDePasseAleatoire();
+  const motDePasseHash = await bcrypt.hash(motDePasseTemporaire, 12);
   const creation = await creerUtilisateur({
     nom: nomNormalise,
     email: emailNormalise,
@@ -256,7 +327,8 @@ async function creerUtilisateurAdministration(req, res) {
   });
 
   return res.status(201).json({
-    message: `Le compte ${utilisateurCree.nom} a ete cree. Mot de passe initial : 123456.`,
+    message: `Le compte ${utilisateurCree.nom} a ete cree. Mot de passe initial : ${motDePasseTemporaire}.`,
+    mot_de_passe_temporaire: motDePasseTemporaire,
     utilisateur: utilisateurCree,
   });
 }
@@ -311,6 +383,7 @@ async function supprimerUtilisateurAdministration(req, res) {
     total_sessions_supprimees: resumeSuppression.totalSessionsSupprimees,
     total_seances_creees_reattribuees: resumeSuppression.totalSeancesCreeesReattribuees,
     total_seances_modifiees_reattribuees: resumeSuppression.totalSeancesModifieesReattribuees,
+    total_seances_legacy_detachees: resumeSuppression.totalSeancesLegacyDetachees,
   });
 
   return res.json({
@@ -352,7 +425,8 @@ async function reinitialiserMotDePasseCompte(req, res) {
     });
   }
 
-  const motDePasseHash = await bcrypt.hash("123456", 12);
+  const motDePasseTemporaire = genererMotDePasseAleatoire();
+  const motDePasseHash = await bcrypt.hash(motDePasseTemporaire, 12);
   await reinitialiserMotDePasseUtilisateur(compteCible.id, motDePasseHash);
 
   const selfReset = Number(compteCible.id) === Number(req.utilisateur.id);
@@ -365,7 +439,8 @@ async function reinitialiserMotDePasseCompte(req, res) {
   });
 
   return res.json({
-    message: `Le mot de passe de ${compteCible.nom} a ete reinitialise a 123456.`,
+    message: `Le mot de passe de ${compteCible.nom} a ete reinitialise.`,
+    mot_de_passe_temporaire: motDePasseTemporaire,
     must_reauthenticate: selfReset,
   });
 }
@@ -801,16 +876,183 @@ async function supprimerToutHistoriqueAdmin(req, res) {
 
   await journaliserActionAdmin(req, "admin_clear_history", "success", {
     total_historique_supprime: resume.totalHistorique,
+    total_journal_auth_supprime: resume.totalJournalAuth,
   });
 
   return res.json({
-    message: "Tout l'historique a ete supprime.",
+    message: "L'historique a ete reinitialise. L'action de purge a ete conservee dans le journal d'audit.",
   });
+}
+
+async function recupererJournalAuthentification(req, res) {
+  try {
+    const limite = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
+    const logs = await listerJournalAuth(limite);
+    return res.json({ logs });
+  } catch (error) {
+    return res.status(500).json({ message: "Erreur lors de la recuperation des logs." });
+  }
+}
+
+async function recupererToutesLesSessions(req, res) {
+  try {
+    const sessions = await listerSessionsActives(req.sessionID);
+    return res.json({ sessions });
+  } catch (error) {
+    return res.status(500).json({ message: "Erreur lors de la recuperation des sessions." });
+  }
+}
+
+async function revoquerSessionSpecifique(req, res) {
+  const { sid, mot_de_passe_actuel: motDePasseActuel } = req.body;
+
+  if (!normaliserTexte(sid) || !motDePasseActuel) {
+    return res.status(400).json({
+      message: "Session cible et mot de passe actuel obligatoires.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(req, res, verification, "admin_revoke_session", {
+      sid: normaliserTexte(sid),
+    });
+  }
+
+  try {
+    const resultat = await supprimerSession(normaliserTexte(sid));
+
+    if (Number(resultat?.changes || 0) === 0) {
+      return res.status(404).json({ message: "Session introuvable." });
+    }
+
+    const selfRevoke = normaliserTexte(sid) === String(req.sessionID || "");
+
+    await journaliserActionAdmin(req, "admin_revoke_session", "success", {
+      sid: normaliserTexte(sid),
+      self_revoke: selfRevoke,
+    });
+
+    return res.json({
+      message: selfRevoke
+        ? "Votre session actuelle a ete fermee."
+        : "La session cible a ete fermee.",
+      must_reauthenticate: selfRevoke,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Erreur lors de la revocation de la session." });
+  }
+}
+
+async function recupererIpsBloquees(req, res) {
+  try {
+    const ips = await listerIpsBloquees();
+    return res.json({ ips });
+  } catch (error) {
+    return res.status(500).json({ message: "Erreur lors de la recuperation de la blacklist." });
+  }
+}
+
+function normaliserIpSaisie(ip) {
+  const valeur = normaliserTexte(ip);
+
+  if (!valeur) {
+    return "";
+  }
+
+  if (net.isIP(valeur)) {
+    return valeur;
+  }
+
+  if (/^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(valeur)) {
+    const sansPort = valeur.replace(/:\d+$/, "");
+    if (net.isIP(sansPort)) {
+      return sansPort;
+    }
+  }
+
+  return "";
+}
+
+async function bloquerNouvelleIp(req, res) {
+  const {
+    ip,
+    raison,
+    mot_de_passe_actuel: motDePasseActuel,
+  } = req.body;
+
+  const ipNormalisee = normaliserIpSaisie(ip);
+  const raisonNormalisee = normaliserTexte(raison).slice(0, 160);
+
+  if (!ipNormalisee || !motDePasseActuel) {
+    return res.status(400).json({
+      message: "Adresse IP valide et mot de passe actuel obligatoires.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(req, res, verification, "admin_block_ip", {
+      ip: ipNormalisee,
+    });
+  }
+
+  try {
+    await bloquerIp(
+      ipNormalisee,
+      raisonNormalisee || "Bloquee par l'administrateur",
+      req.utilisateur.id
+    );
+
+    await journaliserActionAdmin(req, "admin_block_ip", "success", {
+      ip: ipNormalisee,
+      raison: raisonNormalisee || "Bloquee par l'administrateur",
+    });
+
+    return res.json({ message: `IP ${ipNormalisee} bloquee.` });
+  } catch (error) {
+    return res.status(500).json({ message: "Erreur lors du blocage de l'IP." });
+  }
+}
+
+async function debloquerIpExistante(req, res) {
+  const ip = normaliserIpSaisie(decodeURIComponent(req.params.ip || ""));
+  const { mot_de_passe_actuel: motDePasseActuel } = req.body || {};
+
+  if (!ip || !motDePasseActuel) {
+    return res.status(400).json({
+      message: "Adresse IP valide et mot de passe actuel obligatoires.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(req, res, verification, "admin_unblock_ip", {
+      ip,
+    });
+  }
+
+  try {
+    const resultat = await debloquerIp(ip);
+
+    if (Number(resultat?.changes || 0) === 0) {
+      return res.status(404).json({ message: "Adresse IP introuvable." });
+    }
+
+    await journaliserActionAdmin(req, "admin_unblock_ip", "success", { ip });
+    return res.json({ message: `IP ${ip} debloquee.` });
+  } catch (error) {
+    return res.status(500).json({ message: "Erreur lors du deblocage de l'IP." });
+  }
 }
 
 module.exports = {
   recupererVueAdministration,
   ajouterElementCatalogueAdministration,
+  supprimerElementCatalogueAdministration,
   creerUtilisateurAdministration,
   supprimerUtilisateurAdministration,
   reinitialiserMotDePasseCompte,
@@ -823,4 +1065,10 @@ module.exports = {
   mettreAJourAccesAujourdhuiUtilisateur,
   mettreAJourAccesIndisponibilitesUtilisateur,
   mettreAJourAccesMonetisationUtilisateur,
+  recupererJournalAuthentification,
+  recupererToutesLesSessions,
+  revoquerSessionSpecifique,
+  recupererIpsBloquees,
+  bloquerNouvelleIp,
+  debloquerIpExistante,
 };

@@ -59,6 +59,17 @@ async function trouverValeurCatalogue(type, valeur) {
   );
 }
 
+async function trouverValeurCatalogueParId(id) {
+  return get(
+    `
+      SELECT id, type, valeur, created_at
+      FROM catalogue_options
+      WHERE id = ?
+    `,
+    [id]
+  );
+}
+
 async function ajouterValeurCatalogue(type, valeur) {
   const typeNormalise = normaliserTypeCatalogue(type);
   const valeurNormalisee = normaliserValeurCatalogue(valeur);
@@ -85,9 +96,43 @@ async function ajouterValeurCatalogue(type, valeur) {
   );
 }
 
+async function compterUtilisationValeurCatalogue(type, valeur) {
+  const typeNormalise = normaliserTypeCatalogue(type);
+  const valeurNormalisee = normaliserValeurCatalogue(valeur);
+
+  if (!typeNormalise || !valeurNormalisee) {
+    return 0;
+  }
+
+  const colonne = typeNormalise === "matiere" ? "matiere" : "compte";
+  const resultat = await get(
+    `
+      SELECT COUNT(*) AS total
+      FROM seances
+      WHERE lower(trim(COALESCE(${colonne}, ''))) = lower(?)
+    `,
+    [valeurNormalisee]
+  );
+
+  return Number(resultat?.total || 0);
+}
+
+async function supprimerValeurCatalogueParId(id) {
+  return run(
+    `
+      DELETE FROM catalogue_options
+      WHERE id = ?
+    `,
+    [id]
+  );
+}
+
 module.exports = {
   listerValeursCatalogueParType,
   listerCatalogueOptions,
   trouverValeurCatalogue,
+  trouverValeurCatalogueParId,
   ajouterValeurCatalogue,
+  compterUtilisationValeurCatalogue,
+  supprimerValeurCatalogueParId,
 };

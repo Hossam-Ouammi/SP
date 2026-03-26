@@ -504,6 +504,7 @@ async function ajouterSeance(req, res) {
     ...donneesSeance,
     cree_par: req.utilisateur.id,
     modifie_par: req.utilisateur.id,
+    utilisateur_id: req.utilisateur.id,
   });
 
   await journaliserActionSeance({
