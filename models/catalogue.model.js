@@ -20,7 +20,7 @@ async function listerValeursCatalogueParType(type) {
 
   return all(
     `
-      SELECT id, type, valeur, created_at
+      SELECT id, type, valeur, tarif_horaire, created_at
       FROM catalogue_options
       WHERE type = ?
       ORDER BY lower(valeur) ASC, id ASC
@@ -51,7 +51,7 @@ async function trouverValeurCatalogue(type, valeur) {
 
   return get(
     `
-      SELECT id, type, valeur, created_at
+      SELECT id, type, valeur, tarif_horaire, created_at
       FROM catalogue_options
       WHERE type = ? AND lower(valeur) = lower(?)
     `,
@@ -62,7 +62,7 @@ async function trouverValeurCatalogue(type, valeur) {
 async function trouverValeurCatalogueParId(id) {
   return get(
     `
-      SELECT id, type, valeur, created_at
+      SELECT id, type, valeur, tarif_horaire, created_at
       FROM catalogue_options
       WHERE id = ?
     `,
@@ -73,6 +73,7 @@ async function trouverValeurCatalogueParId(id) {
 async function ajouterValeurCatalogue(type, valeur) {
   const typeNormalise = normaliserTypeCatalogue(type);
   const valeurNormalisee = normaliserValeurCatalogue(valeur);
+  const tarifHoraire = typeNormalise === "compte" ? 100 : 0;
 
   if (!typeNormalise || !valeurNormalisee) {
     throw new Error("Type ou valeur de catalogue invalide.");
@@ -80,19 +81,30 @@ async function ajouterValeurCatalogue(type, valeur) {
 
   const resultat = await run(
     `
-      INSERT INTO catalogue_options (type, valeur)
-      VALUES (?, ?)
+      INSERT INTO catalogue_options (type, valeur, tarif_horaire)
+      VALUES (?, ?, ?)
     `,
-    [typeNormalise, valeurNormalisee]
+    [typeNormalise, valeurNormalisee, tarifHoraire]
   );
 
   return get(
     `
-      SELECT id, type, valeur, created_at
+      SELECT id, type, valeur, tarif_horaire, created_at
       FROM catalogue_options
       WHERE id = ?
     `,
     [resultat.id]
+  );
+}
+
+async function mettreAJourTarifHoraireCompteCatalogue(id, tarifHoraire) {
+  return run(
+    `
+      UPDATE catalogue_options
+      SET tarif_horaire = ?
+      WHERE id = ? AND type = 'compte'
+    `,
+    [Number(tarifHoraire), id]
   );
 }
 
@@ -133,6 +145,7 @@ module.exports = {
   trouverValeurCatalogue,
   trouverValeurCatalogueParId,
   ajouterValeurCatalogue,
+  mettreAJourTarifHoraireCompteCatalogue,
   compterUtilisationValeurCatalogue,
   supprimerValeurCatalogueParId,
 };

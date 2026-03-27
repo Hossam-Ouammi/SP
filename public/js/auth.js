@@ -1,11 +1,12 @@
 import { envoyerRequete, viderTokenCsrf } from "./http.js";
 
-export async function connecterUtilisateur(username, motDePasse) {
+export async function connecterUtilisateur(username, motDePasse, rememberDevice = false) {
   const resultat = await envoyerRequete("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({
       username,
       mot_de_passe: motDePasse,
+      remember_device: rememberDevice,
     }),
   });
 

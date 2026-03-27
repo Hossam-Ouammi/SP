@@ -17,6 +17,17 @@ function estIdentifiantValide(valeur) {
   return Number.isInteger(Number(valeur)) && Number(valeur) > 0;
 }
 
+function utilisateurPeutVoirCompteHossam(utilisateur) {
+  return (
+    Number(utilisateur?.est_admin) === 1 ||
+    String(utilisateur?.email || "").trim().toLowerCase() === "hossam@test.com"
+  );
+}
+
+function seanceEstCompteHossam(seance) {
+  return String(seance?.compte || "").trim().toLowerCase() === "hossam";
+}
+
 function transformerPhotoPourClient(photo) {
   return {
     id: photo.id,
@@ -68,6 +79,13 @@ async function televerserPhotos(req, res) {
     await supprimerFichiersTeleverses(req.files);
     return res.status(404).json({
       message: "Impossible d'ajouter des screenshots à une séance inexistante.",
+    });
+  }
+
+  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seance)) {
+    await supprimerFichiersTeleverses(req.files);
+    return res.status(403).json({
+      message: "Ce creneau est reserve et visible uniquement par l'administrateur.",
     });
   }
 
@@ -144,6 +162,12 @@ async function recupererPhotosDuneSeance(req, res) {
     });
   }
 
+  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seance)) {
+    return res.status(403).json({
+      message: "Ce creneau est reserve et visible uniquement par l'administrateur.",
+    });
+  }
+
   const photos = await recupererPhotosParSeance(seanceId);
 
   return res.json({ photos: photos.map(transformerPhotoPourClient) });
@@ -163,6 +187,20 @@ async function recupererFichierPhoto(req, res) {
   if (!photo) {
     return res.status(404).json({
       message: "Screenshot introuvable.",
+    });
+  }
+
+  const seance = await trouverSeanceParId(photo.seance_id);
+
+  if (!seance) {
+    return res.status(404).json({
+      message: "Séance introuvable.",
+    });
+  }
+
+  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seance)) {
+    return res.status(403).json({
+      message: "Ce creneau est reserve et visible uniquement par l'administrateur.",
     });
   }
 

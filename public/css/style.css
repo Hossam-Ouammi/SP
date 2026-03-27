@@ -660,6 +660,20 @@ button {
   box-shadow: inset 3px 0 0 #d97706, 0 4px 16px rgba(15, 23, 42, 0.04);
 }
 
+.today-item-confidentielle {
+  border-color: #cbd5e1;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(148, 163, 184, 0.12) 0,
+      rgba(148, 163, 184, 0.12) 10px,
+      rgba(226, 232, 240, 0.7) 10px,
+      rgba(226, 232, 240, 0.7) 20px
+    ),
+    #f8fafc;
+  box-shadow: inset 3px 0 0 #64748b, 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+
 .today-item-account-yassine {
   border-color: #c8d9ff;
   background:
@@ -2214,6 +2228,11 @@ button {
   color: #b45309;
 }
 
+.badge-confidentielle {
+  background: #e2e8f0;
+  color: #475569;
+}
+
 .detail-list {
   display: grid;
   gap: 10px;
@@ -2584,6 +2603,29 @@ button {
 .history-changes-list {
   display: grid;
   gap: 10px;
+}
+
+.history-admin-actions {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+.history-admin-actions.hidden {
+  display: none;
+}
+
+.history-admin-actions-header {
+  display: grid;
+  gap: 6px;
+}
+
+.history-admin-actions-header h3 {
+  margin: 0;
+  font-size: 1rem;
 }
 
 .history-change-card {

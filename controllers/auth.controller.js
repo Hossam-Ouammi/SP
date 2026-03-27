@@ -10,11 +10,25 @@ const {
 } = require("../models/utilisateur.model");
 const { enregistrerEvenementAuth } = require("../models/journal-auth.model");
 const { genererTokenCsrf, normaliserIpClient } = require("../middleware/security.middleware");
-const { chargerUtilisateurAuthentifie } = require("../middleware/auth.middleware");
+const {
+  chargerUtilisateurAuthentifie,
+  initialiserSessionAuthentifiee,
+  obtenirOptionsCookieConnexionAutomatique,
+  recupererCookieRequete,
+  effacerCookieConnexionAutomatique,
+  detruireSession,
+} = require("../middleware/auth.middleware");
 const { motDePasseRespectePolitique } = require("../utils/security");
+const {
+  analyserCookieAppareil,
+  creerAppareilAutoLogin,
+  supprimerAppareilAutoLoginParSelector,
+  supprimerAppareilsAutoLoginUtilisateur,
+} = require("../models/trusted-device.model");
 const {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_MS,
+  AUTO_LOGIN_COOKIE_NAME,
 } = require("../config/security.config");
 
 const tentativesConnexionParIp = new Map();
@@ -141,38 +155,9 @@ function calculerNouvelEtatEchecConnexion(utilisateur) {
   };
 }
 
-function regenererSession(req) {
-  return new Promise((resolve, reject) => {
-    req.session.regenerate((error) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve();
-      }
-    });
-  });
-}
-
 function sauvegarderSession(req) {
   return new Promise((resolve, reject) => {
     req.session.save((error) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve();
-      }
-    });
-  });
-}
-
-function detruireSession(req) {
-  return new Promise((resolve, reject) => {
-    if (!req.session) {
-      resolve();
-      return;
-    }
-
-    req.session.destroy((error) => {
       if (error) {
         reject(error);
       } else {
@@ -207,8 +192,45 @@ async function journaliserEvenementAuth(req, evenement) {
   });
 }
 
+function valeurBooleenneActive(valeur) {
+  return valeur === true || valeur === 1 || valeur === "1" || valeur === "true" || valeur === "on";
+}
+
+async function supprimerAppareilAutoLoginCourant(req) {
+  const cookieAppareil = recupererCookieRequete(req, AUTO_LOGIN_COOKIE_NAME);
+  const donneesCookie = analyserCookieAppareil(cookieAppareil);
+
+  if (!donneesCookie) {
+    return;
+  }
+
+  await supprimerAppareilAutoLoginParSelector(donneesCookie.selector);
+}
+
+async function synchroniserConnexionAutomatique(req, res, utilisateur, rememberDevice) {
+  await supprimerAppareilAutoLoginCourant(req).catch(() => {});
+
+  if (!rememberDevice) {
+    effacerCookieConnexionAutomatique(req, res);
+    return;
+  }
+
+  const appareil = await creerAppareilAutoLogin({
+    utilisateurId: utilisateur.id,
+    sessionVersion: utilisateur.session_version,
+    adresseIp: normaliserIpClient(req),
+    userAgent: obtenirUserAgent(req),
+  });
+
+  res.cookie(
+    AUTO_LOGIN_COOKIE_NAME,
+    appareil.cookieValue,
+    obtenirOptionsCookieConnexionAutomatique(req)
+  );
+}
+
 async function connecterUtilisateur(req, res) {
-  const { username, email, mot_de_passe: motDePasse } = req.body;
+  const { username, email, mot_de_passe: motDePasse, remember_device: rememberDevice } = req.body;
   const identifiant = String(username || email || "").trim();
   const blocageIpSecondes = recupererBlocageConnexionActifParIp(req);
 
@@ -307,30 +329,17 @@ async function connecterUtilisateur(req, res) {
     });
   }
 
-  await regenererSession(req);
   await mettreAJourEtatConnexionReussie(utilisateur.id, normaliserIpClient(req));
 
   const utilisateurActualise = await trouverUtilisateurParId(utilisateur.id);
 
-  req.session.utilisateur = {
-    id: utilisateurActualise.id,
-    nom: utilisateurActualise.nom,
-    email: utilisateurActualise.email,
-    session_version: utilisateurActualise.session_version,
-    est_admin: utilisateurActualise.est_admin,
-    peut_voir_monetisation: utilisateurActualise.peut_voir_monetisation,
-    peut_voir_aujourdhui: utilisateurActualise.peut_voir_aujourdhui,
-    peut_voir_indisponibilites: utilisateurActualise.peut_voir_indisponibilites,
-  };
-  req.session.session_meta = {
-    adresse_ip: normaliserIpClient(req),
-    user_agent: obtenirUserAgent(req),
-    connected_at: new Date().toISOString(),
-  };
-  req.session.csrfToken = genererTokenCsrf();
-  req.session.cookie.maxAge = SESSION_MAX_AGE_MS;
-
-  await sauvegarderSession(req);
+  await initialiserSessionAuthentifiee(req, utilisateurActualise);
+  await synchroniserConnexionAutomatique(
+    req,
+    res,
+    utilisateurActualise,
+    valeurBooleenneActive(rememberDevice)
+  );
   reinitialiserTentativesConnexionIp(req);
 
   res.setHeader("X-CSRF-Token", req.session.csrfToken);
@@ -412,29 +421,14 @@ async function modifierMotDePasse(req, res) {
 
   const nouveauMotDePasseHash = await bcrypt.hash(nouveauMotDePasse, 12);
   await mettreAJourMotDePasseUtilisateur(utilisateur.id, nouveauMotDePasseHash);
+  await supprimerAppareilsAutoLoginUtilisateur(utilisateur.id);
 
   const utilisateurActualise = await trouverUtilisateurParId(utilisateur.id);
 
-  await regenererSession(req);
-  req.session.utilisateur = {
-    id: utilisateurActualise.id,
-    nom: utilisateurActualise.nom,
-    email: utilisateurActualise.email,
-    session_version: utilisateurActualise.session_version,
-    est_admin: utilisateurActualise.est_admin,
-    peut_voir_monetisation: utilisateurActualise.peut_voir_monetisation,
-    peut_voir_aujourdhui: utilisateurActualise.peut_voir_aujourdhui,
-    peut_voir_indisponibilites: utilisateurActualise.peut_voir_indisponibilites,
-  };
-  req.session.session_meta = {
-    ...(req.session.session_meta || {}),
-    adresse_ip: normaliserIpClient(req),
-    user_agent: obtenirUserAgent(req),
-    connected_at: req.session.session_meta?.connected_at || new Date().toISOString(),
-  };
-  req.session.csrfToken = genererTokenCsrf();
-  req.session.cookie.maxAge = SESSION_MAX_AGE_MS;
-  await sauvegarderSession(req);
+  await initialiserSessionAuthentifiee(req, utilisateurActualise, {
+    connectedAt: req.session?.session_meta?.connected_at || new Date().toISOString(),
+  });
+  effacerCookieConnexionAutomatique(req, res);
 
   res.setHeader("X-CSRF-Token", req.session.csrfToken);
 
@@ -465,12 +459,16 @@ async function deconnecterUtilisateur(req, res) {
   }
 
   if (!req.session) {
+    await supprimerAppareilAutoLoginCourant(req).catch(() => {});
+    effacerCookieConnexionAutomatique(req, res);
     res.clearCookie(SESSION_COOKIE_NAME, optionsCookie);
     return res.json({ message: "Deconnexion reussie." });
   }
 
   try {
+    await supprimerAppareilAutoLoginCourant(req).catch(() => {});
     await detruireSession(req);
+    effacerCookieConnexionAutomatique(req, res);
     res.clearCookie(SESSION_COOKIE_NAME, optionsCookie);
     return res.json({ message: "Deconnexion reussie." });
   } catch (error) {

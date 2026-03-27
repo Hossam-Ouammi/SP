@@ -281,8 +281,81 @@ async function recupererEntreeHistoriqueDetail(id) {
   return transformerEntreeHistorique(entree, carteIntegrite.get(entree.id) === true);
 }
 
+async function supprimerEntreeHistoriqueParId(id) {
+  const entreeCible = await trouverEntreeHistoriqueParId(id);
+
+  if (!entreeCible) {
+    return {
+      deletedEntry: null,
+      changes: 0,
+    };
+  }
+
+  const entreesSuivantes = await all(
+    `
+      SELECT
+        id,
+        seance_id,
+        seance_libelle,
+        action_type,
+        action_label,
+        acteur_id,
+        acteur_nom,
+        details_json,
+        previous_hash,
+        entry_hash,
+        created_at
+      FROM historique_actions
+      WHERE id > ?
+      ORDER BY id ASC
+    `,
+    [id]
+  );
+
+  let hashPrecedent = String(entreeCible.previous_hash || "");
+
+  await run("BEGIN IMMEDIATE TRANSACTION");
+
+  try {
+    const resultatSuppression = await run(
+      "DELETE FROM historique_actions WHERE id = ?",
+      [id]
+    );
+
+    for (const entree of entreesSuivantes) {
+      const entreeRechainee = {
+        ...entree,
+        previous_hash: hashPrecedent,
+      };
+      const nouvelHash = calculerHashEntree(entreeRechainee);
+
+      await run(
+        `
+          UPDATE historique_actions
+          SET previous_hash = ?, entry_hash = ?
+          WHERE id = ?
+        `,
+        [hashPrecedent, nouvelHash, entree.id]
+      );
+
+      hashPrecedent = nouvelHash;
+    }
+
+    await run("COMMIT");
+
+    return {
+      deletedEntry: entreeCible,
+      changes: Number(resultatSuppression?.changes || 0),
+    };
+  } catch (error) {
+    await run("ROLLBACK").catch(() => {});
+    throw error;
+  }
+}
+
 module.exports = {
   creerEntreeHistorique,
   listerEntreesHistorique,
   recupererEntreeHistoriqueDetail,
+  supprimerEntreeHistoriqueParId,
 };

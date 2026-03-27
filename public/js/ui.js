@@ -14,6 +14,7 @@ import {
   mettreAJourAccesCompte,
   mettreAJourLectureSeuleCompte,
   mettreAJourAccesMonetisationCompte,
+  mettreAJourTarifHoraireCompte as mettreAJourTarifHoraireCompteAdmin,
   mettreAJourAccesAujourdhuiCompte,
   mettreAJourAccesIndisponibilitesCompte,
   revoquerSessionsUtilisateurAdmin,
@@ -26,6 +27,7 @@ import {
   recupererIpsBloqueesAdmin,
   bloquerIpAdmin,
   debloquerIpAdmin,
+  revoquerAppareilAutoLoginAdmin,
 } from "./admin.js";
 import {
   recupererSeances,
@@ -41,6 +43,7 @@ import {
   supprimerIndisponibilite,
   recupererHistoriqueActions,
   recupererDetailHistorique,
+  supprimerEntreeHistorique as supprimerEntreeHistoriqueApi,
   recupererMonetisation,
 } from "./seances.js";
 import { initialiserCalendrier, mettreAJourEvenements } from "./calendrier.js";
@@ -201,6 +204,11 @@ const elements = {
   adminSessionCurrentPassword: document.getElementById("admin-session-current-password"),
   adminSessionError: document.getElementById("admin-session-error"),
   adminSessionsList: document.getElementById("admin-sessions-list"),
+  adminTrustedDeviceCurrentPassword: document.getElementById(
+    "admin-trusted-device-current-password"
+  ),
+  adminTrustedDeviceError: document.getElementById("admin-trusted-device-error"),
+  adminTrustedDevicesList: document.getElementById("admin-trusted-devices-list"),
   adminAuditLogList: document.getElementById("admin-audit-log-list"),
   adminBlockIpForm: document.getElementById("admin-block-ip-form"),
   adminBlockIpAddress: document.getElementById("admin-block-ip-address"),
@@ -270,6 +278,13 @@ const elements = {
   ),
   adminMonetisationError: document.getElementById("admin-monetisation-error"),
   adminMonetisationButton: document.getElementById("admin-monetisation-button"),
+  adminRateForm: document.getElementById("admin-rate-form"),
+  adminRateUserId: document.getElementById("admin-rate-user-id"),
+  adminRateStatus: document.getElementById("admin-rate-status"),
+  adminRateValue: document.getElementById("admin-rate-value"),
+  adminRateCurrentPassword: document.getElementById("admin-rate-current-password"),
+  adminRateError: document.getElementById("admin-rate-error"),
+  adminRateButton: document.getElementById("admin-rate-button"),
   adminLogoutUserForm: document.getElementById("admin-logout-user-form"),
   adminLogoutUserId: document.getElementById("admin-logout-user-id"),
   adminLogoutCurrentPassword: document.getElementById("admin-logout-current-password"),
@@ -333,6 +348,10 @@ const elements = {
   historyDetailDate: document.getElementById("history-detail-date"),
   historyChangesTitle: document.getElementById("history-changes-title"),
   historyChangesList: document.getElementById("history-changes-list"),
+  historyDeleteActions: document.getElementById("history-delete-actions"),
+  historyDeleteCurrentPassword: document.getElementById("history-delete-current-password"),
+  historyDeleteError: document.getElementById("history-delete-error"),
+  historyDeleteButton: document.getElementById("history-delete-button"),
   historyDetailModal: document.getElementById("history-detail-modal"),
   historyDetailModalSubtitle: document.getElementById("history-detail-modal-subtitle"),
   historyDetailModalAction: document.getElementById("history-detail-modal-action"),
@@ -344,6 +363,18 @@ const elements = {
   ),
   historyDetailModalChangesList: document.getElementById(
     "history-detail-modal-changes-list"
+  ),
+  historyDetailModalDeleteActions: document.getElementById(
+    "history-detail-modal-delete-actions"
+  ),
+  historyDetailModalDeleteCurrentPassword: document.getElementById(
+    "history-detail-modal-delete-current-password"
+  ),
+  historyDetailModalDeleteError: document.getElementById(
+    "history-detail-modal-delete-error"
+  ),
+  historyDetailModalDeleteButton: document.getElementById(
+    "history-detail-modal-delete-button"
   ),
   seanceModal: document.getElementById("seance-modal"),
   seanceModalTitle: document.getElementById("seance-modal-title"),
@@ -447,7 +478,7 @@ function appliquerConnexionMemorisee() {
   }
 
   elements.loginUsername.value = connexion.username;
-  elements.loginRemember.checked = Boolean(connexion.username);
+  elements.loginRemember.checked = false;
 }
 
 function mettreAJourVisibiliteMotDePasseConnexion() {
@@ -798,6 +829,7 @@ function attacherEcouteurs() {
     "submit",
     gererMiseAJourAccesMonetisationUtilisateur
   );
+  elements.adminRateForm?.addEventListener("submit", gererMiseAJourTarifHoraireUtilisateur);
   elements.adminLogoutUserForm?.addEventListener(
     "submit",
     gererRevoquerSessionsUtilisateur
@@ -810,12 +842,18 @@ function attacherEcouteurs() {
     mettreAJourControlesAdministration
   );
   elements.adminMonetisationUserId?.addEventListener("change", mettreAJourControlesAdministration);
+  elements.adminRateUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminLogoutUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminDeleteUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminClearSeancesForm?.addEventListener("submit", gererSuppressionToutesLesSeances);
   elements.adminClearHistoryForm?.addEventListener(
     "submit",
     gererSuppressionToutHistorique
+  );
+  elements.historyDeleteButton?.addEventListener("click", gererSuppressionEntreeHistorique);
+  elements.historyDetailModalDeleteButton?.addEventListener(
+    "click",
+    gererSuppressionEntreeHistorique
   );
   elements.adminUnavailabilityFullDay?.addEventListener(
     "change",
@@ -1121,6 +1159,43 @@ function utilisateurPeutGererIndisponibilites() {
   return utilisateurEstHossam() && !utilisateurDoitChangerMotDePasse();
 }
 
+function seanceEstMasqueePourConfidentialite(seance) {
+  return (
+    Boolean(seance?.est_masquee_pour_confidentialite) ||
+    Boolean(seance?.est_compte_hossam_prive)
+  );
+}
+
+function obtenirMessageSeanceConfidentielle() {
+  return "Ce creneau est reserve et visible uniquement par l'administrateur.";
+}
+
+function obtenirSeancesPourStatistiques() {
+  return etat.seances.filter((seance) => !seanceEstMasqueePourConfidentialite(seance));
+}
+
+function seanceDoitEtreMasqueeDansAujourdhui(seance) {
+  if (utilisateurEstAdministrateur()) {
+    return false;
+  }
+
+  if (seanceEstMasqueePourConfidentialite(seance)) {
+    return true;
+  }
+
+  if (estJourIntegralementIndisponible(seance?.date)) {
+    return true;
+  }
+
+  return Boolean(
+    trouverIndisponibiliteChevauchanteLocale({
+      date: seance?.date,
+      heure_debut: seance?.heure_debut,
+      heure_fin: seance?.heure_fin,
+    })
+  );
+}
+
 function utilisateurEstEnLectureSeule() {
   return !utilisateurPeutVoirAdministration() && Number(etat.utilisateur?.mode_lecture_seule) === 1;
 }
@@ -1188,10 +1263,15 @@ function reinitialiserFormulaireUtilisateur() {
   masquerErreur(elements.adminUnavailabilityAccessError);
   elements.adminMonetisationForm.reset();
   masquerErreur(elements.adminMonetisationError);
+  elements.adminRateForm.reset();
+  elements.adminRateValue.dataset.boundAccountId = "";
+  masquerErreur(elements.adminRateError);
   elements.adminLogoutUserForm.reset();
   masquerErreur(elements.adminLogoutUserError);
   elements.adminSessionCurrentPassword.value = "";
   masquerErreur(elements.adminSessionError);
+  elements.adminTrustedDeviceCurrentPassword.value = "";
+  masquerErreur(elements.adminTrustedDeviceError);
   elements.adminClearSeancesForm.reset();
   masquerErreur(elements.adminClearSeancesError);
   elements.adminClearHistoryForm.reset();
@@ -1273,6 +1353,8 @@ function mettreAJourResumeCompteConnecte() {
   if (statsIdentite) {
     statsIdentite.classList.toggle("admin-identity-stats-single", !estAdministrateur);
   }
+
+  mettreAJourSuppressionHistorique(etat.historiqueSelection);
 }
 
 async function gererConnexion(event) {
@@ -1286,7 +1368,8 @@ async function gererConnexion(event) {
   try {
     const utilisateur = await connecterUtilisateur(
       elements.loginUsername.value.trim(),
-      elements.loginPassword.value
+      elements.loginPassword.value,
+      elements.loginRemember.checked
     );
 
     if (elements.loginRemember.checked) {
@@ -1298,7 +1381,7 @@ async function gererConnexion(event) {
     etat.utilisateur = utilisateur;
     afficherApplication();
     await chargerDonneesApplication();
-    afficherToast("Connexion réussie.");
+    afficherToast("Connexion reussie.");
   } catch (erreur) {
     if (erreur.status === 429 && erreur.retryAfter) {
       let restantes = parseInt(erreur.retryAfter, 10);
@@ -2034,6 +2117,54 @@ async function gererRevoquerSessionIndividuelle(sessionId) {
   }
 }
 
+async function gererRevocationAppareilAutoLogin(appareil) {
+  masquerErreur(elements.adminTrustedDeviceError);
+
+  if (!utilisateurPeutVoirAdministration()) {
+    elements.adminToolsPanel.classList.add("hidden");
+    return;
+  }
+
+  const motDePasseActuel = elements.adminTrustedDeviceCurrentPassword.value;
+
+  if (!motDePasseActuel) {
+    afficherErreur(
+      elements.adminTrustedDeviceError,
+      "Entrez votre mot de passe actuel pour stopper l'auto-login de cet appareil."
+    );
+    return;
+  }
+
+  const confirmation = window.confirm(
+    `Stopper l'auto-login de ${appareil.device_label || "cet appareil"} ?`
+  );
+
+  if (!confirmation) {
+    return;
+  }
+
+  try {
+    const resultat = await revoquerAppareilAutoLoginAdmin(appareil.id, motDePasseActuel);
+    elements.adminTrustedDeviceCurrentPassword.value = "";
+    await chargerAdministrationSiAutorise();
+    afficherToast(resultat.message || "Auto-login revoque.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      elements.adminToolsPanel.classList.add("hidden");
+      afficherSectionApplication("dashboard");
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherErreur(elements.adminTrustedDeviceError, erreur.message);
+  }
+}
+
 async function gererBlocageIpAdmin(event) {
   event.preventDefault();
   masquerErreur(elements.adminBlockIpError);
@@ -2254,6 +2385,130 @@ async function gererSuppressionToutHistorique(event) {
   }
 }
 
+function obtenirControlesSuppressionHistorique() {
+  return [
+    {
+      container: elements.historyDeleteActions,
+      input: elements.historyDeleteCurrentPassword,
+      error: elements.historyDeleteError,
+      button: elements.historyDeleteButton,
+    },
+    {
+      container: elements.historyDetailModalDeleteActions,
+      input: elements.historyDetailModalDeleteCurrentPassword,
+      error: elements.historyDetailModalDeleteError,
+      button: elements.historyDetailModalDeleteButton,
+    },
+  ].filter((controles) => controles.container && controles.input && controles.error && controles.button);
+}
+
+function obtenirControlesSuppressionHistoriqueDepuisDeclencheur(declencheur) {
+  return (
+    obtenirControlesSuppressionHistorique().find(
+      (controles) => controles.button === declencheur
+    ) || null
+  );
+}
+
+function reinitialiserSuppressionHistorique() {
+  obtenirControlesSuppressionHistorique().forEach((controles) => {
+    controles.input.value = "";
+    masquerErreur(controles.error);
+    controles.button.disabled = false;
+    controles.button.textContent = "Supprimer cette action";
+  });
+}
+
+function mettreAJourSuppressionHistorique(entree = etat.historiqueSelection) {
+  const visible = utilisateurPeutVoirAdministration() && Number(entree?.id) > 0;
+
+  obtenirControlesSuppressionHistorique().forEach((controles) => {
+    controles.container.classList.toggle("hidden", !visible);
+    controles.button.dataset.entryId = visible ? String(entree.id) : "";
+
+    if (!visible) {
+      controles.input.value = "";
+      masquerErreur(controles.error);
+      controles.button.disabled = false;
+      controles.button.textContent = "Supprimer cette action";
+    }
+  });
+}
+
+async function gererSuppressionEntreeHistorique(event) {
+  const controles =
+    obtenirControlesSuppressionHistoriqueDepuisDeclencheur(event?.currentTarget) ||
+    obtenirControlesSuppressionHistorique()[0];
+
+  if (!controles) {
+    return;
+  }
+
+  masquerErreur(controles.error);
+
+  if (!utilisateurPeutVoirAdministration()) {
+    elements.adminToolsPanel.classList.add("hidden");
+    mettreAJourSuppressionHistorique(null);
+    return;
+  }
+
+  const entreeId = Number(
+    controles.button.dataset.entryId || etat.historiqueSelection?.id || 0
+  );
+
+  if (!Number.isInteger(entreeId) || entreeId <= 0) {
+    afficherErreur(controles.error, "Selectionnez une entree d'historique valide.");
+    return;
+  }
+
+  const motDePasseActuel = String(controles.input.value || "");
+
+  if (!motDePasseActuel) {
+    afficherErreur(
+      controles.error,
+      "Entrez votre mot de passe actuel pour supprimer cette action."
+    );
+    return;
+  }
+
+  const confirmation = window.confirm(
+    "Supprimer cette entree d'historique ?"
+  );
+
+  if (!confirmation) {
+    return;
+  }
+
+  const texteInitial = controles.button.textContent;
+  controles.button.disabled = true;
+  controles.button.textContent = "Suppression...";
+
+  try {
+    const resultat = await supprimerEntreeHistoriqueApi(entreeId, motDePasseActuel);
+    etat.historiqueSelection = null;
+    reinitialiserSuppressionHistorique();
+    await chargerHistorique({ ouvrirEntreeId: null });
+    afficherToast(resultat.message || "L'entree d'historique a ete supprimee.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      elements.adminToolsPanel.classList.add("hidden");
+      mettreAJourSuppressionHistorique(null);
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherErreur(controles.error, erreur.message);
+  } finally {
+    controles.button.disabled = false;
+    controles.button.textContent = texteInitial;
+  }
+}
+
 async function gererMiseAJourLectureSeuleUtilisateur(event) {
   event.preventDefault();
   masquerErreur(elements.adminReadonlyError);
@@ -2370,6 +2625,73 @@ async function gererMiseAJourAccesMonetisationUtilisateur(event) {
     afficherErreur(elements.adminMonetisationError, erreur.message);
   } finally {
     elements.adminMonetisationButton.disabled = false;
+    mettreAJourControlesAdministration();
+  }
+}
+
+async function gererMiseAJourTarifHoraireUtilisateur(event) {
+  event.preventDefault();
+  masquerErreur(elements.adminRateError);
+
+  if (!utilisateurPeutVoirAdministration()) {
+    elements.adminToolsPanel.classList.add("hidden");
+    return;
+  }
+
+  const compte = obtenirCompteCatalogueAdministrationParId(elements.adminRateUserId.value);
+
+  if (!compte) {
+    afficherErreur(elements.adminRateError, "Selectionnez un compte de seance valide.");
+    return;
+  }
+
+  const tarifHoraire = Number(elements.adminRateValue.value);
+
+  if (!Number.isInteger(tarifHoraire) || tarifHoraire < 0 || tarifHoraire > 5000) {
+    afficherErreur(
+      elements.adminRateError,
+      "Entrez un tarif horaire entier entre 0 et 5000."
+    );
+    return;
+  }
+
+  const confirmation = window.confirm(
+    `Definir le tarif horaire du compte ${compte.valeur} a ${tarifHoraire} dh ?`
+  );
+
+  if (!confirmation) {
+    return;
+  }
+
+  elements.adminRateButton.disabled = true;
+  elements.adminRateButton.textContent = "Mise a jour...";
+
+  try {
+    const resultat = await mettreAJourTarifHoraireCompteAdmin(
+      compte.id,
+      tarifHoraire,
+      elements.adminRateCurrentPassword.value
+    );
+    elements.adminRateForm.reset();
+    elements.adminRateValue.dataset.boundAccountId = "";
+    await Promise.all([chargerAdministrationSiAutorise(), chargerMonetisationSiAutorise()]);
+    afficherToast(resultat.message);
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      elements.adminToolsPanel.classList.add("hidden");
+      afficherSectionApplication("dashboard");
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherErreur(elements.adminRateError, erreur.message);
+  } finally {
+    elements.adminRateButton.disabled = false;
     mettreAJourControlesAdministration();
   }
 }
@@ -2660,6 +2982,8 @@ function viderAdministration() {
     '<div class="admin-user-empty">Aucun utilisateur disponible.</div>';
   elements.adminSessionsList.innerHTML =
     '<div class="admin-session-empty">Aucune session active pour le moment.</div>';
+  elements.adminTrustedDevicesList.innerHTML =
+    '<div class="admin-session-empty">Aucun appareil auto-login pour le moment.</div>';
   elements.adminAuditLogList.innerHTML =
     '<div class="admin-session-empty">Aucun log disponible.</div>';
   elements.adminBlockedIpsList.innerHTML =
@@ -2672,6 +2996,8 @@ function viderAdministration() {
     '<div class="admin-session-empty">Aucun creneau indisponible pour le moment.</div>';
   masquerInfo(elements.adminCreateUserResult);
   masquerInfo(elements.adminResetPasswordResult);
+  masquerErreur(elements.adminTrustedDeviceError);
+  masquerErreur(elements.adminRateError);
   elements.adminUnavailabilityForm.classList.toggle(
     "hidden",
     !utilisateurPeutGererIndisponibilites()
@@ -2685,6 +3011,7 @@ function viderAdministration() {
     elements.adminTodayUserId,
     elements.adminUnavailabilityAccessUserId,
     elements.adminMonetisationUserId,
+    elements.adminRateUserId,
     elements.adminLogoutUserId,
   ].forEach((select) => {
     if (select) {
@@ -2698,12 +3025,14 @@ function viderAdministration() {
   elements.adminTodayStatus.textContent = "-";
   elements.adminUnavailabilityAccessStatus.textContent = "-";
   elements.adminMonetisationStatus.textContent = "-";
+  elements.adminRateStatus.textContent = "-";
   elements.adminDeleteUserButton.textContent = "Supprimer l'utilisateur";
   elements.adminToggleAccessButton.textContent = "Mettre à jour l'accès";
   elements.adminReadonlyButton.textContent = "Mettre à jour le mode";
   elements.adminTodayButton.textContent = "Mettre à jour Aujourd'hui";
   elements.adminUnavailabilityAccessButton.textContent = "Mettre à jour Indisponibilites";
   elements.adminMonetisationButton.textContent = "Mettre à jour Monetisation";
+  elements.adminRateButton.textContent = "Mettre a jour le tarif";
   elements.adminLogoutUserButton.textContent = "Couper les sessions";
   elements.adminDeleteUserButton.disabled = true;
   elements.adminToggleAccessButton.disabled = true;
@@ -2711,7 +3040,12 @@ function viderAdministration() {
   elements.adminTodayButton.disabled = true;
   elements.adminUnavailabilityAccessButton.disabled = true;
   elements.adminMonetisationButton.disabled = true;
+  elements.adminRateButton.disabled = true;
   elements.adminLogoutUserButton.disabled = true;
+  if (elements.adminRateValue) {
+    elements.adminRateValue.value = "";
+    elements.adminRateValue.dataset.boundAccountId = "";
+  }
   if (elements.adminBlockIpButton) {
     elements.adminBlockIpButton.disabled = false;
     elements.adminBlockIpButton.textContent = "Bloquer l'IP";
@@ -2747,7 +3081,10 @@ function obtenirSeancesAujourdhui() {
   const dateAujourdhui = obtenirDateLocaleIso();
 
   return etat.seances
-    .filter((seance) => seance.date === dateAujourdhui)
+    .filter(
+      (seance) =>
+        seance.date === dateAujourdhui && !seanceDoitEtreMasqueeDansAujourdhui(seance)
+    )
     .sort((premiereSeance, secondeSeance) => {
       return (
         obtenirCleTriHeure(premiereSeance.heure_debut) -
@@ -2782,10 +3119,16 @@ function mettreAJourVueAujourdhui() {
 }
 
 function creerCarteSeanceAujourdhui(seance) {
+  const estConfidentielle = seanceEstMasqueePourConfidentialite(seance);
   const ligne = document.createElement("button");
   ligne.type = "button";
   ligne.className = "today-row";
   ligne.addEventListener("click", async () => {
+    if (estConfidentielle) {
+      afficherToast(obtenirMessageSeanceConfidentielle(), "warning");
+      return;
+    }
+
     await ouvrirDetailSeance(seance);
   });
 
@@ -2795,6 +3138,9 @@ function creerCarteSeanceAujourdhui(seance) {
 
   const carte = document.createElement("span");
   carte.className = `today-item today-item-${seance.statut_seance}`;
+  if (estConfidentielle) {
+    carte.classList.add("today-item-confidentielle");
+  }
 
   const compteNormalise = normaliserNomCompte(seance.compte);
   const classeCompteAujourdhui = obtenirClasseCompteAujourdhui(compteNormalise);
@@ -2819,11 +3165,15 @@ function creerCarteSeanceAujourdhui(seance) {
   titreZone.append(etudiant, matiere);
 
   const badgeStatut = document.createElement("span");
-  definirBadge(
-    badgeStatut,
-    seance.statut_seance,
-    libellesStatutSeance[seance.statut_seance] || "Séance"
-  );
+  if (estConfidentielle) {
+    definirBadge(badgeStatut, "confidentielle", "Indisponible");
+  } else {
+    definirBadge(
+      badgeStatut,
+      seance.statut_seance,
+      libellesStatutSeance[seance.statut_seance] || "Séance"
+    );
+  }
 
   entete.append(titreZone, badgeStatut);
 
@@ -2881,7 +3231,7 @@ function normaliserNomCompte(compte) {
 }
 
 function calculerStatistiquesCompte(compteRecherche) {
-  const seancesDuCompte = etat.seances.filter(
+  const seancesDuCompte = obtenirSeancesPourStatistiques().filter(
     (seance) => normaliserNomCompte(seance.compte) === compteRecherche
   );
   const seancesFaites = seancesDuCompte.filter(
@@ -3101,11 +3451,12 @@ function mettreAJourMonetisation() {
 }
 
 function mettreAJourResume() {
-  elements.totalCount.textContent = String(etat.seances.length);
+  const seancesPourStatistiques = obtenirSeancesPourStatistiques();
+  elements.totalCount.textContent = String(seancesPourStatistiques.length);
   mettreAJourVueAujourdhui();
 
   const comptes = Array.from(
-    new Set(etat.seances.map((seance) => normaliserNomCompte(seance.compte)))
+    new Set(seancesPourStatistiques.map((seance) => normaliserNomCompte(seance.compte)))
   )
     .filter(Boolean)
     .sort();
@@ -3119,7 +3470,7 @@ function mettreAJourResume() {
   labelTotal.textContent = "Total general";
   const valeurTotale = document.createElement("strong");
   valeurTotale.className = "stat-overview-value";
-  valeurTotale.textContent = String(etat.seances.length);
+  valeurTotale.textContent = String(seancesPourStatistiques.length);
   carteTotale.append(labelTotal, valeurTotale);
   elements.statsAccountsOverview.appendChild(carteTotale);
 
@@ -3219,6 +3570,12 @@ function obtenirComptesAdministration() {
   return Array.isArray(etat.administration?.comptes) ? etat.administration.comptes : [];
 }
 
+function obtenirAppareilsAutoLoginAdministration() {
+  return Array.isArray(etat.administration?.trusted_devices)
+    ? etat.administration.trusted_devices
+    : [];
+}
+
 function obtenirCatalogueAdministration(type) {
   if (!etat.administration?.catalogue) {
     return [];
@@ -3227,6 +3584,14 @@ function obtenirCatalogueAdministration(type) {
   return Array.isArray(etat.administration.catalogue[type])
     ? etat.administration.catalogue[type]
     : [];
+}
+
+function obtenirCompteCatalogueAdministrationParId(compteId) {
+  return (
+    obtenirCatalogueAdministration("comptes").find(
+      (compte) => Number(compte.id) === Number(compteId)
+    ) || null
+  );
 }
 
 function obtenirCompteAdministrationParId(utilisateurId) {
@@ -3271,6 +3636,10 @@ function formaterEtatLectureSeuleCompte(compte) {
 
 function formaterEtatMonetisationCompte(compte) {
   return Number(compte?.peut_voir_monetisation) === 1 ? "Visible" : "Masquee";
+}
+
+function formaterTarifHoraireCompte(compte) {
+  return formaterMontantDh(Number(compte?.tarif_horaire || 0));
 }
 
 function formaterEtatAujourdhuiCompte(compte) {
@@ -3318,7 +3687,7 @@ function afficherListeCatalogueAdministration(container, elementsCatalogue, mess
       const action = document.createElement("button");
       action.type = "button";
       action.className = "admin-catalog-remove";
-      action.textContent = "×";
+      action.textContent = "x";
       action.title = `Supprimer ${elementCatalogue.valeur}`;
       action?.addEventListener("click", async () => {
         await gererSuppressionElementCatalogueAdministration({
@@ -3353,7 +3722,7 @@ function remplirSelectComptes(select, comptes, placeholder) {
   comptes.forEach((compte) => {
     const option = document.createElement("option");
     option.value = String(compte.id);
-    option.textContent = compte.nom;
+    option.textContent = compte.nom || compte.valeur || "Compte";
     select.appendChild(option);
   });
   select.disabled = false;
@@ -3544,6 +3913,74 @@ function afficherSessionsAdministration() {
   });
 }
 
+function creerCarteAppareilAutoLoginAdministration(appareil) {
+  const carte = document.createElement("article");
+  carte.className = "admin-session-item";
+
+  const contenu = document.createElement("div");
+  contenu.className = "admin-session-main";
+
+  const entete = document.createElement("div");
+  entete.className = "admin-session-head";
+
+  const infos = document.createElement("div");
+  const titre = document.createElement("h4");
+  titre.className = "admin-session-title";
+  titre.textContent = appareil.device_label || "Appareil reconnu";
+  const meta = document.createElement("div");
+  meta.className = "admin-session-meta";
+  meta.textContent = `${appareil.utilisateur_nom || "Utilisateur"} - ${appareil.utilisateur_email || "-"}`;
+  infos.append(titre, meta);
+
+  const badges = document.createElement("div");
+  badges.className = "admin-session-badges";
+  badges.appendChild(creerBadgeAdministration("Auto-login", "admin"));
+  entete.append(infos, badges);
+
+  const details = document.createElement("div");
+  details.className = "admin-session-agent";
+  details.textContent = `IP : ${appareil.adresse_ip || "-"} | Derniere utilisation : ${
+    appareil.last_used_at ? formatDateHeureSecondes(appareil.last_used_at) : "-"
+  }`;
+
+  const agent = document.createElement("div");
+  agent.className = "admin-session-agent";
+  agent.textContent = appareil.user_agent || "-";
+
+  contenu.append(entete, details, agent);
+
+  const actions = document.createElement("div");
+  actions.className = "admin-session-actions";
+  const bouton = document.createElement("button");
+  bouton.type = "button";
+  bouton.className = "button danger";
+  bouton.textContent = "Stopper l'auto-login";
+  bouton.addEventListener("click", async () => {
+    await gererRevocationAppareilAutoLogin(appareil);
+  });
+  actions.appendChild(bouton);
+
+  carte.append(contenu, actions);
+  return carte;
+}
+
+function afficherAppareilsAutoLoginAdministration() {
+  const appareils = obtenirAppareilsAutoLoginAdministration();
+  elements.adminTrustedDevicesList.innerHTML = "";
+
+  if (appareils.length === 0) {
+    elements.adminTrustedDevicesList.innerHTML =
+      '<div class="admin-session-empty">Aucun appareil auto-login pour le moment.</div>';
+    return;
+  }
+
+  appareils.forEach((appareil) => {
+    elements.adminTrustedDevicesList.appendChild(
+      creerCarteAppareilAutoLoginAdministration(appareil)
+    );
+  });
+}
+
 function afficherJournalAuthAdministration() {
   const logs = Array.isArray(etat.administration?.journal_auth) ? etat.administration.journal_auth : [];
   elements.adminAuditLogList.innerHTML = "";
@@ -3696,6 +4133,7 @@ function mettreAJourControlesAdministration() {
   const compteMonetisation = obtenirCompteAdministrationParId(
     elements.adminMonetisationUserId.value
   );
+  const compteTarif = obtenirCompteCatalogueAdministrationParId(elements.adminRateUserId.value);
   const compteLogout = obtenirCompteAdministrationParId(elements.adminLogoutUserId.value);
 
   elements.adminDeleteUserButton.disabled = !compteSuppression;
@@ -3761,6 +4199,23 @@ function mettreAJourControlesAdministration() {
       : `Afficher Monetisation`
     : "Mettre a jour Monetisation";
 
+  elements.adminRateStatus.textContent = compteTarif
+    ? formaterTarifHoraireCompte(compteTarif)
+    : "-";
+  elements.adminRateButton.disabled = !compteTarif;
+  elements.adminRateButton.textContent = compteTarif
+    ? `Mettre a jour le tarif de ${compteTarif.valeur}`
+    : "Mettre a jour le tarif";
+  if (elements.adminRateValue) {
+    const compteLie = compteTarif ? String(compteTarif.id) : "";
+    if (elements.adminRateValue.dataset.boundAccountId !== compteLie) {
+      elements.adminRateValue.value = compteTarif
+        ? String(Number(compteTarif.tarif_horaire || 0))
+        : "";
+      elements.adminRateValue.dataset.boundAccountId = compteLie;
+    }
+  }
+
   elements.adminLogoutUserButton.disabled = !compteLogout;
   elements.adminLogoutUserButton.textContent = compteLogout
     ? `Couper les sessions de ${compteLogout.nom}`
@@ -3788,6 +4243,7 @@ function mettreAJourPanneauAdministration() {
 
   afficherListeUtilisateursAdministration();
   afficherSessionsAdministration();
+  afficherAppareilsAutoLoginAdministration();
   afficherJournalAuthAdministration();
   afficherIpsBloqueesAdministration();
   afficherListeIndisponibilitesAdministration();
@@ -3832,6 +4288,11 @@ function mettreAJourPanneauAdministration() {
     elements.adminMonetisationUserId,
     obtenirComptesCiblables({ exclureAdministrateurs: true }),
     "Aucun collaborateur"
+  );
+  remplirSelectComptes(
+    elements.adminRateUserId,
+    comptesSeance,
+    "Aucun compte de seance"
   );
   remplirSelectComptes(
     elements.adminLogoutUserId,
@@ -3995,6 +4456,8 @@ function afficherDetailHistorique(entree) {
     presentationAction,
     detailsHistorique
   );
+  reinitialiserSuppressionHistorique();
+  mettreAJourSuppressionHistorique(entree);
 }
 
 function viderDetailHistorique() {
@@ -4017,6 +4480,8 @@ function viderDetailHistorique() {
   elements.historyDetailModalChangesList.innerHTML = "";
   elements.historyDetailModalSubtitle.textContent = "";
   elements.historyDetailModalSubtitle.classList.add("hidden");
+  reinitialiserSuppressionHistorique();
+  mettreAJourSuppressionHistorique(null);
   if (!elements.historyDetailModal.classList.contains("hidden")) {
     fermerModal(elements.historyDetailModal);
   }
@@ -4393,6 +4858,11 @@ function ouvrirFormulaireModification() {
     return;
   }
 
+  if (seanceEstMasqueePourConfidentialite(etat.seanceSelectionnee)) {
+    afficherToast(obtenirMessageSeanceConfidentielle(), "warning");
+    return;
+  }
+
   if (!utilisateurPeutModifierDonnees()) {
     afficherToast("Votre compte est en lecture seule.", "warning");
     return;
@@ -4410,6 +4880,11 @@ function ouvrirFormulaireModification() {
 
 function ouvrirFormulaireReport() {
   if (!etat.seanceSelectionnee) {
+    return;
+  }
+
+  if (seanceEstMasqueePourConfidentialite(etat.seanceSelectionnee)) {
+    afficherToast(obtenirMessageSeanceConfidentielle(), "warning");
     return;
   }
 
@@ -4571,6 +5046,29 @@ async function gererSoumissionSeance(event) {
     return;
   }
 
+  const conflitSeanceConfidentielle = trouverSeanceConfidentielleChevauchanteLocale({
+    date: donneesSeance.date,
+    heure_debut: donneesSeance.heure_debut,
+    heure_fin: heureFinCalculee,
+    ignorerSeanceId: mode === "modification" ? etat.seanceSelectionnee?.id : null,
+  });
+
+  if (
+    conflitSeanceConfidentielle &&
+    !(
+      mode === "modification" &&
+      creneauSeanceEquivalent(
+        etat.seanceSelectionnee,
+        donneesSeance.date,
+        donneesSeance.heure_debut,
+        heureFinCalculee
+      )
+    )
+  ) {
+    afficherErreur(elements.seanceFormError, obtenirMessageSeanceConfidentielle());
+    return;
+  }
+
   elements.saveSeanceButton.disabled = true;
   elements.saveSeanceButton.textContent =
     mode === "creation" ? "Création..." : "Sauvegarde...";
@@ -4619,6 +5117,21 @@ async function gererSoumissionSeance(event) {
 }
 
 function gererClicIndisponibilite(indisponibilite) {
+  if (indisponibilite?.est_seance_confidentielle) {
+    const dateLabel = indisponibilite?.date ? formatDate(indisponibilite.date) : "";
+    const messageConfidentiel = estIndisponibiliteJourCompletClient(indisponibilite)
+      ? dateLabel
+        ? `Jour complet indisponible : ${dateLabel}. Raison : Seance Hossam.`
+        : "Jour complet indisponible. Raison : Seance Hossam."
+      : `Creneau indisponible${dateLabel ? ` : ${dateLabel}` : ""}${
+          indisponibilite?.heure_debut && indisponibilite?.heure_fin
+            ? `, ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}`
+            : ""
+        }. Raison : Seance Hossam.`;
+    afficherToast(messageConfidentiel, "warning");
+    return;
+  }
+
   const raison = String(indisponibilite?.raison || "").trim();
   const messagePlage = estIndisponibiliteJourCompletClient(indisponibilite)
     ? "Jour complet indisponible"
@@ -4647,6 +5160,11 @@ function gererClicIndisponibilite(indisponibilite) {
 }
 
 async function ouvrirDetailSeance(seance) {
+  if (seanceEstMasqueePourConfidentialite(seance)) {
+    afficherToast(obtenirMessageSeanceConfidentielle(), "warning");
+    return;
+  }
+
   etat.seanceSelectionnee = seance;
   elements.detailTitle.textContent = seance.libelle;
   elements.detailStudent.textContent = seance.etudiant;
@@ -4696,12 +5214,15 @@ function mettreEnEtatActionsRapides() {
     return;
   }
 
-  elements.editSeanceButton.disabled = !utilisateurPeutModifierDonnees();
-  elements.deleteSeanceButton.disabled = !utilisateurPeutModifierDonnees();
+  const actionsBloquees =
+    !utilisateurPeutModifierDonnees() || seanceEstMasqueePourConfidentialite(etat.seanceSelectionnee);
+
+  elements.editSeanceButton.disabled = actionsBloquees;
+  elements.deleteSeanceButton.disabled = actionsBloquees;
 
   elements.quickStatusButtons.forEach((bouton) => {
     bouton.disabled =
-      !utilisateurPeutModifierDonnees() ||
+      actionsBloquees ||
       (bouton.dataset.status !== "reportee" &&
         bouton.dataset.status === etat.seanceSelectionnee.statut_seance);
   });
@@ -4709,6 +5230,11 @@ function mettreEnEtatActionsRapides() {
 
 async function gererChangementStatut(nouveauStatut) {
   if (!etat.seanceSelectionnee) {
+    return;
+  }
+
+  if (seanceEstMasqueePourConfidentialite(etat.seanceSelectionnee)) {
+    afficherToast(obtenirMessageSeanceConfidentielle(), "warning");
     return;
   }
 
@@ -4737,6 +5263,11 @@ async function gererChangementStatut(nouveauStatut) {
 
 async function gererSuppressionSeance() {
   if (!etat.seanceSelectionnee) {
+    return;
+  }
+
+  if (seanceEstMasqueePourConfidentialite(etat.seanceSelectionnee)) {
+    afficherToast(obtenirMessageSeanceConfidentielle(), "warning");
     return;
   }
 
@@ -4948,6 +5479,34 @@ function creneauSeanceEquivalent(seance, date, heureDebut, heureFin) {
     seance.date === date &&
     seance.heure_debut === heureDebut &&
     seance.heure_fin === heureFin
+  );
+}
+
+function trouverSeanceConfidentielleChevauchanteLocale({
+  date,
+  heure_debut: heureDebut,
+  heure_fin: heureFin,
+  ignorerSeanceId = null,
+}) {
+  if (utilisateurEstAdministrateur()) {
+    return null;
+  }
+
+  return (
+    etat.seances.find((seance) => {
+      if (!seanceEstMasqueePourConfidentialite(seance) || seance.date !== date) {
+        return false;
+      }
+
+      if (ignorerSeanceId && Number(seance.id) === Number(ignorerSeanceId)) {
+        return false;
+      }
+
+      return (
+        calculerDureeMinutesDepuisHeures(seance.heure_debut, heureFin) > 0 &&
+        calculerDureeMinutesDepuisHeures(heureDebut, seance.heure_fin) > 0
+      );
+    }) || null
   );
 }
 

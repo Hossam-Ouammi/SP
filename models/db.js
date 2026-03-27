@@ -14,6 +14,16 @@ const databasePath = process.env.DATABASE_PATH || path.join(databaseDirectory, "
 const activerDonneesExemple = process.env.SEED_DEMO_DATA === "true" && process.env.NODE_ENV !== "production";
 const matieresParDefaut = ["Maths", "Physique chimie", "Python", "C++"];
 const comptesParDefaut = ["Abdo", "Yassine"];
+const tarifsComptesParDefaut = {
+  abdo: 90,
+  yassine: 130,
+  hossam: 150,
+};
+
+function obtenirTarifHoraireCompteParDefaut(compte) {
+  const cle = String(compte || "").trim().toLowerCase();
+  return tarifsComptesParDefaut[cle] ?? 100;
+}
 
 fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 assurerDossiersScreenshots();
@@ -426,6 +436,37 @@ async function ajouterColonneCreatedAtCatalogueSiNecessaire() {
   `);
 }
 
+async function ajouterColonneTarifHoraireCatalogueSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(catalogue_options)");
+  const colonneTarifExiste = colonnes.some((colonne) => colonne.name === "tarif_horaire");
+
+  if (!colonneTarifExiste) {
+    await run("ALTER TABLE catalogue_options ADD COLUMN tarif_horaire INTEGER");
+  }
+
+  await run(`
+    UPDATE catalogue_options
+    SET tarif_horaire = COALESCE(
+      tarif_horaire,
+      (
+        SELECT utilisateurs.tarif_horaire
+        FROM utilisateurs
+        WHERE lower(trim(utilisateurs.nom)) = lower(trim(catalogue_options.valeur))
+          AND utilisateurs.tarif_horaire IS NOT NULL
+        ORDER BY utilisateurs.est_admin DESC, utilisateurs.id ASC
+        LIMIT 1
+      ),
+      CASE
+        WHEN type <> 'compte' THEN 0
+        WHEN lower(trim(valeur)) = 'abdo' THEN 90
+        WHEN lower(trim(valeur)) = 'yassine' THEN 130
+        WHEN lower(trim(valeur)) = 'hossam' THEN 150
+        ELSE 100
+      END
+    )
+  `);
+}
+
 async function ajouterColonnesJournalAuthSiNecessaire() {
   const colonnes = await all("PRAGMA table_info(journal_auth)");
   const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
@@ -683,10 +724,10 @@ async function initialiserCatalogueParDefaut() {
   for (const compte of comptesParDefaut) {
     await run(
       `
-        INSERT OR IGNORE INTO catalogue_options (type, valeur)
-        VALUES ('compte', ?)
+        INSERT OR IGNORE INTO catalogue_options (type, valeur, tarif_horaire)
+        VALUES ('compte', ?, ?)
       `,
-      [compte]
+      [compte, obtenirTarifHoraireCompteParDefaut(compte)]
     );
   }
 }
@@ -719,10 +760,10 @@ async function synchroniserCatalogueDepuisSeances() {
   for (const compte of comptes) {
     await run(
       `
-        INSERT OR IGNORE INTO catalogue_options (type, valeur)
-        VALUES ('compte', ?)
+        INSERT OR IGNORE INTO catalogue_options (type, valeur, tarif_horaire)
+        VALUES ('compte', ?, ?)
       `,
-      [compte.valeur]
+      [compte.valeur, obtenirTarifHoraireCompteParDefaut(compte.valeur)]
     );
   }
 }
@@ -1009,6 +1050,7 @@ async function initialiserBaseDeDonnees() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       valeur TEXT NOT NULL,
+      tarif_horaire INTEGER DEFAULT 100,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(type, valeur)
     )
@@ -1048,6 +1090,21 @@ async function initialiserBaseDeDonnees() {
   `);
 
   await run(`
+    CREATE TABLE IF NOT EXISTS trusted_devices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      utilisateur_id INTEGER NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
+      selector TEXT NOT NULL UNIQUE,
+      validator_hash TEXT NOT NULL,
+      session_version INTEGER NOT NULL DEFAULT 1,
+      device_label TEXT NOT NULL,
+      user_agent TEXT,
+      adresse_ip TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_used_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await run(`
     CREATE INDEX IF NOT EXISTS idx_journal_auth_date ON journal_auth(created_at)
   `);
   await run(`
@@ -1058,6 +1115,12 @@ async function initialiserBaseDeDonnees() {
   `);
   await run(`
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_trusted_devices_user ON trusted_devices(utilisateur_id)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_trusted_devices_last_used ON trusted_devices(last_used_at)
   `);
 
   await ajouterColonneCompteSiNecessaire();
@@ -1070,6 +1133,7 @@ async function initialiserBaseDeDonnees() {
   await ajouterColonneJourCompletIndisponibilitesSiNecessaire();
   await ajouterColonnesIndisponibilitesSystemeSiNecessaire();
   await ajouterColonneCreatedAtCatalogueSiNecessaire();
+  await ajouterColonneTarifHoraireCatalogueSiNecessaire();
   await ajouterColonnesJournalAuthSiNecessaire();
   await synchroniserHistoriqueActionsSiNecessaire();
   await initialiserCatalogueParDefaut();

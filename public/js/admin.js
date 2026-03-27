@@ -92,6 +92,21 @@ export async function mettreAJourAccesMonetisationCompte(
   });
 }
 
+export async function mettreAJourTarifHoraireCompte(
+  compteId,
+  tarifHoraire,
+  motDePasseActuel
+) {
+  return envoyerRequete("/api/admin/hourly-rate", {
+    method: "PATCH",
+    body: JSON.stringify({
+      compte_id: Number(compteId),
+      tarif_horaire: Number(tarifHoraire),
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+
 export async function mettreAJourAccesAujourdhuiCompte(
   utilisateurId,
   peutVoirAujourdhui,
@@ -196,6 +211,15 @@ export async function bloquerIpAdmin(ip, raison, motDePasseActuel) {
 
 export async function debloquerIpAdmin(ip, motDePasseActuel) {
   return envoyerRequete(`/api/admin/blocked-ips/${encodeURIComponent(ip)}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+
+export async function revoquerAppareilAutoLoginAdmin(appareilId, motDePasseActuel) {
+  return envoyerRequete(`/api/admin/trusted-devices/${Number(appareilId)}`, {
     method: "DELETE",
     body: JSON.stringify({
       mot_de_passe_actuel: motDePasseActuel,

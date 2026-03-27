@@ -25,6 +25,7 @@ const {
   attacherTokenCsrf,
 } = require("./middleware/security.middleware");
 const { verifierIpBlocklist } = require("./middleware/ip-blocklist.middleware");
+const { restaurerConnexionAutomatique } = require("./middleware/auth.middleware");
 const { assurerDossiersScreenshots } = require("./utils/screenshot-storage");
 const {
   SESSION_COOKIE_NAME,
@@ -90,6 +91,7 @@ app.use(
   })
 );
 
+app.use(restaurerConnexionAutomatique);
 app.use(verifierOrigineRequete);
 app.use(verifierProtectionCsrf);
 app.use(attacherTokenCsrf);

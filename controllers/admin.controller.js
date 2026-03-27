@@ -17,6 +17,7 @@ const {
   mettreAJourAccesCompte,
   mettreAJourLectureSeuleCompte,
   mettreAJourAccesMonetisationCompte,
+  mettreAJourTarifHoraireCompte,
   mettreAJourAccesAujourdhuiCompte,
   mettreAJourAccesIndisponibilitesCompte,
   listerSessionsActives,
@@ -44,6 +45,13 @@ const {
   bloquerIp,
   debloquerIp,
 } = require("../models/ip-blocklist.model");
+const {
+  listerAppareilsAutoLogin,
+  trouverAppareilAutoLoginParId,
+  supprimerAppareilAutoLoginParId,
+  supprimerAppareilsAutoLoginUtilisateur,
+} = require("../models/trusted-device.model");
+const { effacerCookieConnexionAutomatique } = require("../middleware/auth.middleware");
 
 function obtenirUserAgent(req) {
   return String(req.headers["user-agent"] || "").slice(0, 400);
@@ -108,12 +116,13 @@ function repondreErreurVerification(req, res, verification, actionType, details)
 }
 
 async function recupererVueAdministration(req, res) {
-  const [comptes, sessions, catalogue, journalAuth, ipsBloquees] = await Promise.all([
+  const [comptes, sessions, catalogue, journalAuth, ipsBloquees, trustedDevices] = await Promise.all([
     listerComptesAdministration(),
     listerSessionsActives(req.sessionID),
     recupererCatalogueAdministration(),
     listerJournalAuth(200),
     listerIpsBloquees(),
+    listerAppareilsAutoLogin(),
   ]);
 
   return res.json({
@@ -123,6 +132,7 @@ async function recupererVueAdministration(req, res) {
       catalogue,
       journal_auth: journalAuth,
       ips_bloquees: ipsBloquees,
+      trusted_devices: trustedDevices,
     },
   });
 }
@@ -428,6 +438,7 @@ async function reinitialiserMotDePasseCompte(req, res) {
   const motDePasseTemporaire = genererMotDePasseAleatoire();
   const motDePasseHash = await bcrypt.hash(motDePasseTemporaire, 12);
   await reinitialiserMotDePasseUtilisateur(compteCible.id, motDePasseHash);
+  await supprimerAppareilsAutoLoginUtilisateur(compteCible.id);
 
   const selfReset = Number(compteCible.id) === Number(req.utilisateur.id);
 
@@ -488,6 +499,10 @@ async function mettreAJourAccesUtilisateur(req, res) {
   }
 
   await mettreAJourAccesCompte(compteCible.id, accesActive);
+
+  if (!accesActive) {
+    await supprimerAppareilsAutoLoginUtilisateur(compteCible.id);
+  }
 
   await journaliserActionAdmin(req, "admin_update_access", "success", {
     utilisateur_id: compteCible.id,
@@ -615,6 +630,67 @@ async function mettreAJourAccesMonetisationUtilisateur(req, res) {
     message: peutVoirMonetisation
       ? `Le menu Monetisation est maintenant visible pour ${compteCible.nom}.`
       : `Le menu Monetisation a ete masque pour ${compteCible.nom}.`,
+  });
+}
+
+async function mettreAJourTarifCompteUtilisateur(req, res) {
+  const {
+    compte_id: compteIdBrut,
+    utilisateur_id: utilisateurIdLegacy,
+    tarif_horaire: tarifHoraire,
+    mot_de_passe_actuel: motDePasseActuel,
+  } = req.body;
+  const compteId = Number(compteIdBrut ?? utilisateurIdLegacy);
+
+  const tarifNormalise = Number(tarifHoraire);
+
+  if (
+    !Number.isInteger(compteId) ||
+    !Number.isFinite(tarifNormalise) ||
+    !Number.isInteger(tarifNormalise) ||
+    tarifNormalise < 0 ||
+    tarifNormalise > 5000 ||
+    !motDePasseActuel
+  ) {
+    return res.status(400).json({
+      message:
+        "Compte de seance, tarif horaire entier entre 0 et 5000, et mot de passe actuel obligatoires.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(
+      req,
+      res,
+      verification,
+      "admin_update_hourly_rate",
+      {
+        compte_id: compteId,
+        tarif_horaire: tarifNormalise,
+      }
+    );
+  }
+
+  const compteCible = await trouverElementCatalogueParId(compteId);
+
+  if (!compteCible || compteCible.type !== "compte") {
+    return res.status(404).json({
+      message: "Compte de seance introuvable.",
+    });
+  }
+
+  await mettreAJourTarifHoraireCompte(compteCible.id, tarifNormalise);
+
+  await journaliserActionAdmin(req, "admin_update_hourly_rate", "success", {
+    compte_id: compteCible.id,
+    compte: compteCible.valeur,
+    tarif_horaire: tarifNormalise,
+  });
+
+  return res.json({
+    message: `Le tarif horaire du compte ${compteCible.valeur} est maintenant de ${tarifNormalise} dh.`,
   });
 }
 
@@ -1049,6 +1125,50 @@ async function debloquerIpExistante(req, res) {
   }
 }
 
+async function revoquerAppareilAutoLoginAdministration(req, res) {
+  const appareilId = Number(req.params.id);
+  const { mot_de_passe_actuel: motDePasseActuel } = req.body || {};
+
+  if (!Number.isInteger(appareilId) || appareilId <= 0 || !motDePasseActuel) {
+    return res.status(400).json({
+      message: "Appareil cible et mot de passe actuel obligatoires.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(req, res, verification, "admin_revoke_trusted_device", {
+      trusted_device_id: appareilId,
+    });
+  }
+
+  const appareil = await trouverAppareilAutoLoginParId(appareilId);
+
+  if (!appareil) {
+    return res.status(404).json({
+      message: "Appareil auto-login introuvable.",
+    });
+  }
+
+  await supprimerAppareilAutoLoginParId(appareil.id);
+
+  await journaliserActionAdmin(req, "admin_revoke_trusted_device", "success", {
+    trusted_device_id: appareil.id,
+    utilisateur_id: appareil.utilisateur_id,
+    utilisateur_nom: appareil.utilisateur_nom,
+    device_label: appareil.device_label,
+  });
+
+  if (Number(appareil.utilisateur_id) === Number(req.utilisateur.id)) {
+    effacerCookieConnexionAutomatique(req, res);
+  }
+
+  return res.json({
+    message: `L'auto-login de ${appareil.device_label} a ete revoque.`,
+  });
+}
+
 module.exports = {
   recupererVueAdministration,
   ajouterElementCatalogueAdministration,
@@ -1065,10 +1185,12 @@ module.exports = {
   mettreAJourAccesAujourdhuiUtilisateur,
   mettreAJourAccesIndisponibilitesUtilisateur,
   mettreAJourAccesMonetisationUtilisateur,
+  mettreAJourTarifCompteUtilisateur,
   recupererJournalAuthentification,
   recupererToutesLesSessions,
   revoquerSessionSpecifique,
   recupererIpsBloquees,
   bloquerNouvelleIp,
   debloquerIpExistante,
+  revoquerAppareilAutoLoginAdministration,
 };

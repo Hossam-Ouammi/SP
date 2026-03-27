@@ -6,6 +6,7 @@ const {
   trouverValeurCatalogue,
   ajouterValeurCatalogue,
   trouverValeurCatalogueParId,
+  mettreAJourTarifHoraireCompteCatalogue,
   compterUtilisationValeurCatalogue,
   supprimerValeurCatalogueParId,
 } = require("./catalogue.model");
@@ -76,6 +77,7 @@ async function listerComptesAdministration() {
       peut_voir_monetisation,
       peut_voir_aujourdhui,
       peut_voir_indisponibilites,
+      tarif_horaire,
       doit_changer_mot_de_passe,
       dernier_login_at,
       dernier_login_ip,
@@ -100,6 +102,7 @@ async function trouverCompteParId(utilisateurId) {
         peut_voir_monetisation,
         peut_voir_aujourdhui,
         peut_voir_indisponibilites,
+        tarif_horaire,
         doit_changer_mot_de_passe,
         dernier_login_at,
         dernier_login_ip,
@@ -144,6 +147,7 @@ async function trouverCompteParEmail(email) {
         peut_voir_monetisation,
         peut_voir_aujourdhui,
         peut_voir_indisponibilites,
+        tarif_horaire,
         doit_changer_mot_de_passe,
         dernier_login_at,
         dernier_login_ip,
@@ -193,6 +197,10 @@ async function mettreAJourAccesMonetisationCompte(utilisateurId, peutVoirMonetis
     `,
     [peutVoirMonetisation ? 1 : 0, utilisateurId]
   );
+}
+
+async function mettreAJourTarifHoraireCompte(compteCatalogueId, tarifHoraire) {
+  return mettreAJourTarifHoraireCompteCatalogue(compteCatalogueId, tarifHoraire);
 }
 
 async function mettreAJourAccesAujourdhuiCompte(utilisateurId, peutVoirAujourdhui) {
@@ -413,6 +421,7 @@ module.exports = {
   mettreAJourAccesCompte,
   mettreAJourLectureSeuleCompte,
   mettreAJourAccesMonetisationCompte,
+  mettreAJourTarifHoraireCompte,
   mettreAJourAccesAujourdhuiCompte,
   mettreAJourAccesIndisponibilitesCompte,
   listerSessionsActives,

@@ -12,6 +12,7 @@ const {
   mettreAJourAccesAujourdhuiUtilisateur,
   mettreAJourAccesIndisponibilitesUtilisateur,
   mettreAJourAccesMonetisationUtilisateur,
+  mettreAJourTarifCompteUtilisateur,
   revoquerSessionAdministration,
   revoquerSessionsUtilisateurAdministration,
   supprimerToutesLesSeancesAdmin,
@@ -22,6 +23,7 @@ const {
   recupererIpsBloquees,
   bloquerNouvelleIp,
   debloquerIpExistante,
+  revoquerAppareilAutoLoginAdministration,
 } = require("../controllers/admin.controller");
 const {
   verifierAuthentification,
@@ -72,6 +74,10 @@ router.patch(
   "/monetisation-access",
   notifierMiseAJourApplication(mettreAJourAccesMonetisationUtilisateur, "administration")
 );
+router.patch(
+  "/hourly-rate",
+  notifierMiseAJourApplication(mettreAJourTarifCompteUtilisateur, "administration")
+);
 router.post(
   "/sessions/revoke",
   notifierMiseAJourApplication(revoquerSessionAdministration, "administration")
@@ -103,6 +109,10 @@ router.post(
 router.delete(
   "/blocked-ips/:ip",
   notifierMiseAJourApplication(debloquerIpExistante, "administration")
+);
+router.delete(
+  "/trusted-devices/:id",
+  notifierMiseAJourApplication(revoquerAppareilAutoLoginAdministration, "administration")
 );
 
 

@@ -165,6 +165,13 @@ function extrairePrenomEtudiant(nomComplet) {
     .find(Boolean) || "";
 }
 
+function seanceEstMasqueePourConfidentialite(seance) {
+  return (
+    Boolean(seance?.est_masquee_pour_confidentialite) ||
+    Boolean(seance?.est_compte_hossam_prive)
+  );
+}
+
 function extraireDateIsoDepuisValeurCalendrier(valeur) {
   const texte = String(valeur || "").trim();
 
@@ -311,6 +318,33 @@ function transformerSeanceEnEvenement(seance) {
   ) {
     console.warn("Séance ignorée dans le calendrier car date/heure invalide :", seance.id);
     return null;
+  }
+
+  if (seanceEstMasqueePourConfidentialite(seance)) {
+    return {
+      id: String(seance.id),
+      title: "",
+      start: `${seance.date}T${seance.heure_debut}`,
+      end: `${seance.date}T${seance.heure_fin}`,
+      display: estCalendrierMobile() ? "block" : "auto",
+      backgroundColor: "#64748b",
+      borderColor: "#475569",
+      textColor: "#f8fafc",
+      classNames: ["indisponibilite-event", "seance-confidentielle-event"],
+      extendedProps: {
+        seance,
+        type: "indisponibilite",
+        indisponibilite: {
+          id: `seance-privee-${seance.id}`,
+          date: seance.date,
+          heure_debut: seance.heure_debut,
+          heure_fin: seance.heure_fin,
+          jour_complet: 0,
+          raison: "",
+          est_seance_confidentielle: true,
+        },
+      },
+    };
   }
 
   const paletteCompte = obtenirPaletteCompte(seance);

@@ -95,6 +95,15 @@ export async function recupererDetailHistorique(entreeId) {
   return resultat.entree;
 }
 
+export async function supprimerEntreeHistorique(entreeId, motDePasseActuel) {
+  return envoyerRequete(`/api/historique/${Number(entreeId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+
 export async function recupererMonetisation() {
   const resultat = await envoyerRequete("/api/monetisation");
   return resultat.monetisation;

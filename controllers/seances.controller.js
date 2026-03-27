@@ -3,6 +3,7 @@ const fs = require("fs/promises");
 const {
   listerToutesLesSeances,
   trouverSeanceParId,
+  trouverSeanceCompteChevauchante,
   creerSeance,
   mettreAJourSeance,
   mettreAJourStatutSeance,
@@ -37,9 +38,15 @@ const libellesStatutHistorique = {
   annulee: "Annulée",
   reportee: "Reportée",
 };
+const comptePriveHossam = "hossam";
+const libelleSeanceConfidentielle = "Indisponible";
 
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
+}
+
+function normaliserCleCompte(valeur) {
+  return normaliserTexte(valeur).toLowerCase();
 }
 
 function estIdentifiantValide(valeur) {
@@ -117,6 +124,52 @@ function estIndisponibiliteJourComplet(indisponibilite) {
   return Number(indisponibilite?.jour_complet) === 1;
 }
 
+function utilisateurPeutVoirCompteHossam(utilisateur) {
+  return (
+    Number(utilisateur?.est_admin) === 1 ||
+    String(utilisateur?.email || "").trim().toLowerCase() === "hossam@test.com"
+  );
+}
+
+function seanceEstCompteHossam(seance) {
+  return normaliserCleCompte(seance?.compte) === comptePriveHossam;
+}
+
+function masquerSeanceConfidentiellePourClient(seance) {
+  if (!seance) {
+    return seance;
+  }
+
+  const dureeMinutes = calculerDureeMinutes(seance.heure_debut, seance.heure_fin);
+
+  return {
+    id: seance.id,
+    parent: "",
+    etudiant: libelleSeanceConfidentielle,
+    matiere: libelleSeanceConfidentielle,
+    compte: libelleSeanceConfidentielle,
+    est_essai: false,
+    essai_label: "Non",
+    date: seance.date,
+    heure_debut: seance.heure_debut,
+    heure_fin: seance.heure_fin,
+    duree_minutes: dureeMinutes,
+    duree_label: dureeMinutes ? formaterDuree(dureeMinutes) : "-",
+    statut_seance: "planifiee",
+    statut_manuel: "planifiee",
+    statut_auto: false,
+    libelle: libelleSeanceConfidentielle,
+    description: "",
+    cree_par_nom: "",
+    modifie_par_nom: "",
+    created_at: seance.created_at,
+    updated_at: seance.updated_at,
+    nombre_photos: 0,
+    est_masquee_pour_confidentialite: true,
+    est_compte_hossam_prive: true,
+  };
+}
+
 function construireMessageIndisponibilite(indisponibilite) {
   const raison = normaliserTexte(indisponibilite?.raison);
   const base = estIndisponibiliteJourComplet(indisponibilite)
@@ -147,6 +200,16 @@ async function recupererConflitIndisponibilite(donneesSeance) {
     date: donneesSeance.date,
     heureDebut: donneesSeance.heure_debut,
     heureFin: donneesSeance.heure_fin,
+  });
+}
+
+async function recupererConflitSeancePriveeHossam(donneesSeance, options = {}) {
+  return trouverSeanceCompteChevauchante({
+    date: donneesSeance.date,
+    heureDebut: donneesSeance.heure_debut,
+    heureFin: donneesSeance.heure_fin,
+    compte: "Hossam",
+    exclureSeanceId: options.exclureSeanceId || null,
   });
 }
 
@@ -319,7 +382,7 @@ async function recupererCatalogueSeances() {
   };
 }
 
-async function validerDonneesSeance(donneesSeance) {
+async function validerDonneesSeance(donneesSeance, utilisateur) {
   const erreurs = [];
   const dureeMinutes = Number(donneesSeance.duree_minutes);
   const heureValide = estHeureDebutSeanceValide(donneesSeance.heure_debut);
@@ -345,6 +408,13 @@ async function validerDonneesSeance(donneesSeance) {
 
   if (!catalogue.comptes.includes(donneesSeance.compte)) {
     erreurs.push("Le compte est invalide.");
+  }
+
+  if (
+    normaliserCleCompte(donneesSeance.compte) === comptePriveHossam &&
+    !utilisateurPeutVoirCompteHossam(utilisateur)
+  ) {
+    erreurs.push("Seul l'administrateur peut planifier une séance sur le compte Hossam.");
   }
 
   if (!valeursEssaiValides.includes(Number(donneesSeance.est_essai))) {
@@ -446,15 +516,42 @@ function transformerSeancePourClient(seance) {
   };
 }
 
+function transformerSeancePourClientSelonUtilisateur(seance, utilisateur) {
+  if (!seance) {
+    return seance;
+  }
+
+  if (!utilisateurPeutVoirCompteHossam(utilisateur) && seanceEstCompteHossam(seance)) {
+    return masquerSeanceConfidentiellePourClient(seance);
+  }
+
+  return transformerSeancePourClient(seance);
+}
+
+function filtrerCataloguePourUtilisateur(catalogue, utilisateur) {
+  if (utilisateurPeutVoirCompteHossam(utilisateur)) {
+    return catalogue;
+  }
+
+  return {
+    ...catalogue,
+    comptes: Array.isArray(catalogue?.comptes)
+      ? catalogue.comptes.filter(
+          (compte) => normaliserCleCompte(compte?.valeur || compte) !== comptePriveHossam
+        )
+      : [],
+  };
+}
+
 async function recupererToutesLesSeances(req, res) {
   const seances = await listerToutesLesSeances();
   return res.json({
-    seances: seances.map(transformerSeancePourClient),
+    seances: seances.map((seance) => transformerSeancePourClientSelonUtilisateur(seance, req.utilisateur)),
   });
 }
 
 async function recupererOptionsSeances(req, res) {
-  const catalogue = await listerCatalogueOptions();
+  const catalogue = filtrerCataloguePourUtilisateur(await listerCatalogueOptions(), req.utilisateur);
 
   return res.json({
     options: {
@@ -475,12 +572,12 @@ async function recupererUneSeance(req, res) {
     return res.status(404).json({ message: "Séance introuvable." });
   }
 
-  return res.json({ seance: transformerSeancePourClient(seance) });
+  return res.json({ seance: transformerSeancePourClientSelonUtilisateur(seance, req.utilisateur) });
 }
 
 async function ajouterSeance(req, res) {
   const donneesSeance = preparerDonneesSeance(req.body);
-  const erreurs = await validerDonneesSeance(donneesSeance);
+  const erreurs = await validerDonneesSeance(donneesSeance, req.utilisateur);
 
   if (erreurs.length > 0) {
     return res.status(400).json({ message: erreurs.join(" ") });
@@ -498,6 +595,16 @@ async function ajouterSeance(req, res) {
     return res.status(400).json({
       message: construireMessageIndisponibilite(conflitIndisponibilite),
     });
+  }
+
+  if (!utilisateurPeutVoirCompteHossam(req.utilisateur)) {
+    const conflitSeancePrivee = await recupererConflitSeancePriveeHossam(donneesSeance);
+
+    if (conflitSeancePrivee) {
+      return res.status(400).json({
+        message: "Ce créneau est réservé et visible uniquement par l'administrateur.",
+      });
+    }
   }
 
   const nouvelleSeance = await creerSeance({
@@ -518,7 +625,7 @@ async function ajouterSeance(req, res) {
 
   return res.status(201).json({
     message: "Séance créée avec succès.",
-    seance: transformerSeancePourClient(nouvelleSeance),
+    seance: transformerSeancePourClientSelonUtilisateur(nouvelleSeance, req.utilisateur),
   });
 }
 
@@ -533,8 +640,14 @@ async function modifierSeance(req, res) {
     return res.status(404).json({ message: "Séance introuvable." });
   }
 
+  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seanceExistante)) {
+    return res.status(403).json({
+      message: "Seul l'administrateur peut modifier les séances du compte Hossam.",
+    });
+  }
+
   const donneesSeance = preparerDonneesSeance(req.body);
-  const erreurs = await validerDonneesSeance(donneesSeance);
+  const erreurs = await validerDonneesSeance(donneesSeance, req.utilisateur);
 
   if (erreurs.length > 0) {
     return res.status(400).json({ message: erreurs.join(" ") });
@@ -546,6 +659,18 @@ async function modifierSeance(req, res) {
     return res.status(400).json({
       message: construireMessageIndisponibilite(conflitIndisponibilite),
     });
+  }
+
+  if (!utilisateurPeutVoirCompteHossam(req.utilisateur)) {
+    const conflitSeancePrivee = await recupererConflitSeancePriveeHossam(donneesSeance, {
+      exclureSeanceId: req.params.id,
+    });
+
+    if (conflitSeancePrivee && !creneauSeanceEquivalent(seanceExistante, donneesSeance)) {
+      return res.status(400).json({
+        message: "Ce créneau est réservé et visible uniquement par l'administrateur.",
+      });
+    }
   }
 
   const seanceMiseAJour = await mettreAJourSeance(req.params.id, {
@@ -570,7 +695,7 @@ async function modifierSeance(req, res) {
 
   return res.json({
     message: "Séance modifiée avec succès.",
-    seance: transformerSeancePourClient(seanceMiseAJour),
+    seance: transformerSeancePourClientSelonUtilisateur(seanceMiseAJour, req.utilisateur),
   });
 }
 
@@ -584,6 +709,12 @@ async function changerStatutSeance(req, res) {
 
   if (!seanceExistante) {
     return res.status(404).json({ message: "Séance introuvable." });
+  }
+
+  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seanceExistante)) {
+    return res.status(403).json({
+      message: "Seul l'administrateur peut modifier les séances du compte Hossam.",
+    });
   }
 
   if (!statutsSeanceValides.includes(statutSeance)) {
@@ -613,7 +744,7 @@ async function changerStatutSeance(req, res) {
 
   return res.json({
     message: "Statut de la séance mis à jour.",
-    seance: transformerSeancePourClient(seanceMiseAJour),
+    seance: transformerSeancePourClientSelonUtilisateur(seanceMiseAJour, req.utilisateur),
   });
 }
 
@@ -626,6 +757,12 @@ async function supprimerUneSeance(req, res) {
 
   if (!seance) {
     return res.status(404).json({ message: "Séance introuvable." });
+  }
+
+  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seance)) {
+    return res.status(403).json({
+      message: "Seul l'administrateur peut supprimer les séances du compte Hossam.",
+    });
   }
 
   const photos = await recupererPhotosParSeance(req.params.id);

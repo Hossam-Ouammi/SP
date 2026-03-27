@@ -63,6 +63,33 @@ async function trouverSeanceParId(id, utilisateurId = null) {
   );
 }
 
+async function trouverSeanceCompteChevauchante({
+  date,
+  heureDebut,
+  heureFin,
+  compte,
+  exclureSeanceId = null,
+}) {
+  const clauseExclusion = exclureSeanceId ? "AND seances.id <> ?" : "";
+  const parametres = exclureSeanceId
+    ? [date, compte, heureFin, heureDebut, exclureSeanceId]
+    : [date, compte, heureFin, heureDebut];
+
+  return get(
+    `
+      ${requeteSeanceComplete}
+      WHERE seances.date = ?
+        AND lower(seances.compte) = lower(?)
+        AND seances.heure_debut < ?
+        AND seances.heure_fin > ?
+        ${clauseExclusion}
+      ORDER BY seances.heure_debut ASC
+      LIMIT 1
+    `,
+    parametres
+  );
+}
+
 async function creerSeance(donneesSeance) {
   const resultat = await run(
     `
@@ -184,6 +211,7 @@ module.exports = {
   listerToutesLesSeances,
   listerSeancesPourMonetisation,
   trouverSeanceParId,
+  trouverSeanceCompteChevauchante,
   creerSeance,
   mettreAJourSeance,
   mettreAJourStatutSeance,

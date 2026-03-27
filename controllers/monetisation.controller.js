@@ -1,5 +1,5 @@
 const { listerSeancesPourMonetisation } = require("../models/seance.model");
-const { listerCompteUtilisateurs } = require("../models/utilisateur.model");
+const { listerCatalogueOptions } = require("../models/catalogue.model");
 
 const CONFIGURATION_COMPTES_MONETISATION = [
   { nom: "Yassine", tarif_par_defaut: 130 },
@@ -96,34 +96,50 @@ function normaliserCleCompte(valeur) {
   return String(valeur || "").trim().toLowerCase();
 }
 
+function obtenirTarifHoraireParDefautCompte(nomCompte) {
+  const compteConfigure = CONFIGURATION_COMPTES_MONETISATION.find(
+    (compte) => normaliserCleCompte(compte.nom) === normaliserCleCompte(nomCompte)
+  );
+  return Number(compteConfigure?.tarif_par_defaut || 100);
+}
+
 async function recupererMonetisation(req, res) {
   try {
-    const [seances, utilisateurs] = await Promise.all([
+    const [seances, catalogue] = await Promise.all([
       listerSeancesPourMonetisation(),
-      listerCompteUtilisateurs(),
+      listerCatalogueOptions(),
     ]);
 
-    const utilisateursParNom = new Map(
-      utilisateurs.map((utilisateur) => [normaliserCleCompte(utilisateur.nom), utilisateur])
+    const comptesCatalogue = Array.isArray(catalogue?.comptes) ? catalogue.comptes : [];
+    const comptesCatalogueParNom = new Map(
+      comptesCatalogue.map((compte) => [
+        normaliserCleCompte(compte?.valeur),
+        compte,
+      ])
     );
 
     const statsComptes = {};
     let montantTotal = 0;
     let nombreTotalFacturable = 0;
 
-    CONFIGURATION_COMPTES_MONETISATION.forEach((compteConfigure) => {
-      const utilisateur = utilisateursParNom.get(normaliserCleCompte(compteConfigure.nom));
-      const tarifUnitaire = Number(utilisateur?.tarif_horaire || compteConfigure.tarif_par_defaut || 0);
-      const stats = calculerMonetisationPourCompte(
-        seances,
-        compteConfigure.nom,
-        tarifUnitaire
-      );
+    CONFIGURATION_COMPTES_MONETISATION
+      .forEach((compteConfigure) => {
+        const compteCatalogue = comptesCatalogueParNom.get(
+          normaliserCleCompte(compteConfigure.nom)
+        );
+        const tarifUnitaire = Number.isFinite(Number(compteCatalogue?.tarif_horaire))
+          ? Number(compteCatalogue.tarif_horaire)
+          : obtenirTarifHoraireParDefautCompte(compteConfigure.nom);
+        const stats = calculerMonetisationPourCompte(
+          seances,
+          compteConfigure.nom,
+          tarifUnitaire
+        );
 
-      statsComptes[compteConfigure.nom] = stats;
-      montantTotal += stats.montant_du;
-      nombreTotalFacturable += stats.seances_facturables;
-    });
+        statsComptes[compteConfigure.nom] = stats;
+        montantTotal += stats.montant_du;
+        nombreTotalFacturable += stats.seances_facturables;
+      });
 
     return res.json({
       monetisation: {
