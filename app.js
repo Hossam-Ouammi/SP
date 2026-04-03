@@ -12,6 +12,7 @@ const historiqueRoutes = require("./routes/historique.routes");
 const indisponibilitesRoutes = require("./routes/indisponibilites.routes");
 const monetisationRoutes = require("./routes/monetisation.routes");
 const realtimeRoutes = require("./routes/realtime.routes");
+const pushRoutes = require("./routes/push.routes");
 const seancesRoutes = require("./routes/seances.routes");
 const photosRoutes = require("./routes/photos.routes");
 const { initialiserBaseDeDonnees } = require("./models/db");
@@ -31,6 +32,7 @@ const {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_MS,
 } = require("./config/security.config");
+const { demarrerPlanificateurRappelsPush } = require("./utils/push-notifications");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -143,6 +145,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/historique", historiqueRoutes);
 app.use("/api/indisponibilites", indisponibilitesRoutes);
 app.use("/api/monetisation", monetisationRoutes);
+app.use("/api/push", pushRoutes);
 app.use("/api/realtime", realtimeRoutes);
 app.use("/api/seances", seancesRoutes);
 app.use("/api/photos", photosRoutes);
@@ -202,6 +205,7 @@ app.use((error, req, res, next) => {
 async function demarrerServeur() {
   try {
     await initialiserBaseDeDonnees();
+    demarrerPlanificateurRappelsPush();
 
     app.listen(PORT, HOST, () => {
       console.log(`Serveur lancé sur http://${HOST}:${PORT}`);

@@ -5,6 +5,7 @@ database/*.db-shm
 database.db
 database/.audit-secret
 database/.session-secret
+database/.push-vapid-keys.json
 public/uploads/*
 !public/uploads/.gitkeep
 storage/uploads/*

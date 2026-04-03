@@ -75,6 +75,18 @@ function all(sql, params = []) {
   });
 }
 
+function fermerBaseDeDonnees() {
+  return new Promise((resolve, reject) => {
+    db.close((error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 function ajouterJours(dateReference, nombreDeJours) {
   const nouvelleDate = new Date(dateReference);
   nouvelleDate.setDate(nouvelleDate.getDate() + nombreDeJours);
@@ -464,6 +476,62 @@ async function ajouterColonneTarifHoraireCatalogueSiNecessaire() {
         ELSE 100
       END
     )
+  `);
+}
+
+async function ajouterColonnesPushSubscriptionsSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(push_subscriptions)");
+  const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
+
+  if (colonnesExistantes.size === 0) {
+    return;
+  }
+
+  const migrations = [
+    {
+      nom: "expiration_time",
+      sql: "ALTER TABLE push_subscriptions ADD COLUMN expiration_time TEXT",
+    },
+    {
+      nom: "device_label",
+      sql: "ALTER TABLE push_subscriptions ADD COLUMN device_label TEXT DEFAULT ''",
+    },
+    {
+      nom: "user_agent",
+      sql: "ALTER TABLE push_subscriptions ADD COLUMN user_agent TEXT DEFAULT ''",
+    },
+    {
+      nom: "actif",
+      sql: "ALTER TABLE push_subscriptions ADD COLUMN actif INTEGER DEFAULT 1",
+    },
+    {
+      nom: "updated_at",
+      sql: "ALTER TABLE push_subscriptions ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    {
+      nom: "last_used_at",
+      sql: "ALTER TABLE push_subscriptions ADD COLUMN last_used_at TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    {
+      nom: "last_today_reminder_key",
+      sql: "ALTER TABLE push_subscriptions ADD COLUMN last_today_reminder_key TEXT",
+    },
+  ];
+
+  for (const migration of migrations) {
+    if (!colonnesExistantes.has(migration.nom)) {
+      await run(migration.sql);
+    }
+  }
+
+  await run(`
+    UPDATE push_subscriptions
+    SET
+      actif = COALESCE(actif, 1),
+      updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP),
+      last_used_at = COALESCE(last_used_at, updated_at, CURRENT_TIMESTAMP),
+      device_label = COALESCE(device_label, ''),
+      user_agent = COALESCE(user_agent, '')
   `);
 }
 
@@ -1105,6 +1173,24 @@ async function initialiserBaseDeDonnees() {
   `);
 
   await run(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      utilisateur_id INTEGER NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      expiration_time TEXT,
+      device_label TEXT DEFAULT '',
+      user_agent TEXT DEFAULT '',
+      actif INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_used_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_today_reminder_key TEXT
+    )
+  `);
+
+  await run(`
     CREATE INDEX IF NOT EXISTS idx_journal_auth_date ON journal_auth(created_at)
   `);
   await run(`
@@ -1122,6 +1208,15 @@ async function initialiserBaseDeDonnees() {
   await run(`
     CREATE INDEX IF NOT EXISTS idx_trusted_devices_last_used ON trusted_devices(last_used_at)
   `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(utilisateur_id)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_active ON push_subscriptions(actif)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_last_used ON push_subscriptions(last_used_at)
+  `);
 
   await ajouterColonneCompteSiNecessaire();
   await ajouterColonneEssaiSiNecessaire();
@@ -1134,6 +1229,7 @@ async function initialiserBaseDeDonnees() {
   await ajouterColonnesIndisponibilitesSystemeSiNecessaire();
   await ajouterColonneCreatedAtCatalogueSiNecessaire();
   await ajouterColonneTarifHoraireCatalogueSiNecessaire();
+  await ajouterColonnesPushSubscriptionsSiNecessaire();
   await ajouterColonnesJournalAuthSiNecessaire();
   await synchroniserHistoriqueActionsSiNecessaire();
   await initialiserCatalogueParDefaut();
@@ -1153,6 +1249,7 @@ module.exports = {
   run,
   get,
   all,
+  fermerBaseDeDonnees,
   initialiserBaseDeDonnees,
   calculerHashHistorique,
   construireListeCreationHistorique,

@@ -47,6 +47,13 @@ import {
   recupererMonetisation,
 } from "./seances.js";
 import { initialiserCalendrier, mettreAJourEvenements } from "./calendrier.js";
+import {
+  recupererEtatNotificationsPush,
+  synchroniserNotificationsPushActuelles,
+  activerNotificationsPush,
+  desactiverNotificationsPush,
+  envoyerNotificationPushTest,
+} from "./push.js";
 
 const libellesStatutSeance = {
   planifiee: "Planifiée",
@@ -105,6 +112,11 @@ const etat = {
   seanceSelectionnee: null,
   calendrier: null,
   sectionActive: "aujourdhui",
+  notificationsPush: {
+    supported: false,
+    permission: "default",
+    subscribed: false,
+  },
 };
 const connexionTempsReel = {
   source: null,
@@ -159,6 +171,14 @@ const elements = {
   newPassword: document.getElementById("new-password"),
   confirmPassword: document.getElementById("confirm-password"),
   savePasswordButton: document.getElementById("save-password-button"),
+  pushSettingsCard: document.getElementById("push-settings-card"),
+  pushStatusLabel: document.getElementById("push-status-label"),
+  pushPermissionLabel: document.getElementById("push-permission-label"),
+  pushSettingsInfo: document.getElementById("push-settings-info"),
+  pushSettingsError: document.getElementById("push-settings-error"),
+  pushEnableButton: document.getElementById("push-enable-button"),
+  pushDisableButton: document.getElementById("push-disable-button"),
+  pushTestButton: document.getElementById("push-test-button"),
   adminTotalUsers: document.getElementById("admin-total-users"),
   adminActiveUsers: document.getElementById("admin-active-users"),
   adminReadonlyUsers: document.getElementById("admin-readonly-users"),
@@ -210,6 +230,16 @@ const elements = {
   adminTrustedDeviceError: document.getElementById("admin-trusted-device-error"),
   adminTrustedDevicesList: document.getElementById("admin-trusted-devices-list"),
   adminAuditLogList: document.getElementById("admin-audit-log-list"),
+  auditLogModal: document.getElementById("audit-log-modal"),
+  auditLogModalSubtitle: document.getElementById("audit-log-modal-subtitle"),
+  auditLogModalResult: document.getElementById("audit-log-modal-result"),
+  auditLogModalAction: document.getElementById("audit-log-modal-action"),
+  auditLogModalIdentifiant: document.getElementById("audit-log-modal-identifiant"),
+  auditLogModalUser: document.getElementById("audit-log-modal-user"),
+  auditLogModalIp: document.getElementById("audit-log-modal-ip"),
+  auditLogModalDevice: document.getElementById("audit-log-modal-device"),
+  auditLogModalDate: document.getElementById("audit-log-modal-date"),
+  auditLogModalDetailsList: document.getElementById("audit-log-modal-details-list"),
   adminBlockIpForm: document.getElementById("admin-block-ip-form"),
   adminBlockIpAddress: document.getElementById("admin-block-ip-address"),
   adminBlockIpReason: document.getElementById("admin-block-ip-reason"),
@@ -545,7 +575,9 @@ async function initialiserApplication() {
   initialiserChoixHeureDebut();
   initialiserFormulaireIndisponibilite();
   initialiserCatalogueSeanceParDefaut();
+  reinitialiserEtatNotificationsPush();
   attacherEcouteurs();
+  mettreAJourCarteNotificationsPush();
 
   try {
     const utilisateur = await recupererUtilisateurCourant();
@@ -834,6 +866,9 @@ function attacherEcouteurs() {
     "submit",
     gererRevoquerSessionsUtilisateur
   );
+  elements.pushEnableButton?.addEventListener("click", gererActivationNotificationsPush);
+  elements.pushDisableButton?.addEventListener("click", gererDesactivationNotificationsPush);
+  elements.pushTestButton?.addEventListener("click", gererTestNotificationsPush);
   elements.adminAccessUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminReadonlyUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminTodayUserId?.addEventListener("change", mettreAJourControlesAdministration);
@@ -911,6 +946,8 @@ function afficherConnexion() {
   appliquerConnexionMemorisee();
   mettreAJourVisibiliteMotDePasseConnexion();
   reinitialiserFormulaireUtilisateur();
+  reinitialiserEtatNotificationsPush();
+  mettreAJourCarteNotificationsPush();
   elements.passwordSecurityNotice.classList.add("hidden");
   mettreAJourNavigationProtegee();
 }
@@ -924,8 +961,10 @@ function afficherApplication() {
   mettreAJourPanneauAdministration();
   mettreAJourVueAujourdhui();
   mettreAJourNavigationProtegee();
+  mettreAJourCarteNotificationsPush();
   afficherSectionApplication(utilisateurDoitChangerMotDePasse() ? "utilisateur" : etat.sectionActive);
   demarrerConnexionTempsReel();
+  rafraichirEtatNotificationsPush().catch(() => {});
 }
 
 function fermerConnexionTempsReel() {
@@ -1159,6 +1198,110 @@ function utilisateurPeutGererIndisponibilites() {
   return utilisateurEstHossam() && !utilisateurDoitChangerMotDePasse();
 }
 
+function reinitialiserEtatNotificationsPush() {
+  etat.notificationsPush = {
+    supported: false,
+    permission: "default",
+    subscribed: false,
+  };
+}
+
+function formaterPermissionNotificationsPush(permission) {
+  if (permission === "granted") {
+    return "Autorisee";
+  }
+
+  if (permission === "denied") {
+    return "Refusee";
+  }
+
+  if (permission === "unsupported") {
+    return "Non prise en charge";
+  }
+
+  return "A demander";
+}
+
+function mettreAJourCarteNotificationsPush() {
+  if (!elements.pushSettingsCard) {
+    return;
+  }
+
+  const notificationsPush = etat.notificationsPush || {};
+  const supporte = notificationsPush.supported === true;
+  const abonnementActif = notificationsPush.subscribed === true;
+  const compteSecurise = !utilisateurDoitChangerMotDePasse();
+
+  if (elements.pushStatusLabel) {
+    elements.pushStatusLabel.textContent = supporte
+      ? abonnementActif
+        ? "Active"
+        : "Inactive"
+      : "Indisponible";
+  }
+
+  if (elements.pushPermissionLabel) {
+    elements.pushPermissionLabel.textContent = formaterPermissionNotificationsPush(
+      notificationsPush.permission
+    );
+  }
+
+  if (elements.pushSettingsInfo) {
+    if (!supporte) {
+      elements.pushSettingsInfo.textContent =
+        "Ce navigateur ne prend pas en charge les notifications push.";
+    } else if (!compteSecurise) {
+      elements.pushSettingsInfo.textContent =
+        "Changez d'abord votre mot de passe pour activer les notifications sur cet appareil.";
+    } else if (abonnementActif) {
+      elements.pushSettingsInfo.textContent =
+        "Les notifications temps reel et les rappels toutes les 2 heures sont actifs sur cet appareil.";
+    } else {
+      elements.pushSettingsInfo.textContent =
+        "Les notifications sont desactivees sur cet appareil.";
+    }
+  }
+
+  if (elements.pushEnableButton) {
+    elements.pushEnableButton.disabled =
+      !supporte || !compteSecurise || abonnementActif;
+  }
+
+  if (elements.pushDisableButton) {
+    elements.pushDisableButton.disabled =
+      !supporte || !compteSecurise || !abonnementActif;
+  }
+
+  if (elements.pushTestButton) {
+    elements.pushTestButton.disabled =
+      !supporte || !compteSecurise || !abonnementActif;
+  }
+}
+
+async function rafraichirEtatNotificationsPush() {
+  if (!etat.utilisateur || utilisateurDoitChangerMotDePasse()) {
+    reinitialiserEtatNotificationsPush();
+    mettreAJourCarteNotificationsPush();
+    return;
+  }
+
+  try {
+    etat.notificationsPush = await recupererEtatNotificationsPush();
+
+    if (etat.notificationsPush.subscribed) {
+      await synchroniserNotificationsPushActuelles();
+    }
+  } catch (erreur) {
+    etat.notificationsPush = {
+      supported: false,
+      permission: "unsupported",
+      subscribed: false,
+    };
+  }
+
+  mettreAJourCarteNotificationsPush();
+}
+
 function seanceEstMasqueePourConfidentialite(seance) {
   return (
     Boolean(seance?.est_masquee_pour_confidentialite) ||
@@ -1266,6 +1409,7 @@ function reinitialiserFormulaireUtilisateur() {
   elements.adminRateForm.reset();
   elements.adminRateValue.dataset.boundAccountId = "";
   masquerErreur(elements.adminRateError);
+  masquerErreur(elements.pushSettingsError);
   elements.adminLogoutUserForm.reset();
   masquerErreur(elements.adminLogoutUserError);
   elements.adminSessionCurrentPassword.value = "";
@@ -1463,6 +1607,75 @@ async function gererModificationMotDePasse(event) {
   } finally {
     elements.savePasswordButton.disabled = false;
     elements.savePasswordButton.textContent = "Modifier le mot de passe";
+  }
+}
+
+async function gererActivationNotificationsPush() {
+  masquerErreur(elements.pushSettingsError);
+
+  if (!etat.utilisateur || utilisateurDoitChangerMotDePasse()) {
+    afficherErreur(
+      elements.pushSettingsError,
+      "Changez d'abord votre mot de passe pour activer les notifications."
+    );
+    return;
+  }
+
+  const texteInitial = elements.pushEnableButton.textContent;
+  elements.pushEnableButton.disabled = true;
+  elements.pushEnableButton.textContent = "Activation...";
+
+  try {
+    etat.notificationsPush = await activerNotificationsPush();
+    mettreAJourCarteNotificationsPush();
+    afficherToast("Notifications push activees sur cet appareil.");
+  } catch (erreur) {
+    afficherErreur(elements.pushSettingsError, erreur.message);
+  } finally {
+    elements.pushEnableButton.textContent = texteInitial;
+    mettreAJourCarteNotificationsPush();
+  }
+}
+
+async function gererDesactivationNotificationsPush() {
+  masquerErreur(elements.pushSettingsError);
+
+  const texteInitial = elements.pushDisableButton.textContent;
+  elements.pushDisableButton.disabled = true;
+  elements.pushDisableButton.textContent = "Desactivation...";
+
+  try {
+    etat.notificationsPush = await desactiverNotificationsPush();
+    mettreAJourCarteNotificationsPush();
+    afficherToast("Notifications push desactivees sur cet appareil.");
+  } catch (erreur) {
+    afficherErreur(elements.pushSettingsError, erreur.message);
+  } finally {
+    elements.pushDisableButton.textContent = texteInitial;
+    mettreAJourCarteNotificationsPush();
+  }
+}
+
+async function gererTestNotificationsPush() {
+  masquerErreur(elements.pushSettingsError);
+
+  const texteInitial = elements.pushTestButton.textContent;
+  elements.pushTestButton.disabled = true;
+  elements.pushTestButton.textContent = "Envoi...";
+
+  try {
+    const resultat = await envoyerNotificationPushTest();
+    afficherToast(resultat.message || "Notification de test envoyee.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    afficherErreur(elements.pushSettingsError, erreur.message);
+  } finally {
+    elements.pushTestButton.textContent = texteInitial;
+    mettreAJourCarteNotificationsPush();
   }
 }
 
@@ -3981,6 +4194,131 @@ function afficherAppareilsAutoLoginAdministration() {
   });
 }
 
+function normaliserTexteAudit(valeur, fallback = "-") {
+  if (valeur === null || valeur === undefined) {
+    return fallback;
+  }
+
+  const texte = String(valeur).trim();
+  return texte ? texte : fallback;
+}
+
+function formaterLibelleAudit(texte) {
+  const valeur = normaliserTexteAudit(texte, "");
+  if (!valeur) {
+    return "-";
+  }
+
+  const libelle = valeur.replace(/[_-]+/g, " ").trim();
+  return libelle.charAt(0).toUpperCase() + libelle.slice(1);
+}
+
+function lireDetailsJournalAudit(log) {
+  if (!log?.details_json) {
+    return null;
+  }
+
+  if (typeof log.details_json === "object") {
+    return log.details_json;
+  }
+
+  try {
+    return JSON.parse(log.details_json);
+  } catch {
+    return { details: log.details_json };
+  }
+}
+
+function formaterValeurDetailAudit(valeur) {
+  if (valeur === null || valeur === undefined || valeur === "") {
+    return "-";
+  }
+
+  if (typeof valeur === "object") {
+    try {
+      return JSON.stringify(valeur, null, 2);
+    } catch {
+      return String(valeur);
+    }
+  }
+
+  return String(valeur);
+}
+
+function viderDetailJournalAuditModal() {
+  if (!elements.auditLogModal) {
+    return;
+  }
+
+  elements.auditLogModalResult.textContent = "-";
+  elements.auditLogModalAction.textContent = "-";
+  elements.auditLogModalIdentifiant.textContent = "-";
+  elements.auditLogModalUser.textContent = "-";
+  elements.auditLogModalIp.textContent = "-";
+  elements.auditLogModalDevice.textContent = "-";
+  elements.auditLogModalDate.textContent = "-";
+  elements.auditLogModalSubtitle.textContent = "";
+  elements.auditLogModalSubtitle.classList.add("hidden");
+  elements.auditLogModalDetailsList.innerHTML = "";
+}
+
+function ouvrirDetailJournalAudit(log) {
+  if (!elements.auditLogModal) {
+    return;
+  }
+
+  const identifiant = normaliserTexteAudit(log.identifiant, "Activite");
+  const utilisateur =
+    normaliserTexteAudit(log.utilisateur_nom, "") ||
+    normaliserTexteAudit(log.utilisateur_email, "") ||
+    normaliserTexteAudit(log.identifiant, "-");
+  const details = lireDetailsJournalAudit(log);
+
+  elements.auditLogModalResult.textContent =
+    log.resultat === "success" ? "Succes" : "Echec";
+  elements.auditLogModalAction.textContent = formaterLibelleAudit(log.action_type);
+  elements.auditLogModalIdentifiant.textContent = identifiant;
+  elements.auditLogModalUser.textContent = utilisateur;
+  elements.auditLogModalIp.textContent = normaliserTexteAudit(log.adresse_ip);
+  elements.auditLogModalDevice.textContent = normaliserTexteAudit(log.user_agent);
+  elements.auditLogModalDate.textContent = formatDateHeureSecondes(log.created_at);
+  elements.auditLogModalSubtitle.textContent = `${identifiant} · ${formaterLibelleAudit(
+    log.action_type
+  )}`;
+  elements.auditLogModalSubtitle.classList.remove("hidden");
+  elements.auditLogModalDetailsList.innerHTML = "";
+
+  const entreesDetails =
+    details && typeof details === "object" ? Object.entries(details).filter(([, valeur]) => valeur) : [];
+
+  if (entreesDetails.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-change-card";
+    const titre = document.createElement("strong");
+    titre.textContent = "Aucun detail supplementaire";
+    const texte = document.createElement("p");
+    texte.textContent = "Cette entree ne contient pas d'information supplementaire.";
+    empty.append(titre, texte);
+    elements.auditLogModalDetailsList.appendChild(empty);
+  } else {
+    entreesDetails.forEach(([cle, valeur]) => {
+      const carte = document.createElement("div");
+      carte.className = "history-change-card";
+
+      const titre = document.createElement("strong");
+      titre.textContent = formaterLibelleAudit(cle);
+
+      const texte = document.createElement("p");
+      texte.textContent = formaterValeurDetailAudit(valeur);
+
+      carte.append(titre, texte);
+      elements.auditLogModalDetailsList.appendChild(carte);
+    });
+  }
+
+  ouvrirModal(elements.auditLogModal);
+}
+
 function afficherJournalAuthAdministration() {
   const logs = Array.isArray(etat.administration?.journal_auth) ? etat.administration.journal_auth : [];
   elements.adminAuditLogList.innerHTML = "";
@@ -3990,19 +4328,42 @@ function afficherJournalAuthAdministration() {
     return;
   }
 
-  logs.forEach(log => {
-    const ligne = document.createElement("div");
+  logs.forEach((log) => {
+    const ligne = document.createElement("button");
+    ligne.type = "button";
     ligne.className = `admin-audit-item ${log.resultat === "success" ? "success" : "failed"}`;
-    
+    ligne.addEventListener("click", () => ouvrirDetailJournalAudit(log));
+
+    const head = document.createElement("div");
+    head.className = "admin-audit-head";
+
+    const titre = document.createElement("strong");
+    titre.className = "admin-audit-title";
+    titre.textContent = normaliserTexteAudit(log.identifiant, "Activite");
+
+    const resultat = document.createElement("span");
+    resultat.className = `admin-audit-result ${
+      log.resultat === "success" ? "success" : "failed"
+    }`;
+    resultat.textContent = log.resultat === "success" ? "Succes" : "Echec";
+    head.append(titre, resultat);
+
+    const detail = document.createElement("p");
+    detail.className = "admin-audit-detail";
+    detail.textContent = formaterLibelleAudit(log.action_type);
+
+    const meta = document.createElement("div");
+    meta.className = "admin-audit-meta";
+
     const date = document.createElement("span");
     date.className = "admin-audit-date";
     date.textContent = formatDateHeureSecondes(log.created_at);
 
-    const detail = document.createElement("span");
-    detail.className = "admin-audit-detail";
-    detail.textContent = `${log.identifiant} - ${log.action_type} (${log.adresse_ip})`;
+    const ip = document.createElement("span");
+    ip.textContent = normaliserTexteAudit(log.adresse_ip, "IP inconnue");
 
-    ligne.append(date, detail);
+    meta.append(date, ip);
+    ligne.append(head, detail, meta);
     elements.adminAuditLogList.appendChild(ligne);
   });
 }
@@ -5680,11 +6041,16 @@ function fermerModal(modal) {
     elements.previewDownload.removeAttribute("download");
   }
 
+  if (modal === elements.auditLogModal) {
+    viderDetailJournalAuditModal();
+  }
+
   if (
     elements.seanceModal.classList.contains("hidden") &&
     elements.detailModal.classList.contains("hidden") &&
     elements.screenshotPreviewModal.classList.contains("hidden") &&
-    elements.historyDetailModal.classList.contains("hidden")
+    elements.historyDetailModal.classList.contains("hidden") &&
+    (elements.auditLogModal ? elements.auditLogModal.classList.contains("hidden") : true)
   ) {
     document.body.classList.remove("modal-open");
   }

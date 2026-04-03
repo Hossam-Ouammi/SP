@@ -27,6 +27,7 @@ function appliquerEnTetesSecurite(req, res, next) {
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob:",
     "connect-src 'self'",
+    "worker-src 'self'",
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",

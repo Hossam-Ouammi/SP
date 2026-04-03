@@ -10,10 +10,16 @@
       href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="icon" type="image/svg+xml" href="/logo-superprof-inspired.svg" />
-    <link rel="shortcut icon" href="/logo-superprof-inspired.svg" />
-    <link rel="apple-touch-icon" href="/logo-superprof-inspired.svg" />
-    <link rel="stylesheet" href="/css/style.css?v=20260326c" />
+    <meta name="theme-color" content="#164fdc" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Seances" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/x-icon" href="/icons/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/css/style.css?v=20260327a" />
   </head>
   <body>
     <main>
@@ -1098,7 +1104,7 @@
                     </div>
                   </div>
 
-                  <div id="admin-audit-log-list" class="admin-session-list"></div>
+                  <div id="admin-audit-log-list" class="admin-audit-list"></div>
                 </article>
 
                 <article class="admin-card admin-blacklist-card">
@@ -1145,6 +1151,52 @@
                 </article>
               </section>
             </div>
+
+            <article id="push-settings-card" class="admin-card user-notifications-card">
+              <div class="admin-card-head">
+                <div>
+                  <h3 class="user-form-title">Notifications push</h3>
+                  <p class="section-note">
+                    Activez les notifications sur cet appareil pour recevoir les mises a jour en temps reel
+                    et un rappel des seances du jour toutes les 2 heures.
+                  </p>
+                </div>
+              </div>
+
+              <div class="admin-card-body stack-form">
+                <div class="admin-identity-stats">
+                  <div class="admin-identity-stat">
+                    <span>Etat</span>
+                    <strong id="push-status-label">-</strong>
+                  </div>
+                  <div class="admin-identity-stat">
+                    <span>Permission</span>
+                    <strong id="push-permission-label">-</strong>
+                  </div>
+                </div>
+
+                <div
+                  id="push-settings-info"
+                  class="security-notice security-notice-subtle"
+                >
+                  Les notifications sont desactivees sur cet appareil.
+                </div>
+
+                <p id="push-settings-error" class="form-error hidden"></p>
+
+                <div class="form-actions">
+                  <button id="push-enable-button" class="button primary" type="button">
+                    Activer sur cet appareil
+                  </button>
+                  <button id="push-disable-button" class="button secondary" type="button">
+                    Desactiver
+                  </button>
+                  <button id="push-test-button" class="button secondary" type="button">
+                    Envoyer un test
+                  </button>
+                </div>
+              </div>
+            </article>
           </section>
         </section>
 
@@ -1342,6 +1394,59 @@
         </section>
       </section>
     </main>
+
+    <div id="audit-log-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="audit-log-modal"></div>
+      <div class="modal-panel">
+        <div class="modal-header">
+          <div class="modal-heading">
+            <h3>Journal d'audit</h3>
+            <p id="audit-log-modal-subtitle" class="modal-subtitle hidden"></p>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="audit-log-modal">
+            x
+          </button>
+        </div>
+
+        <div class="audit-log-detail">
+          <div class="detail-list">
+            <div class="detail-row">
+              <span>Resultat</span>
+              <strong id="audit-log-modal-result">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Action</span>
+              <strong id="audit-log-modal-action">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Identifiant</span>
+              <strong id="audit-log-modal-identifiant">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Utilisateur</span>
+              <strong id="audit-log-modal-user">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Adresse IP</span>
+              <strong id="audit-log-modal-ip">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Appareil</span>
+              <strong id="audit-log-modal-device">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Date</span>
+              <strong id="audit-log-modal-date">-</strong>
+            </div>
+          </div>
+
+          <div class="history-changes">
+            <h3>Details</h3>
+            <div id="audit-log-modal-details-list" class="history-changes-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div id="history-detail-modal" class="modal hidden" aria-hidden="true">
       <div class="modal-backdrop" data-close-modal="history-detail-modal"></div>
@@ -1759,6 +1864,6 @@
     <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
-    <script type="module" src="/js/ui.js?v=20260326c"></script>
+    <script type="module" src="/js/ui.js?v=20260327a"></script>
   </body>
 </html>

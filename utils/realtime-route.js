@@ -1,4 +1,5 @@
 const { diffuserMiseAJourApplication } = require("./realtime");
+const { notifierEvenementApplicationPush } = require("./push-notifications");
 
 function determinerActionTempsReel(req, scope, reponseJson = null) {
   const methode = String(req.method || "").toUpperCase();
@@ -69,12 +70,17 @@ function notifierMiseAJourApplication(controller, scope = "application") {
       await controller(req, res, next);
 
       if (res.statusCode < 400) {
-        diffuserMiseAJourApplication({
+        const notificationPayload = {
           scope,
           actorId: req.utilisateur?.id || null,
           actorName: req.utilisateur?.nom || null,
           action: determinerActionTempsReel(req, scope, reponseJson),
           message: reponseJson?.message || null,
+        };
+
+        diffuserMiseAJourApplication(notificationPayload);
+        notifierEvenementApplicationPush(notificationPayload).catch((error) => {
+          console.error("Erreur notification push:", error);
         });
       }
     } catch (error) {
