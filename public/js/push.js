@@ -2,6 +2,9 @@ import { envoyerRequete } from "./http.js";
 
 let serviceWorkerRegistrationPromise = null;
 let configurationPushPromise = null;
+let ecouteurControllerChangeInstalle = false;
+let rechargementServiceWorkerPlanifie = false;
+const registrationsObservees = new WeakSet();
 
 function navigateurSupportePush() {
   return (
@@ -77,6 +80,65 @@ function normaliserErreurActivationPush(erreur) {
   return new Error("Impossible d'activer les notifications push sur cet appareil.");
 }
 
+function planifierRechargementApresMiseAJourServiceWorker() {
+  if (rechargementServiceWorkerPlanifie || typeof window === "undefined") {
+    return;
+  }
+
+  rechargementServiceWorkerPlanifie = true;
+  window.setTimeout(() => {
+    window.location.reload();
+  }, 120);
+}
+
+function installerEcouteurControllerChangeServiceWorker() {
+  if (!navigateurSupportePush() || ecouteurControllerChangeInstalle) {
+    return;
+  }
+
+  ecouteurControllerChangeInstalle = true;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    planifierRechargementApresMiseAJourServiceWorker();
+  });
+}
+
+function demanderActivationServiceWorkerEnAttente(registration) {
+  if (!registration?.waiting) {
+    return;
+  }
+
+  registration.waiting.postMessage({ type: "SKIP_WAITING" });
+}
+
+function observerMisesAJourServiceWorker(registration) {
+  if (!registration || registrationsObservees.has(registration)) {
+    return;
+  }
+
+  registrationsObservees.add(registration);
+
+  const surveillerInstallation = (worker) => {
+    if (!worker) {
+      return;
+    }
+
+    worker.addEventListener("statechange", () => {
+      if (worker.state === "installed" && navigator.serviceWorker.controller) {
+        demanderActivationServiceWorkerEnAttente(registration);
+      }
+    });
+  };
+
+  surveillerInstallation(registration.installing);
+  registration.addEventListener("updatefound", () => {
+    surveillerInstallation(registration.installing);
+  });
+
+  if (registration.waiting && navigator.serviceWorker.controller) {
+    demanderActivationServiceWorkerEnAttente(registration);
+  }
+}
+
 async function recupererConfigurationPush() {
   if (!configurationPushPromise) {
     configurationPushPromise = envoyerRequete("/api/push/config").then(
@@ -92,6 +154,8 @@ async function enregistrerServiceWorkerPush() {
     return null;
   }
 
+  installerEcouteurControllerChangeServiceWorker();
+
   if (!serviceWorkerRegistrationPromise) {
     serviceWorkerRegistrationPromise = navigator.serviceWorker.register(
       "/service-worker.js",
@@ -99,10 +163,16 @@ async function enregistrerServiceWorkerPush() {
         scope: "/",
         updateViaCache: "none",
       }
-    );
+    ).then(async (registration) => {
+      observerMisesAJourServiceWorker(registration);
+      await registration.update().catch(() => {});
+      return registration;
+    });
   }
 
-  await serviceWorkerRegistrationPromise;
+  const registration = await serviceWorkerRegistrationPromise;
+  observerMisesAJourServiceWorker(registration);
+  await registration.update().catch(() => {});
   return navigator.serviceWorker.ready;
 }
 
