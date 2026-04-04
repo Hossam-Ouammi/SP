@@ -90,8 +90,8 @@ const libellesCreationHistorique = {
   description: "Description",
 };
 
-const heuresDebutDisponibles = Array.from({ length: 24 }, (_, index) =>
-  String(index).padStart(2, "0")
+const heuresDebutDisponibles = Array.from({ length: 15 }, (_, index) =>
+  String(index + 8).padStart(2, "0")
 );
 const minutesDebutDisponibles = ["00", "30"];
 const matieresParDefaut = ["Maths", "Physique chimie", "Python", "C++"];
@@ -5965,6 +5965,10 @@ function recupererHeureDebutParDefaut() {
 
   if (minutes === 0) {
     heures += 1;
+  }
+
+  if (heures < 8) {
+    return "12:00";
   }
 
   if (heures > 23) {
