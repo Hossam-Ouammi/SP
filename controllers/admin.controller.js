@@ -5,6 +5,7 @@ const { normaliserIpClient } = require("../middleware/security.middleware");
 
 const {
   creerUtilisateur,
+  normaliserEmailUtilisateur,
   trouverUtilisateurParId,
   trouverUtilisateurAvecMotDePasseParId,
   trouverUtilisateurParEmail,
@@ -37,9 +38,6 @@ const {
   enregistrerEvenementAuth,
   listerJournalAuth,
 } = require("../models/journal-auth.model");
-const {
-  supprimerSession,
-} = require("../models/session.model");
 const {
   listerIpsBloquees,
   bloquerIp,
@@ -260,7 +258,7 @@ async function creerUtilisateurAdministration(req, res) {
   } = req.body;
 
   const nomNormalise = normaliserTexte(nom);
-  const emailNormalise = normaliserTexte(email).toLowerCase();
+  const emailNormalise = normaliserEmailUtilisateur(email);
 
   if (!nomNormalise || !emailNormalise || !motDePasseActuel) {
     return res.status(400).json({
@@ -997,7 +995,7 @@ async function revoquerSessionSpecifique(req, res) {
   }
 
   try {
-    const resultat = await supprimerSession(normaliserTexte(sid));
+    const resultat = await revoquerSession(normaliserTexte(sid));
 
     if (Number(resultat?.changes || 0) === 0) {
       return res.status(404).json({ message: "Session introuvable." });
@@ -1060,6 +1058,7 @@ async function bloquerNouvelleIp(req, res) {
 
   const ipNormalisee = normaliserIpSaisie(ip);
   const raisonNormalisee = normaliserTexte(raison).slice(0, 160);
+  const ipCourante = normaliserIpClient(req);
 
   if (!ipNormalisee || !motDePasseActuel) {
     return res.status(400).json({
@@ -1072,6 +1071,12 @@ async function bloquerNouvelleIp(req, res) {
   if (!verification.ok) {
     return repondreErreurVerification(req, res, verification, "admin_block_ip", {
       ip: ipNormalisee,
+    });
+  }
+
+  if (ipCourante && ipNormalisee === ipCourante) {
+    return res.status(400).json({
+      message: "Vous ne pouvez pas bloquer votre propre adresse IP depuis cette session.",
     });
   }
 

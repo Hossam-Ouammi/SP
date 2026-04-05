@@ -104,7 +104,103 @@ export async function supprimerEntreeHistorique(entreeId, motDePasseActuel) {
   });
 }
 
-export async function recupererMonetisation() {
-  const resultat = await envoyerRequete("/api/monetisation");
+export async function recupererMonetisation(options = {}) {
+  const parametres = new URLSearchParams();
+
+  if (typeof options === "string") {
+    if (options && options !== "all") {
+      parametres.set("mois", options);
+    }
+  } else {
+    const mode = String(options?.mode || "").trim();
+    const annee = String(options?.annee || "").trim();
+    const mois = String(options?.mois || "").trim();
+
+    if (mois && mois !== "all") {
+      parametres.set("mois", mois);
+    } else {
+      if (mode) {
+        parametres.set("mode", mode);
+      }
+
+      if (annee) {
+        parametres.set("annee", annee);
+      }
+    }
+  }
+
+  const suffixe = parametres.toString() ? `?${parametres.toString()}` : "";
+  const resultat = await envoyerRequete(`/api/monetisation${suffixe}`);
   return resultat.monetisation;
+}
+
+export async function telechargerReleveMonetisation(options = {}, comptes = []) {
+  const parametres = new URLSearchParams();
+  let format = "pdf";
+
+  if (typeof options === "string") {
+    if (options && options !== "all") {
+      parametres.set("mois", options);
+    }
+  } else {
+    format = String(options?.format || "pdf").trim().toLowerCase() || "pdf";
+    const mode = String(options?.mode || "").trim();
+    const annee = String(options?.annee || "").trim();
+    const mois = String(options?.mois || "").trim();
+
+    if (mois && mois !== "all") {
+      parametres.set("mois", mois);
+    } else {
+      if (mode) {
+        parametres.set("mode", mode);
+      }
+
+      if (annee) {
+        parametres.set("annee", annee);
+      }
+    }
+  }
+
+  parametres.set("format", format === "html" ? "html" : "pdf");
+
+  comptes.forEach((compte) => {
+    if (compte) {
+      parametres.append("compte", compte);
+    }
+  });
+
+  const reponse = await fetch(`/api/monetisation/releve?${parametres.toString()}`, {
+    credentials: "same-origin",
+    headers: {
+      "X-Requested-With": "XMLHttpRequest",
+    },
+  });
+
+  if (!reponse.ok) {
+    const texteErreur = await reponse.text().catch(() => "");
+    let donneesErreur = {};
+
+    if (texteErreur) {
+      try {
+        donneesErreur = JSON.parse(texteErreur);
+      } catch (error) {
+        donneesErreur = {
+          message: texteErreur,
+        };
+      }
+    }
+
+    const erreur = new Error(donneesErreur.message || "Une erreur est survenue.");
+    erreur.status = reponse.status;
+    throw erreur;
+  }
+
+  const blob = await reponse.blob();
+  const disposition = reponse.headers.get("content-disposition") || "";
+  const correspondanceNomFichier = disposition.match(/filename="?([^";]+)"?/i);
+
+  return {
+    blob,
+    fileName: correspondanceNomFichier?.[1] || "releve-monetisation.pdf",
+  };
 }

@@ -67,6 +67,19 @@ button {
   display: none !important;
 }
 
+.visually-hidden-autocomplete {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .page {
   min-height: 100vh;
   padding: 24px 0;
@@ -596,6 +609,201 @@ button {
   margin: 0;
   font-size: 1.12rem;
   font-weight: 700;
+}
+
+.monetisation-period-panel,
+.monetisation-overview-grid,
+.monetisation-details-panel,
+.monetisation-extra-panel,
+.monetisation-report-accounts-panel {
+  margin-bottom: 16px;
+}
+
+.monetisation-period-panel {
+  padding: 16px;
+}
+
+.monetisation-period-bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fbfcfe 0%, #f7f9fc 100%);
+}
+
+.monetisation-period-nav {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+
+.monetisation-period-nav-button {
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: none;
+  color: var(--text);
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.monetisation-period-nav-button:not(:first-child) {
+  margin-left: -1px;
+}
+
+.monetisation-period-nav-button:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.monetisation-period-nav-button:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.monetisation-period-nav-button:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.monetisation-period-nav-button span {
+  display: inline-block;
+  transform: translateY(-1px);
+}
+
+.monetisation-period-current {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+  padding-inline: 8px;
+  text-align: center;
+}
+
+.monetisation-period-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monetisation-period-current .section-note {
+  margin-top: 0;
+}
+
+.monetisation-period-modes {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+
+.monetisation-period-mode-button {
+  min-width: 0;
+  min-height: 38px;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: none;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.monetisation-period-mode-button:not(:first-child) {
+  margin-left: -1px;
+}
+
+.monetisation-period-mode-button:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.monetisation-period-mode-button:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.monetisation-period-mode-button:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.monetisation-period-mode-button.is-active {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px #bfdbfe;
+}
+
+.monetisation-overview-grid {
+  margin-top: 4px;
+}
+
+.monetisation-details-grid {
+  margin-top: 4px;
+}
+
+.monetisation-account-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+}
+
+.monetisation-extra-panel {
+  background: linear-gradient(180deg, #ffffff 0%, #fcfcfd 100%);
+}
+
+.monetisation-report-accounts-panel {
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+}
+
+.monetisation-report-accounts-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-top: 4px;
+}
+
+.monetisation-report-accounts-grid .checkbox-option span {
+  min-height: 48px;
+}
+
+.monetisation-floating-download {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-top: 16px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+#monetisation-section {
+  position: relative;
+  padding-bottom: 24px;
+}
+
+.monetisation-period-panel .monetisation-floating-download {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.monetisation-download-button {
+  width: min(360px, 100%);
+  min-width: 0;
+  padding-inline: 20px;
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.18);
+  pointer-events: auto;
 }
 
 .today-panel {
@@ -2875,6 +3083,62 @@ button {
     align-items: flex-start;
   }
 
+  .monetisation-period-bar,
+  .monetisation-floating-download {
+    width: 100%;
+  }
+
+  .monetisation-period-bar {
+    grid-template-columns: 1fr;
+    justify-items: stretch;
+    border-radius: 12px;
+    gap: 10px;
+    min-height: 0;
+    padding: 10px 12px;
+  }
+
+  .monetisation-period-nav,
+  .monetisation-period-modes {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .monetisation-period-nav,
+  .monetisation-period-modes {
+    display: flex;
+  }
+
+  .monetisation-period-nav-button,
+  .monetisation-period-mode-button {
+    flex: 1 1 auto;
+  }
+
+  .monetisation-period-title {
+    text-align: center;
+    white-space: normal;
+  }
+
+  .monetisation-download-button {
+    width: auto;
+    min-width: min(280px, calc(100vw - 32px));
+  }
+
+  #monetisation-section {
+    padding-bottom: 128px;
+  }
+
+  .monetisation-floating-download {
+    position: fixed;
+    left: 50%;
+    right: auto;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-width: calc(100vw - 32px);
+    transform: translateX(-50%);
+    justify-content: center;
+    z-index: 30;
+  }
+
   .topbar,
   .form-actions,
   .detail-actions,
@@ -3213,7 +3477,6 @@ button {
   .admin-panel-shell {
     padding: 16px;
   }
-
   .today-panel {
     --today-mobile-yassine: #e67b73;
     --today-mobile-abdo: #8e24aa;

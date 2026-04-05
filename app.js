@@ -15,6 +15,7 @@ const realtimeRoutes = require("./routes/realtime.routes");
 const pushRoutes = require("./routes/push.routes");
 const seancesRoutes = require("./routes/seances.routes");
 const photosRoutes = require("./routes/photos.routes");
+const { connecterUtilisateurDepuisFormulaire } = require("./controllers/auth.controller");
 const { initialiserBaseDeDonnees } = require("./models/db");
 const { recupererSecretSession } = require("./models/session-secret");
 const { SQLiteSessionStore } = require("./models/session.store");
@@ -37,12 +38,16 @@ const { demarrerPlanificateurRappelsPush } = require("./utils/push-notifications
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || process.env.IP || "0.0.0.0";
+const trustProxy =
+  ["1", "true", "yes", "on"].includes(
+    String(process.env.TRUST_PROXY || "").trim().toLowerCase()
+  );
 
 fs.mkdirSync(path.join(__dirname, "database"), { recursive: true });
 assurerDossiersScreenshots();
 
 app.disable("x-powered-by");
-app.set("trust proxy", 1);
+app.set("trust proxy", trustProxy);
 
 function appliquerNoCacheStatic(res) {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
@@ -83,7 +88,7 @@ app.use(
     saveUninitialized: false,
     rolling: true,
     unset: "destroy",
-    proxy: true,
+    proxy: trustProxy,
     cookie: {
       httpOnly: true,
       sameSite: "strict",
@@ -156,16 +161,42 @@ app.get("/health", (req, res) => {
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
+
+function recupererEtatConnexionFormulaire(req) {
+  const loginError = String(req.session?.login_error || "").trim();
+  const loginUsername = String(req.session?.login_username || "").trim();
+
+  if (req.session) {
+    delete req.session.login_error;
+    delete req.session.login_username;
+  }
+
+  return {
+    loginError,
+    loginUsername,
+  };
+}
+
 app.get("/", async (req, res) => {
   appliquerNoCacheStatic(res);
   const { chargerUtilisateurAuthentifie } = require("./middleware/auth.middleware");
+  const etatConnexion = recupererEtatConnexionFormulaire(req);
   try {
     const user = await chargerUtilisateurAuthentifie(req, res);
-    res.render("index", { user });
+    res.render("index", {
+      user,
+      loginError: etatConnexion.loginError,
+      loginUsername: etatConnexion.loginUsername,
+    });
   } catch (error) {
-    res.render("index", { user: null });
+    res.render("index", {
+      user: null,
+      loginError: etatConnexion.loginError,
+      loginUsername: etatConnexion.loginUsername,
+    });
   }
 });
+app.post("/", connecterUtilisateurDepuisFormulaire);
 
 app.use((req, res) => {
   if (req.path.startsWith("/api/")) {

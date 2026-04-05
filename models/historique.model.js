@@ -72,6 +72,174 @@ function transformerEntreeHistorique(entree, integriteValide) {
   };
 }
 
+function estHeureHistoriqueValide(heure, options = {}) {
+  if (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(heure || ""))) {
+    return true;
+  }
+
+  return options.allowEndOfDay === true && heure === "24:00";
+}
+
+function calculerDureeMinutesSeanceHistorique(seance) {
+  const dureeExistante = Number(seance?.duree_minutes);
+
+  if (Number.isFinite(dureeExistante) && dureeExistante > 0) {
+    return dureeExistante;
+  }
+
+  if (
+    !estHeureHistoriqueValide(seance?.heure_debut) ||
+    !estHeureHistoriqueValide(seance?.heure_fin, { allowEndOfDay: true })
+  ) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    calculerMinutesDepuisHeure(seance.heure_fin) - calculerMinutesDepuisHeure(seance.heure_debut)
+  );
+}
+
+function calculerMinutesDepuisHeure(heure) {
+  if (heure === "24:00") {
+    return 24 * 60;
+  }
+
+  const [heures, minutes] = String(heure || "")
+    .split(":")
+    .map(Number);
+  return heures * 60 + minutes;
+}
+
+function construireSnapshotSeanceHistorique(seance) {
+  const dureeMinutes = calculerDureeMinutesSeanceHistorique(seance);
+
+  return {
+    etudiant: String(seance?.etudiant || ""),
+    parent: String(seance?.parent || ""),
+    matiere: String(seance?.matiere || ""),
+    compte: String(seance?.compte || ""),
+    est_essai: Number(seance?.est_essai) === 1 || seance?.est_essai === true ? 1 : 0,
+    date: String(seance?.date || ""),
+    heure_debut: String(seance?.heure_debut || ""),
+    heure_fin: String(seance?.heure_fin || ""),
+    duree_minutes: dureeMinutes,
+    statut_seance: String(seance?.statut_seance || ""),
+    description: String(seance?.description || ""),
+  };
+}
+
+function enrichirDetailsAvecSeance(details, snapshotSeance) {
+  const detailsNormalises =
+    details && typeof details === "object" && !Array.isArray(details) ? { ...details } : {};
+  const seanceExistante =
+    detailsNormalises.seance &&
+    typeof detailsNormalises.seance === "object" &&
+    !Array.isArray(detailsNormalises.seance)
+      ? detailsNormalises.seance
+      : {};
+
+  detailsNormalises.seance = {
+    ...snapshotSeance,
+    ...seanceExistante,
+  };
+
+  return detailsNormalises;
+}
+
+async function detacherSeancesHistorique(seances = []) {
+  const seancesNormalisees = Array.isArray(seances) ? seances : [seances];
+  const snapshotsParId = new Map();
+
+  seancesNormalisees.forEach((seance) => {
+    const id = Number(seance?.id || 0);
+
+    if (id > 0) {
+      snapshotsParId.set(id, construireSnapshotSeanceHistorique(seance));
+    }
+  });
+
+  if (snapshotsParId.size === 0) {
+    return {
+      historiqueChanges: 0,
+      historiqueActionsChanges: 0,
+    };
+  }
+
+  const idsCibles = Array.from(snapshotsParId.keys());
+  const placeholders = idsCibles.map(() => "?").join(", ");
+  const resultatHistorique = await run(
+    `UPDATE historique SET seance_id = NULL WHERE seance_id IN (${placeholders})`,
+    idsCibles
+  ).catch(() => ({ changes: 0 }));
+  const entrees = await all(
+    `
+      SELECT
+        id,
+        seance_id,
+        seance_libelle,
+        action_type,
+        action_label,
+        acteur_id,
+        acteur_nom,
+        details_json,
+        previous_hash,
+        entry_hash,
+        created_at
+      FROM historique_actions
+      ORDER BY id ASC
+    `
+  );
+
+  let previousHash = "";
+  let historiqueActionsChanges = 0;
+
+  for (const entree of entrees) {
+    let seanceId = entree.seance_id;
+    let detailsJson = entree.details_json;
+    const snapshotSeance = snapshotsParId.get(Number(entree.seance_id || 0));
+
+    if (snapshotSeance) {
+      seanceId = null;
+      detailsJson = serialiserDetails(
+        enrichirDetailsAvecSeance(lireDetailsJson(entree.details_json), snapshotSeance)
+      );
+    }
+
+    const entreeRechainee = {
+      ...entree,
+      seance_id: seanceId,
+      details_json: detailsJson,
+      previous_hash: previousHash,
+    };
+    const entryHash = calculerHashEntree(entreeRechainee);
+    const entreeModifiee =
+      Number(entree.seance_id || 0) !== Number(seanceId || 0) ||
+      String(entree.details_json || "") !== String(detailsJson || "") ||
+      String(entree.previous_hash || "") !== previousHash ||
+      String(entree.entry_hash || "") !== entryHash;
+
+    if (entreeModifiee) {
+      const resultat = await run(
+        `
+          UPDATE historique_actions
+          SET seance_id = ?, details_json = ?, previous_hash = ?, entry_hash = ?
+          WHERE id = ?
+        `,
+        [seanceId, detailsJson, previousHash, entryHash, entree.id]
+      );
+      historiqueActionsChanges += Number(resultat?.changes || 0);
+    }
+
+    previousHash = entryHash;
+  }
+
+  return {
+    historiqueChanges: Number(resultatHistorique?.changes || 0),
+    historiqueActionsChanges,
+  };
+}
+
 async function recupererDernierHashHistorique() {
   const derniereEntree = await get(
     `
@@ -355,6 +523,7 @@ async function supprimerEntreeHistoriqueParId(id) {
 
 module.exports = {
   creerEntreeHistorique,
+  detacherSeancesHistorique,
   listerEntreesHistorique,
   recupererEntreeHistoriqueDetail,
   supprimerEntreeHistoriqueParId,

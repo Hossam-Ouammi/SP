@@ -45,6 +45,7 @@ import {
   recupererDetailHistorique,
   supprimerEntreeHistorique as supprimerEntreeHistoriqueApi,
   recupererMonetisation,
+  telechargerReleveMonetisation,
 } from "./seances.js";
 import { initialiserCalendrier, mettreAJourEvenements } from "./calendrier.js";
 import {
@@ -94,20 +95,30 @@ const heuresDebutDisponibles = Array.from({ length: 15 }, (_, index) =>
   String(index + 8).padStart(2, "0")
 );
 const minutesDebutDisponibles = ["00", "30"];
-const matieresParDefaut = ["Maths", "Physique chimie", "Python", "C++"];
-const comptesParDefaut = ["Abdo", "Yassine"];
+const comptesMonetisationPrincipaux = ["Yassine", "Abdo"];
 const cleConnexionMemorisee = "gestion-seances-connexion-memorisee";
+
+function creerCatalogueVide() {
+  return {
+    matieres: [],
+    comptes: [],
+  };
+}
+
 const etat = {
   utilisateur: null,
   seances: [],
   indisponibilites: [],
   historique: [],
   monetisation: null,
+  monetisationPeriodeMode: "monthly",
+  monetisationFiltreAnnee: obtenirAnneeCouranteIso(),
+  monetisationFiltreMoisVue: obtenirMoisCourantIso(),
+  monetisationFiltreMois: obtenirMoisCourantIso(),
+  monetisationComptesSelectionnes: [],
+  monetisationSelectionInitialisee: false,
   administration: null,
-  catalogue: {
-    matieres: [...matieresParDefaut],
-    comptes: [...comptesParDefaut],
-  },
+  catalogue: creerCatalogueVide(),
   historiqueSelection: null,
   seanceSelectionnee: null,
   calendrier: null,
@@ -221,9 +232,11 @@ const elements = {
   adminCreateUserCurrentPassword: document.getElementById(
     "admin-create-user-current-password"
   ),
+  adminSessionForm: document.getElementById("admin-session-form"),
   adminSessionCurrentPassword: document.getElementById("admin-session-current-password"),
   adminSessionError: document.getElementById("admin-session-error"),
   adminSessionsList: document.getElementById("admin-sessions-list"),
+  adminTrustedDeviceForm: document.getElementById("admin-trusted-device-form"),
   adminTrustedDeviceCurrentPassword: document.getElementById(
     "admin-trusted-device-current-password"
   ),
@@ -337,6 +350,16 @@ const elements = {
   statsAccountsOverview: document.getElementById("stats-accounts-overview"),
   statsAccountsTable: document.getElementById("stats-accounts-table"),
   monetisationTotalAmount: document.getElementById("monetisation-total-amount"),
+  monetisationPeriodTitle: document.getElementById("monetisation-period-title"),
+  monetisationPreviousMonthButton: document.getElementById(
+    "monetisation-previous-month-button"
+  ),
+  monetisationNextMonthButton: document.getElementById("monetisation-next-month-button"),
+  monetisationModeOptionOneButton: document.getElementById("monetisation-mode-option-one-button"),
+  monetisationModeOptionTwoButton: document.getElementById("monetisation-mode-option-two-button"),
+  monetisationDownloadStatementButton: document.getElementById(
+    "monetisation-download-statement-button"
+  ),
   monetisationYassineAmountCard: document.getElementById("monetisation-yassine-amount-card"),
   monetisationAbdoAmountCard: document.getElementById("monetisation-abdo-amount-card"),
   monetisationYassineAmount: document.getElementById("monetisation-yassine-amount"),
@@ -367,6 +390,13 @@ const elements = {
   ),
   monetisationYassineDue: document.getElementById("monetisation-yassine-due"),
   monetisationAbdoDueTable: document.getElementById("monetisation-abdo-due-table"),
+  monetisationExtraSection: document.getElementById("monetisation-extra-section"),
+  monetisationExtraAccounts: document.getElementById("monetisation-extra-accounts"),
+  monetisationReportAccountsSection: document.getElementById(
+    "monetisation-report-accounts-section"
+  ),
+  monetisationReportAccountsNote: document.getElementById("monetisation-report-accounts-note"),
+  monetisationReportAccounts: document.getElementById("monetisation-report-accounts"),
   adminBlockIpButton: document.getElementById("admin-block-ip-button"),
   historyCount: document.getElementById("history-count"),
   historyList: document.getElementById("history-list"),
@@ -379,6 +409,7 @@ const elements = {
   historyChangesTitle: document.getElementById("history-changes-title"),
   historyChangesList: document.getElementById("history-changes-list"),
   historyDeleteActions: document.getElementById("history-delete-actions"),
+  historyDeleteForm: document.getElementById("history-delete-form"),
   historyDeleteCurrentPassword: document.getElementById("history-delete-current-password"),
   historyDeleteError: document.getElementById("history-delete-error"),
   historyDeleteButton: document.getElementById("history-delete-button"),
@@ -397,6 +428,7 @@ const elements = {
   historyDetailModalDeleteActions: document.getElementById(
     "history-detail-modal-delete-actions"
   ),
+  historyDetailModalDeleteForm: document.getElementById("history-detail-modal-delete-form"),
   historyDetailModalDeleteCurrentPassword: document.getElementById(
     "history-detail-modal-delete-current-password"
   ),
@@ -491,6 +523,73 @@ function enregistrerConnexionMemorisee(username) {
   }
 }
 
+function obtenirIdentifiantAutocompleteMotDePasse() {
+  return String(
+    etat.utilisateur?.email ||
+      etat.utilisateur?.nom ||
+      elements.loginUsername?.value ||
+      chargerConnexionMemorisee()?.username ||
+      ""
+  ).trim();
+}
+
+function synchroniserIdentifiantsFormulairesMotDePasse() {
+  const formulaires = Array.from(document.querySelectorAll("form"));
+  const identifiant = obtenirIdentifiantAutocompleteMotDePasse();
+
+  formulaires.forEach((formulaire, index) => {
+    if (!formulaire.querySelector('input[type="password"]')) {
+      return;
+    }
+
+    Array.from(formulaire.querySelectorAll("input")).forEach((input) => {
+      const autocompleteActuel = String(input.getAttribute("autocomplete") || "").trim();
+
+      if (
+        autocompleteActuel ||
+        input.type === "password" ||
+        input.dataset.passwordUsernameHelper === "true"
+      ) {
+        return;
+      }
+
+      if (["text", "email", "search", "tel", "url", "number"].includes(input.type || "text")) {
+        input.setAttribute("autocomplete", "off");
+      }
+    });
+
+    const champVisible = Array.from(formulaire.querySelectorAll("input")).find((input) => {
+      const autocomplete = String(input.getAttribute("autocomplete") || "").toLowerCase();
+      return autocomplete === "username" || autocomplete === "email";
+    });
+    const champHelper = formulaire.querySelector(
+      'input[data-password-username-helper="true"]'
+    );
+
+    if (champVisible) {
+      champHelper?.remove();
+      return;
+    }
+
+    const helper =
+      champHelper ||
+      (() => {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "visually-hidden-autocomplete";
+        input.tabIndex = -1;
+        input.autocomplete = "username";
+        input.setAttribute("aria-hidden", "true");
+        input.dataset.passwordUsernameHelper = "true";
+        input.name = `${formulaire.id || `password-form-${index + 1}`}-username`;
+        formulaire.prepend(input);
+        return input;
+      })();
+
+    helper.value = identifiant;
+  });
+}
+
 function effacerConnexionMemorisee() {
   try {
     window.localStorage.removeItem(cleConnexionMemorisee);
@@ -532,11 +631,14 @@ function viderDonneesApplication() {
   etat.indisponibilites = [];
   etat.historique = [];
   etat.monetisation = null;
+  etat.monetisationPeriodeMode = "monthly";
+  etat.monetisationFiltreAnnee = obtenirAnneeCouranteIso();
+  etat.monetisationFiltreMoisVue = obtenirMoisCourantIso();
+  etat.monetisationFiltreMois = obtenirMoisCourantIso();
+  etat.monetisationComptesSelectionnes = [];
+  etat.monetisationSelectionInitialisee = false;
   etat.administration = null;
-  etat.catalogue = {
-    matieres: [...matieresParDefaut],
-    comptes: [...comptesParDefaut],
-  };
+  etat.catalogue = creerCatalogueVide();
   etat.historiqueSelection = null;
   etat.seanceSelectionnee = null;
 
@@ -571,6 +673,7 @@ async function chargerDonneesApplication() {
 
 async function initialiserApplication() {
   appliquerConnexionMemorisee();
+  synchroniserIdentifiantsFormulairesMotDePasse();
   mettreAJourVisibiliteMotDePasseConnexion();
   initialiserChoixHeureDebut();
   initialiserFormulaireIndisponibilite();
@@ -587,10 +690,10 @@ async function initialiserApplication() {
       afficherApplication();
       await chargerDonneesApplication();
     } else {
-      afficherConnexion();
+      afficherConnexion({ preserveFeedback: true });
     }
   } catch (erreur) {
-    afficherConnexion();
+    afficherConnexion({ preserveFeedback: true });
     afficherToast(erreur.message, "error");
   }
 }
@@ -719,11 +822,11 @@ function normaliserListeCatalogue(valeurs, valeursParDefaut = []) {
 }
 
 function obtenirMatieresDisponibles() {
-  return normaliserListeCatalogue(etat.catalogue?.matieres, matieresParDefaut);
+  return normaliserListeCatalogue(etat.catalogue?.matieres);
 }
 
 function obtenirComptesDisponibles() {
-  return normaliserListeCatalogue(etat.catalogue?.comptes, comptesParDefaut);
+  return normaliserListeCatalogue(etat.catalogue?.comptes);
 }
 
 function obtenirCompteParDefaut() {
@@ -816,10 +919,7 @@ function rendreOptionsCatalogueSeance() {
 }
 
 function initialiserCatalogueSeanceParDefaut() {
-  etat.catalogue = {
-    matieres: [...matieresParDefaut],
-    comptes: [...comptesParDefaut],
-  };
+  etat.catalogue = creerCatalogueVide();
   rendreOptionsCatalogueSeance();
 }
 
@@ -880,14 +980,26 @@ function attacherEcouteurs() {
   elements.adminRateUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminLogoutUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminDeleteUserId?.addEventListener("change", mettreAJourControlesAdministration);
+  elements.monetisationPreviousMonthButton?.addEventListener("click", () => {
+    naviguerPeriodeMonetisation("precedent");
+  });
+  elements.monetisationNextMonthButton?.addEventListener("click", () => {
+    naviguerPeriodeMonetisation("suivant");
+  });
+  elements.monetisationModeOptionOneButton?.addEventListener("click", gererClicModePeriodeMonetisation);
+  elements.monetisationModeOptionTwoButton?.addEventListener("click", gererClicModePeriodeMonetisation);
+  elements.monetisationDownloadStatementButton?.addEventListener(
+    "click",
+    gererTelechargementReleveMonetisation
+  );
   elements.adminClearSeancesForm?.addEventListener("submit", gererSuppressionToutesLesSeances);
   elements.adminClearHistoryForm?.addEventListener(
     "submit",
     gererSuppressionToutHistorique
   );
-  elements.historyDeleteButton?.addEventListener("click", gererSuppressionEntreeHistorique);
-  elements.historyDetailModalDeleteButton?.addEventListener(
-    "click",
+  elements.historyDeleteForm?.addEventListener("submit", gererSuppressionEntreeHistorique);
+  elements.historyDetailModalDeleteForm?.addEventListener(
+    "submit",
     gererSuppressionEntreeHistorique
   );
   elements.adminUnavailabilityFullDay?.addEventListener(
@@ -936,14 +1048,18 @@ function attacherEcouteurs() {
   });
 }
 
-function afficherConnexion() {
+function afficherConnexion(options = {}) {
   fermerConnexionTempsReel();
+  const preserveFeedback = options.preserveFeedback === true;
   elements.loginView.classList.remove("hidden");
   elements.appView.classList.add("hidden");
-  elements.loginError.classList.add("hidden");
   elements.loginForm.reset();
+  if (!preserveFeedback) {
+    elements.loginError.classList.add("hidden");
+  }
   elements.loginShowPassword.checked = false;
   appliquerConnexionMemorisee();
+  synchroniserIdentifiantsFormulairesMotDePasse();
   mettreAJourVisibiliteMotDePasseConnexion();
   reinitialiserFormulaireUtilisateur();
   reinitialiserEtatNotificationsPush();
@@ -956,6 +1072,7 @@ function afficherApplication() {
   elements.loginView.classList.add("hidden");
   elements.appView.classList.remove("hidden");
   elements.currentUserName.textContent = etat.utilisateur.nom;
+  synchroniserIdentifiantsFormulairesMotDePasse();
   mettreAJourResumeCompteConnecte();
   elements.adminToolsPanel.classList.toggle("hidden", !utilisateurPeutVoirAdministration());
   mettreAJourPanneauAdministration();
@@ -1162,6 +1279,10 @@ function afficherSectionApplication(section) {
     if (utilisateurPeutVoirAdministration()) {
       chargerAdministrationSiAutorise();
     }
+  }
+
+  if (sectionDemandee === "monetisation" && etat.monetisation) {
+    mettreAJourMonetisation();
   }
 
   rafraichirCalendrierSiVisible(sectionDemandee);
@@ -2602,12 +2723,14 @@ function obtenirControlesSuppressionHistorique() {
   return [
     {
       container: elements.historyDeleteActions,
+      form: elements.historyDeleteForm,
       input: elements.historyDeleteCurrentPassword,
       error: elements.historyDeleteError,
       button: elements.historyDeleteButton,
     },
     {
       container: elements.historyDetailModalDeleteActions,
+      form: elements.historyDetailModalDeleteForm,
       input: elements.historyDetailModalDeleteCurrentPassword,
       error: elements.historyDetailModalDeleteError,
       button: elements.historyDetailModalDeleteButton,
@@ -2618,7 +2741,7 @@ function obtenirControlesSuppressionHistorique() {
 function obtenirControlesSuppressionHistoriqueDepuisDeclencheur(declencheur) {
   return (
     obtenirControlesSuppressionHistorique().find(
-      (controles) => controles.button === declencheur
+      (controles) => controles.button === declencheur || controles.form === declencheur
     ) || null
   );
 }
@@ -2649,6 +2772,8 @@ function mettreAJourSuppressionHistorique(entree = etat.historiqueSelection) {
 }
 
 async function gererSuppressionEntreeHistorique(event) {
+  event?.preventDefault?.();
+
   const controles =
     obtenirControlesSuppressionHistoriqueDepuisDeclencheur(event?.currentTarget) ||
     obtenirControlesSuppressionHistorique()[0];
@@ -3060,6 +3185,20 @@ async function chargerSeances(options = {}) {
 }
 
 async function chargerIndisponibilites() {
+  if (!utilisateurPeutVoirIndisponibilites()) {
+    etat.indisponibilites = [];
+    rafraichirEvenementsCalendrier();
+    afficherListeIndisponibilitesAdministration();
+
+    if (etat.sectionActive === "indisponibilites") {
+      afficherSectionApplication(
+        utilisateurPeutVoirAujourdhui() ? "aujourdhui" : "dashboard"
+      );
+    }
+
+    return;
+  }
+
   try {
     etat.indisponibilites = await recupererIndisponibilites();
     rafraichirEvenementsCalendrier();
@@ -3067,6 +3206,20 @@ async function chargerIndisponibilites() {
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      etat.indisponibilites = [];
+      rafraichirEvenementsCalendrier();
+      afficherListeIndisponibilitesAdministration();
+
+      if (etat.sectionActive === "indisponibilites") {
+        afficherSectionApplication(
+          utilisateurPeutVoirAujourdhui() ? "aujourdhui" : "dashboard"
+        );
+      }
+
       return;
     }
 
@@ -3105,7 +3258,30 @@ async function chargerMonetisationSiAutorise() {
   }
 
   try {
-    etat.monetisation = await recupererMonetisation();
+    const modeActuel = normaliserModePeriodeMonetisation(etat.monetisationPeriodeMode);
+    synchroniserPeriodeMonetisationAuPresent();
+    etat.monetisation = await recupererMonetisation(
+      modeActuel === "monthly"
+        ? {
+            mois: etat.monetisationFiltreMoisVue,
+          }
+        : {
+            mode: modeActuel,
+            annee: modeActuel === "annual" ? etat.monetisationFiltreAnnee : "",
+          }
+    );
+    etat.monetisationPeriodeMode = normaliserModePeriodeMonetisation(
+      etat.monetisation?.periode?.mode_selectionne
+    );
+    etat.monetisationFiltreAnnee = etat.monetisation?.periode?.annee_selectionnee
+      ? normaliserFiltreAnneeMonetisation(etat.monetisation.periode.annee_selectionnee)
+      : normaliserFiltreAnneeMonetisation(etat.monetisationFiltreAnnee);
+    etat.monetisationFiltreMoisVue = etat.monetisation?.periode?.mois_selectionne
+      ? normaliserFiltreMoisMonetisation(etat.monetisation.periode.mois_selectionne)
+      : normaliserFiltreMoisMonetisation(etat.monetisationFiltreMoisVue);
+    etat.monetisationFiltreMois = estMoisIsoValide(etat.monetisationFiltreMois)
+      ? etat.monetisationFiltreMois
+      : etat.monetisation?.periode?.mois_selectionne || obtenirMoisCourantIso();
     mettreAJourMonetisation();
   } catch (erreur) {
     if (erreur.status === 401) {
@@ -3118,6 +3294,15 @@ async function chargerMonetisationSiAutorise() {
       viderMonetisation();
       afficherSectionApplication(utilisateurPeutVoirAujourdhui() ? "aujourdhui" : "dashboard");
       return;
+    }
+
+    if (erreur.status === 400) {
+      etat.monetisationPeriodeMode = "monthly";
+      etat.monetisationFiltreAnnee = obtenirAnneeCouranteIso();
+      etat.monetisationFiltreMoisVue = obtenirMoisCourantIso();
+      etat.monetisationFiltreMois = obtenirMoisCourantIso();
+      etat.monetisation = null;
+      viderMonetisation();
     }
 
     afficherToast(erreur.message, "error");
@@ -3135,14 +3320,8 @@ async function chargerAdministrationSiAutorise() {
     etat.administration = await recupererVueAdministration();
     if (etat.administration?.catalogue) {
       etat.catalogue = {
-        matieres: normaliserListeCatalogue(
-          etat.administration.catalogue.matieres,
-          matieresParDefaut
-        ),
-        comptes: normaliserListeCatalogue(
-          etat.administration.catalogue.comptes,
-          comptesParDefaut
-        ),
+        matieres: normaliserListeCatalogue(etat.administration.catalogue.matieres),
+        comptes: normaliserListeCatalogue(etat.administration.catalogue.comptes),
       };
       rendreOptionsCatalogueSeance();
     }
@@ -3168,8 +3347,8 @@ async function chargerOptionsSeancesDisponibles() {
   try {
     const options = await recupererOptionsSeances();
     etat.catalogue = {
-      matieres: normaliserListeCatalogue(options?.matieres, matieresParDefaut),
-      comptes: normaliserListeCatalogue(options?.comptes, comptesParDefaut),
+      matieres: normaliserListeCatalogue(options?.matieres),
+      comptes: normaliserListeCatalogue(options?.comptes),
     };
     rendreOptionsCatalogueSeance();
   } catch (erreur) {
@@ -3178,10 +3357,7 @@ async function chargerOptionsSeancesDisponibles() {
       return;
     }
 
-    etat.catalogue = {
-      matieres: [...matieresParDefaut],
-      comptes: [...comptesParDefaut],
-    };
+    etat.catalogue = creerCatalogueVide();
     rendreOptionsCatalogueSeance();
   }
 }
@@ -3270,6 +3446,148 @@ function obtenirDateLocaleIso(dateObjet = new Date()) {
   const mois = String(dateObjet.getMonth() + 1).padStart(2, "0");
   const jour = String(dateObjet.getDate()).padStart(2, "0");
   return `${annee}-${mois}-${jour}`;
+}
+
+function obtenirMoisCourantIso(dateObjet = new Date()) {
+  return obtenirDateLocaleIso(dateObjet).slice(0, 7);
+}
+
+function obtenirAnneeCouranteIso(dateObjet = new Date()) {
+  return obtenirDateLocaleIso(dateObjet).slice(0, 4);
+}
+
+function estMoisIsoValide(moisIso) {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(moisIso || ""));
+}
+
+function estAnneeIsoValide(anneeIso) {
+  return /^\d{4}$/.test(String(anneeIso || ""));
+}
+
+function normaliserFiltreMoisMonetisation(valeur) {
+  const valeurNormalisee = String(valeur || "").trim();
+
+  if (!valeurNormalisee || valeurNormalisee === "all") {
+    return "all";
+  }
+
+  return estMoisIsoValide(valeurNormalisee) ? valeurNormalisee : obtenirMoisCourantIso();
+}
+
+function normaliserFiltreAnneeMonetisation(valeur) {
+  const valeurNormalisee = String(valeur || "").trim();
+  return estAnneeIsoValide(valeurNormalisee) ? valeurNormalisee : obtenirAnneeCouranteIso();
+}
+
+function normaliserModePeriodeMonetisation(valeur) {
+  const mode = String(valeur || "").trim().toLowerCase();
+
+  if (mode === "global") {
+    return "global";
+  }
+
+  if (mode === "annual") {
+    return "annual";
+  }
+
+  return "monthly";
+}
+
+function formaterMoisIso(moisIso) {
+  if (!estMoisIsoValide(moisIso)) {
+    return "Tous les mois";
+  }
+
+  const libelle = new Intl.DateTimeFormat("fr-FR", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date(`${moisIso}-01T12:00:00`));
+
+  return libelle.charAt(0).toUpperCase() + libelle.slice(1);
+}
+
+function formaterAnneeIso(anneeIso) {
+  return estAnneeIsoValide(anneeIso) ? anneeIso : obtenirAnneeCouranteIso();
+}
+
+function construireMoisIsoDepuisAnnee(anneeIso, moisReference = obtenirMoisCourantIso()) {
+  const anneeNormalisee = normaliserFiltreAnneeMonetisation(anneeIso);
+  const moisNormalise = estMoisIsoValide(moisReference) ? moisReference : obtenirMoisCourantIso();
+  return `${anneeNormalisee}-${moisNormalise.slice(5, 7)}`;
+}
+
+function decalerMoisIso(moisIso, decalage) {
+  const moisNormalise = estMoisIsoValide(moisIso) ? moisIso : obtenirMoisCourantIso();
+  const [annee, mois] = moisNormalise.split("-").map((valeur) => Number.parseInt(valeur, 10));
+  const date = new Date(annee, mois - 1 + Number(decalage || 0), 1);
+  return obtenirMoisCourantIso(date);
+}
+
+function decalerAnneeIso(anneeIso, decalage) {
+  const anneeNormalisee = normaliserFiltreAnneeMonetisation(anneeIso);
+  const valeurDecalage = Number(decalage || 0);
+  const prochaineAnnee = Number.parseInt(anneeNormalisee, 10) + valeurDecalage;
+
+  if (!Number.isInteger(prochaineAnnee) || prochaineAnnee < 1 || prochaineAnnee > 9999) {
+    return anneeNormalisee;
+  }
+
+  return String(prochaineAnnee).padStart(4, "0");
+}
+
+function limiterMoisMonetisationAuPresent(moisIso) {
+  const moisNormalise = normaliserFiltreMoisMonetisation(moisIso);
+  const moisCourant = obtenirMoisCourantIso();
+
+  if (!estMoisIsoValide(moisNormalise)) {
+    return moisCourant;
+  }
+
+  return moisNormalise.localeCompare(moisCourant) > 0 ? moisCourant : moisNormalise;
+}
+
+function limiterAnneeMonetisationAuPresent(anneeIso) {
+  const anneeNormalisee = normaliserFiltreAnneeMonetisation(anneeIso);
+  const anneeCourante = obtenirAnneeCouranteIso();
+  return anneeNormalisee.localeCompare(anneeCourante) > 0 ? anneeCourante : anneeNormalisee;
+}
+
+function synchroniserPeriodeMonetisationAuPresent() {
+  const modeActuel = normaliserModePeriodeMonetisation(etat.monetisationPeriodeMode);
+
+  if (modeActuel === "monthly") {
+    const moisLimite = limiterMoisMonetisationAuPresent(etat.monetisationFiltreMoisVue);
+    etat.monetisationFiltreMoisVue = moisLimite;
+    etat.monetisationFiltreAnnee = moisLimite.slice(0, 4);
+    return;
+  }
+
+  const anneeLimitee = limiterAnneeMonetisationAuPresent(etat.monetisationFiltreAnnee);
+  etat.monetisationFiltreAnnee = anneeLimitee;
+  etat.monetisationFiltreMoisVue = limiterMoisMonetisationAuPresent(
+    construireMoisIsoDepuisAnnee(anneeLimitee, etat.monetisationFiltreMoisVue)
+  );
+}
+
+function obtenirModesAlternatifsMonetisation(modeActuel) {
+  if (modeActuel === "annual") {
+    return [
+      { mode: "monthly", label: "Mensuelle" },
+      { mode: "global", label: "Globale" },
+    ];
+  }
+
+  if (modeActuel === "global") {
+    return [
+      { mode: "monthly", label: "Mensuelle" },
+      { mode: "annual", label: "Annuelle" },
+    ];
+  }
+
+  return [
+    { mode: "annual", label: "Annuelle" },
+    { mode: "global", label: "Globale" },
+  ];
 }
 
 function formaterDateAujourdhui() {
@@ -3493,6 +3811,7 @@ function obtenirStatistiquesMonetisationCompte(nomCompte) {
   const tarifsParDefaut = {
     Yassine: 130,
     Abdo: 90,
+    Hossam: 150,
   };
 
   return {
@@ -3501,6 +3820,384 @@ function obtenirStatistiquesMonetisationCompte(nomCompte) {
     seances_essai_faites: 0,
     montant_du: 0,
   };
+}
+
+function obtenirComptesMonetisationDisponibles() {
+  const ordreComptes = Array.isArray(etat.monetisation?.ordre_comptes)
+    ? etat.monetisation.ordre_comptes
+    : Object.keys(etat.monetisation?.comptes || {});
+
+  return Array.from(
+    new Set(
+      ordreComptes
+        .map((nomCompte) => String(nomCompte || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function utilisateurPeutChoisirComptesReleveMonetisation() {
+  return utilisateurEstHossam() && utilisateurPeutVoirMonetisation();
+}
+
+function obtenirComptesAutorisesPourReleveMonetisation() {
+  const comptesDisponibles = obtenirComptesMonetisationDisponibles();
+
+  if (utilisateurPeutChoisirComptesReleveMonetisation()) {
+    return comptesDisponibles;
+  }
+
+  return comptesDisponibles.filter(
+    (nomCompte) => String(nomCompte || "").trim().toLowerCase() !== "hossam"
+  );
+}
+
+function synchroniserSelectionComptesMonetisation() {
+  const comptesDisponibles = obtenirComptesAutorisesPourReleveMonetisation();
+
+  if (!utilisateurPeutChoisirComptesReleveMonetisation()) {
+    etat.monetisationComptesSelectionnes = [...comptesDisponibles];
+    etat.monetisationSelectionInitialisee = true;
+    return;
+  }
+
+  if (!etat.monetisationSelectionInitialisee) {
+    etat.monetisationComptesSelectionnes = [...comptesDisponibles];
+    etat.monetisationSelectionInitialisee = true;
+    return;
+  }
+
+  const selectionCourante = new Set(
+    etat.monetisationComptesSelectionnes.map((nomCompte) => String(nomCompte || "").trim())
+  );
+  etat.monetisationComptesSelectionnes = comptesDisponibles.filter((nomCompte) =>
+    selectionCourante.has(String(nomCompte || "").trim())
+  );
+  etat.monetisationSelectionInitialisee = true;
+}
+
+function obtenirComptesMonetisationSelectionnes() {
+  const comptesDisponibles = obtenirComptesAutorisesPourReleveMonetisation();
+
+  if (!utilisateurPeutChoisirComptesReleveMonetisation()) {
+    return comptesDisponibles;
+  }
+
+  const selectionCourante = new Set(
+    etat.monetisationComptesSelectionnes.map((nomCompte) => String(nomCompte || "").trim())
+  );
+
+  return comptesDisponibles.filter((nomCompte) =>
+    selectionCourante.has(String(nomCompte || "").trim())
+  );
+}
+
+function obtenirConfigurationReleveMonetisation() {
+  const modeActuel = normaliserModePeriodeMonetisation(etat.monetisationPeriodeMode);
+
+  if (modeActuel === "annual") {
+    const anneeSelectionnee = normaliserFiltreAnneeMonetisation(etat.monetisationFiltreAnnee);
+    return {
+      options: {
+        mode: "annual",
+        annee: anneeSelectionnee,
+        format: "pdf",
+      },
+      periodeValide: estAnneeIsoValide(anneeSelectionnee),
+      texteBouton: "Telecharger releve annuel",
+      messageSucces: "Le releve annuel a ete telecharge.",
+      nomFichierSecours: `releve-monetisation-annuelle-${anneeSelectionnee}.pdf`,
+    };
+  }
+
+  if (modeActuel === "global") {
+    return {
+      options: {
+        mode: "global",
+        format: "pdf",
+      },
+      periodeValide: true,
+      texteBouton: "Telecharger releve global",
+      messageSucces: "Le releve global a ete telecharge.",
+      nomFichierSecours: "releve-monetisation-globale.pdf",
+    };
+  }
+
+  const moisSelectionne = normaliserFiltreMoisMonetisation(etat.monetisationFiltreMoisVue);
+  return {
+    options: {
+      mois: moisSelectionne,
+      format: "pdf",
+    },
+    periodeValide: estMoisIsoValide(moisSelectionne),
+    texteBouton: "Telecharger releve mensuel",
+    messageSucces: "Le releve mensuel a ete telecharge.",
+    nomFichierSecours: `releve-monetisation-mensuelle-${moisSelectionne}.pdf`,
+  };
+}
+
+function mettreAJourControlesPeriodeMonetisation() {
+  const modeActuel = normaliserModePeriodeMonetisation(etat.monetisationPeriodeMode);
+  const anneeActuelle = normaliserFiltreAnneeMonetisation(etat.monetisationFiltreAnnee);
+  const moisActuel = normaliserFiltreMoisMonetisation(etat.monetisationFiltreMoisVue);
+  const anneeCourante = obtenirAnneeCouranteIso();
+  const moisCourant = obtenirMoisCourantIso();
+  const modesAlternatifs = obtenirModesAlternatifsMonetisation(modeActuel);
+
+  if (elements.monetisationPeriodTitle) {
+    elements.monetisationPeriodTitle.textContent =
+      modeActuel === "global"
+        ? "Vue Globale"
+        : modeActuel === "annual"
+          ? formaterAnneeIso(anneeActuelle)
+          : formaterMoisIso(moisActuel);
+  }
+
+  if (elements.monetisationPreviousMonthButton) {
+    elements.monetisationPreviousMonthButton.disabled = modeActuel === "global";
+  }
+
+  if (elements.monetisationNextMonthButton) {
+    elements.monetisationNextMonthButton.disabled =
+      modeActuel === "global" ||
+      (modeActuel === "annual"
+        ? anneeActuelle.localeCompare(anneeCourante) >= 0
+        : moisActuel.localeCompare(moisCourant) >= 0);
+  }
+
+  if (elements.monetisationModeOptionOneButton) {
+    elements.monetisationModeOptionOneButton.textContent = modesAlternatifs[0].label;
+    elements.monetisationModeOptionOneButton.dataset.mode = modesAlternatifs[0].mode;
+  }
+
+  if (elements.monetisationModeOptionTwoButton) {
+    elements.monetisationModeOptionTwoButton.textContent = modesAlternatifs[1].label;
+    elements.monetisationModeOptionTwoButton.dataset.mode = modesAlternatifs[1].mode;
+  }
+}
+
+function mettreAJourEtatExportMonetisation() {
+  const comptesSelectionnes = obtenirComptesMonetisationSelectionnes();
+  const configurationReleve = obtenirConfigurationReleveMonetisation();
+
+  if (elements.monetisationDownloadStatementButton) {
+    if (elements.monetisationDownloadStatementButton.dataset.loading !== "true") {
+      elements.monetisationDownloadStatementButton.textContent = configurationReleve.texteBouton;
+    }
+
+    elements.monetisationDownloadStatementButton.disabled =
+      !configurationReleve.periodeValide || comptesSelectionnes.length === 0;
+  }
+}
+
+function afficherSelectionComptesMonetisation() {
+  if (!elements.monetisationReportAccountsSection || !elements.monetisationReportAccounts) {
+    mettreAJourEtatExportMonetisation();
+    return;
+  }
+
+  if (!utilisateurPeutChoisirComptesReleveMonetisation()) {
+    elements.monetisationReportAccounts.innerHTML = "";
+    elements.monetisationReportAccountsSection.classList.add("hidden");
+    mettreAJourEtatExportMonetisation();
+    return;
+  }
+
+  const comptesDisponibles = obtenirComptesAutorisesPourReleveMonetisation();
+  const comptesSelectionnes = new Set(obtenirComptesMonetisationSelectionnes());
+
+  elements.monetisationReportAccounts.innerHTML = "";
+
+  if (comptesDisponibles.length === 0) {
+    elements.monetisationReportAccountsSection.classList.add("hidden");
+    mettreAJourEtatExportMonetisation();
+    return;
+  }
+
+  comptesDisponibles.forEach((nomCompte) => {
+    const label = document.createElement("label");
+    label.className = "checkbox-option";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = comptesSelectionnes.has(nomCompte);
+    input.dataset.compte = nomCompte;
+    input.addEventListener("change", () => {
+      const selectionCourante = new Set(obtenirComptesMonetisationSelectionnes());
+
+      if (input.checked) {
+        selectionCourante.add(nomCompte);
+      } else {
+        selectionCourante.delete(nomCompte);
+      }
+
+      etat.monetisationComptesSelectionnes = comptesDisponibles.filter((compte) =>
+        selectionCourante.has(compte)
+      );
+      etat.monetisationSelectionInitialisee = true;
+      afficherSelectionComptesMonetisation();
+    });
+
+    const contenu = document.createElement("span");
+    contenu.textContent = nomCompte;
+
+    label.append(input, contenu);
+    elements.monetisationReportAccounts.appendChild(label);
+  });
+
+  if (elements.monetisationReportAccountsNote) {
+    const nombreSelectionnes = comptesSelectionnes.size;
+    elements.monetisationReportAccountsNote.textContent =
+      nombreSelectionnes > 0
+        ? `${nombreSelectionnes} compte(s) inclus dans le releve.`
+        : "Choisis au moins un compte a inclure dans le releve.";
+  }
+
+  elements.monetisationReportAccountsSection.classList.remove("hidden");
+  mettreAJourEtatExportMonetisation();
+}
+
+async function gererClicModePeriodeMonetisation(event) {
+  const mode = String(event?.currentTarget?.dataset?.mode || "").trim();
+
+  if (!mode) {
+    return;
+  }
+
+  await appliquerModePeriodeMonetisation(mode);
+}
+
+async function appliquerModePeriodeMonetisation(mode) {
+  const modeNormalise = normaliserModePeriodeMonetisation(mode);
+
+  if (modeNormalise === etat.monetisationPeriodeMode) {
+    return;
+  }
+
+  if (modeNormalise === "annual") {
+    const moisVue = normaliserFiltreMoisMonetisation(etat.monetisationFiltreMoisVue);
+    if (estMoisIsoValide(moisVue)) {
+      etat.monetisationFiltreAnnee = limiterAnneeMonetisationAuPresent(moisVue.slice(0, 4));
+    }
+  }
+
+  if (modeNormalise === "monthly") {
+    const moisVueActuel = normaliserFiltreMoisMonetisation(etat.monetisationFiltreMoisVue);
+    const anneeCible = limiterAnneeMonetisationAuPresent(etat.monetisationFiltreAnnee);
+    etat.monetisationFiltreMoisVue = limiterMoisMonetisationAuPresent(
+      construireMoisIsoDepuisAnnee(anneeCible, moisVueActuel)
+    );
+  }
+
+  etat.monetisationPeriodeMode = modeNormalise;
+  synchroniserPeriodeMonetisationAuPresent();
+  mettreAJourControlesPeriodeMonetisation();
+  mettreAJourEtatExportMonetisation();
+  await chargerMonetisationSiAutorise();
+}
+
+async function naviguerPeriodeMonetisation(direction) {
+  const modeActuel = normaliserModePeriodeMonetisation(etat.monetisationPeriodeMode);
+  const decalage = direction === "precedent" ? -1 : 1;
+
+  if (modeActuel === "global") {
+    return;
+  }
+
+  if (modeActuel === "monthly") {
+    const moisActuel = normaliserFiltreMoisMonetisation(etat.monetisationFiltreMoisVue);
+    const moisCible = limiterMoisMonetisationAuPresent(decalerMoisIso(moisActuel, decalage));
+
+    if (moisCible === moisActuel) {
+      return;
+    }
+
+    etat.monetisationFiltreMoisVue = moisCible;
+    etat.monetisationFiltreAnnee = moisCible.slice(0, 4);
+    mettreAJourControlesPeriodeMonetisation();
+    mettreAJourEtatExportMonetisation();
+    await chargerMonetisationSiAutorise();
+    return;
+  }
+
+  const anneeActuelle = normaliserFiltreAnneeMonetisation(etat.monetisationFiltreAnnee);
+  const anneeCible = limiterAnneeMonetisationAuPresent(decalerAnneeIso(anneeActuelle, decalage));
+
+  if (anneeCible === anneeActuelle) {
+    return;
+  }
+
+  etat.monetisationFiltreAnnee = anneeCible;
+  etat.monetisationFiltreMoisVue = limiterMoisMonetisationAuPresent(
+    construireMoisIsoDepuisAnnee(
+      anneeCible,
+      etat.monetisationFiltreMoisVue
+    )
+  );
+  mettreAJourControlesPeriodeMonetisation();
+  mettreAJourEtatExportMonetisation();
+  await chargerMonetisationSiAutorise();
+}
+
+async function gererTelechargementReleveMonetisation() {
+  const comptesSelectionnes = obtenirComptesMonetisationSelectionnes();
+  const configurationReleve = obtenirConfigurationReleveMonetisation();
+
+  if (!configurationReleve.periodeValide) {
+    afficherToast("Selectionnez une periode valide pour telecharger le releve.", "warning");
+    return;
+  }
+
+  if (comptesSelectionnes.length === 0) {
+    afficherToast("Selectionnez au moins un compte pour generer le releve.", "warning");
+    return;
+  }
+
+  const texteInitial =
+    elements.monetisationDownloadStatementButton?.textContent || configurationReleve.texteBouton;
+
+  if (elements.monetisationDownloadStatementButton) {
+    elements.monetisationDownloadStatementButton.dataset.loading = "true";
+    elements.monetisationDownloadStatementButton.disabled = true;
+    elements.monetisationDownloadStatementButton.textContent = "Preparation...";
+  }
+
+  try {
+    const resultat = await telechargerReleveMonetisation(
+      configurationReleve.options,
+      comptesSelectionnes
+    );
+    const url = URL.createObjectURL(resultat.blob);
+    const lien = document.createElement("a");
+    lien.href = url;
+    lien.download = resultat.fileName || configurationReleve.nomFichierSecours;
+    document.body.appendChild(lien);
+    lien.click();
+    lien.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    afficherToast(configurationReleve.messageSucces, "success");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      etat.monetisation = null;
+      viderMonetisation();
+      afficherSectionApplication(utilisateurPeutVoirAujourdhui() ? "aujourdhui" : "dashboard");
+      return;
+    }
+
+    afficherToast(erreur.message, "error");
+  } finally {
+    if (elements.monetisationDownloadStatementButton) {
+      delete elements.monetisationDownloadStatementButton.dataset.loading;
+      elements.monetisationDownloadStatementButton.textContent = texteInitial;
+    }
+
+    mettreAJourEtatExportMonetisation();
+  }
 }
 
 function parserEvenementTempsReel(event) {
@@ -3553,6 +4250,19 @@ function construireMessageNotificationTempsReel(payload = {}) {
   };
 
   return messagesParScope[payload.scope] || messagesParScope.application;
+}
+
+function obtenirComptesMonetisationSupplementaires() {
+  const ordreComptes = Array.isArray(etat.monetisation?.ordre_comptes)
+    ? etat.monetisation.ordre_comptes
+    : Object.keys(etat.monetisation?.comptes || {});
+
+  return ordreComptes
+    .filter((nomCompte) => !comptesMonetisationPrincipaux.includes(nomCompte))
+    .map((nomCompte) => ({
+      nom: nomCompte,
+      stats: obtenirStatistiquesMonetisationCompte(nomCompte),
+    }));
 }
 
 function notifierMiseAJourTempsReel(payload = {}) {
@@ -3637,30 +4347,129 @@ function appliquerStatistiquesMonetisation(prefixe, statsCompte) {
   if (champs.due) champs.due.textContent = montantFormate;
 }
 
+function creerCarteMonetisationSupplementaire(nomCompte, stats) {
+  const carte = document.createElement("article");
+  carte.className = "account-stats-card monetisation-account-card";
+
+  const enTete = document.createElement("div");
+  enTete.className = "account-stats-header";
+
+  const titre = document.createElement("div");
+  const nom = document.createElement("h3");
+  nom.textContent = nomCompte;
+  titre.append(nom);
+
+  const total = document.createElement("strong");
+  total.className = "account-stats-total";
+  total.textContent = formaterMontantDh(stats.montant_du);
+  enTete.append(titre, total);
+
+  const liste = document.createElement("div");
+  liste.className = "account-stats-list";
+
+  [
+    ["Tarif unitaire", formaterMontantDh(stats.tarif_unitaire)],
+    ["Seances facturables", String(Number(stats.seances_facturables) || 0)],
+    ["Seances d'essai faites", String(Number(stats.seances_essai_faites) || 0)],
+  ].forEach(([libelle, valeur]) => {
+    const ligne = document.createElement("div");
+    ligne.className = "stats-list-row";
+
+    const label = document.createElement("span");
+    label.textContent = libelle;
+
+    const contenu = document.createElement("strong");
+    contenu.textContent = valeur;
+
+    ligne.append(label, contenu);
+    liste.appendChild(ligne);
+  });
+
+  carte.append(enTete, liste);
+  return carte;
+}
+
+function afficherComptesMonetisationSupplementaires() {
+  if (!elements.monetisationExtraSection || !elements.monetisationExtraAccounts) {
+    return;
+  }
+
+  const comptesSupplementaires = obtenirComptesMonetisationSupplementaires();
+  elements.monetisationExtraAccounts.innerHTML = "";
+
+  if (comptesSupplementaires.length === 0) {
+    elements.monetisationExtraSection.classList.add("hidden");
+    return;
+  }
+
+  comptesSupplementaires.forEach(({ nom, stats }) => {
+    elements.monetisationExtraAccounts.appendChild(
+      creerCarteMonetisationSupplementaire(nom, stats)
+    );
+  });
+
+  elements.monetisationExtraSection.classList.remove("hidden");
+}
+
 function viderMonetisation() {
+  if (!etat.monetisation) {
+    etat.monetisationComptesSelectionnes = [];
+    etat.monetisationSelectionInitialisee = false;
+  }
+
   if (elements.monetisationTotalAmount) {
     elements.monetisationTotalAmount.textContent = formaterMontantDh(0);
   }
 
   appliquerStatistiquesMonetisation("yassine");
   appliquerStatistiquesMonetisation("abdo");
+  mettreAJourControlesPeriodeMonetisation();
+
+  if (elements.monetisationExtraAccounts) {
+    elements.monetisationExtraAccounts.innerHTML = "";
+  }
+
+  if (elements.monetisationExtraSection) {
+    elements.monetisationExtraSection.classList.add("hidden");
+  }
+
+  if (elements.monetisationReportAccounts) {
+    elements.monetisationReportAccounts.innerHTML = "";
+  }
+
+  if (elements.monetisationReportAccountsSection) {
+    elements.monetisationReportAccountsSection.classList.add("hidden");
+  }
+
+  mettreAJourEtatExportMonetisation();
 }
 
 function mettreAJourMonetisation() {
   const yassine = obtenirStatistiquesMonetisationCompte("Yassine");
   const abdo = obtenirStatistiquesMonetisationCompte("Abdo");
+  const ordreComptes = Array.isArray(etat.monetisation?.ordre_comptes)
+    ? etat.monetisation.ordre_comptes
+    : Object.keys(etat.monetisation?.comptes || {});
 
   const montantTotal = Number(etat.monetisation?.montant_total);
+  const totalCalcule = ordreComptes.reduce(
+    (total, nomCompte) => total + Number(obtenirStatistiquesMonetisationCompte(nomCompte).montant_du || 0),
+    0
+  );
   const totalVisible = Number.isFinite(montantTotal)
     ? montantTotal
-    : Number(yassine.montant_du || 0) + Number(abdo.montant_du || 0);
+    : totalCalcule;
 
   if (elements.monetisationTotalAmount) {
     elements.monetisationTotalAmount.textContent = formaterMontantDh(totalVisible);
   }
 
+  synchroniserSelectionComptesMonetisation();
+  mettreAJourControlesPeriodeMonetisation();
   appliquerStatistiquesMonetisation("yassine", yassine);
   appliquerStatistiquesMonetisation("abdo", abdo);
+  afficherComptesMonetisationSupplementaires();
+  afficherSelectionComptesMonetisation();
 }
 
 function mettreAJourResume() {
@@ -3775,8 +4584,6 @@ function mettreAJourResume() {
       creerEmptyState("Aucune donnee statistique disponible.")
     );
   }
-
-  viderMonetisation();
 }
 
 function obtenirComptesAdministration() {
@@ -5808,7 +6615,7 @@ function calculerHeureFin(heureDebut, dureeMinutes) {
   const [heures, minutes] = heureDebut.split(":").map(Number);
   const totalMinutes = heures * 60 + minutes + Number(dureeMinutes);
 
-  if (totalMinutes > 24 * 60) {
+  if (totalMinutes >= 24 * 60) {
     return "";
   }
 
@@ -5818,7 +6625,7 @@ function calculerHeureFin(heureDebut, dureeMinutes) {
 }
 
 function calculerDureeMinutesDepuisHeures(heureDebut, heureFin) {
-  if (!estHeureValide(heureDebut) || !estHeureValide(heureFin)) {
+  if (!estHeureValide(heureDebut) || !estHeureFinLegacyValide(heureFin)) {
     return 0;
   }
 
@@ -5954,6 +6761,10 @@ function estHeureValide(heure) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(heure);
 }
 
+function estHeureFinLegacyValide(heure) {
+  return estHeureValide(heure) || heure === "24:00";
+}
+
 function estHeureDebutSeanceValide(heure) {
   return estHeureValide(heure) && /:(00|30)$/.test(heure);
 }
@@ -5968,11 +6779,11 @@ function recupererHeureDebutParDefaut() {
   }
 
   if (heures < 8) {
-    return "12:00";
+    return "08:00";
   }
 
-  if (heures > 23) {
-    return "23:30";
+  if (heures > 22 || (heures === 22 && minutes > 30)) {
+    return "22:30";
   }
 
   return `${String(heures).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
@@ -6175,7 +6986,7 @@ function estDansSemaineCourante(dateIso) {
 
 function construirePlageHoraire(seance) {
   const heureDebutValide = estHeureValide(seance.heure_debut);
-  const heureFinValide = estHeureValide(seance.heure_fin);
+  const heureFinValide = estHeureFinLegacyValide(seance.heure_fin);
 
   if (heureDebutValide && heureFinValide) {
     return `${seance.heure_debut} - ${seance.heure_fin}`;

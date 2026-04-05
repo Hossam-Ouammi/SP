@@ -37,11 +37,14 @@ async function listerSeancesPourMonetisation(utilisateurId = null) {
     `
       SELECT
         id,
+        etudiant,
+        matiere,
         compte,
         est_essai,
         date,
         heure_debut,
         heure_fin,
+        duree_minutes,
         statut_seance
       FROM seances
       ${clauseWhere}
@@ -103,6 +106,7 @@ async function creerSeance(donneesSeance) {
         date,
         heure_debut,
         heure_fin,
+        duree_minutes,
         statut_seance,
         prix,
         statut_paiement,
@@ -111,7 +115,7 @@ async function creerSeance(donneesSeance) {
         modifie_par,
         utilisateur_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       donneesSeance.titre,
@@ -123,6 +127,7 @@ async function creerSeance(donneesSeance) {
       donneesSeance.date,
       donneesSeance.heure_debut,
       donneesSeance.heure_fin,
+      donneesSeance.duree_minutes,
       donneesSeance.statut_seance,
       donneesSeance.prix,
       donneesSeance.statut_paiement,
@@ -150,6 +155,7 @@ async function mettreAJourSeance(id, donneesSeance, utilisateurId = null) {
         date = ?,
         heure_debut = ?,
         heure_fin = ?,
+        duree_minutes = ?,
         statut_seance = ?,
         prix = ?,
         statut_paiement = ?,
@@ -168,6 +174,7 @@ async function mettreAJourSeance(id, donneesSeance, utilisateurId = null) {
       donneesSeance.date,
       donneesSeance.heure_debut,
       donneesSeance.heure_fin,
+      donneesSeance.duree_minutes,
       donneesSeance.statut_seance,
       donneesSeance.prix,
       donneesSeance.statut_paiement,

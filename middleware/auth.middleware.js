@@ -5,7 +5,11 @@ const {
   AUTO_LOGIN_MAX_AGE_MS,
 } = require("../config/security.config");
 const { trouverUtilisateurParId } = require("../models/utilisateur.model");
-const { genererTokenCsrf, normaliserIpClient } = require("./security.middleware");
+const {
+  genererTokenCsrf,
+  normaliserIpClient,
+  requeteEstSecurisee,
+} = require("./security.middleware");
 const {
   analyserCookieAppareil,
   hacherValidator,
@@ -15,14 +19,11 @@ const {
 } = require("../models/trusted-device.model");
 
 function obtenirOptionsCookie(req) {
-  const secure =
-    req.secure || String(req.headers["x-forwarded-proto"] || "").includes("https");
-
   return {
     path: "/",
     httpOnly: true,
     sameSite: "strict",
-    secure,
+    secure: requeteEstSecurisee(req),
   };
 }
 
@@ -324,12 +325,26 @@ function verifierAccesMonetisation(req, res, next) {
   return next();
 }
 
+function verifierAccesIndisponibilites(req, res, next) {
+  if (
+    !utilisateurEstAdministrateur(req.utilisateur) &&
+    Number(req.utilisateur?.peut_voir_indisponibilites) !== 1
+  ) {
+    return res.status(403).json({
+      message: "Vous n'avez pas acces a cette ressource.",
+    });
+  }
+
+  return next();
+}
+
 module.exports = {
   verifierAuthentification,
   verifierCompteSecurise,
   verifierAccesAdministratifHossam,
   verifierAccesHossamUniquement,
   verifierAccesMonetisation,
+  verifierAccesIndisponibilites,
   chargerUtilisateurAuthentifie,
   verifierModeEcritureAutorise,
   utilisateurEstAdministrateur,

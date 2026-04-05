@@ -1,6 +1,17 @@
 const { get, run } = require("./db");
 
+function normaliserEmailUtilisateur(email) {
+  const emailNormalise = String(email || "").trim().toLowerCase();
+
+  if (emailNormalise === "ami@test.com") {
+    return "abdo@test.com";
+  }
+
+  return emailNormalise;
+}
+
 async function trouverUtilisateurParEmail(email) {
+  const emailNormalise = normaliserEmailUtilisateur(email);
   return get(
     `
       SELECT
@@ -24,7 +35,7 @@ async function trouverUtilisateurParEmail(email) {
       FROM utilisateurs
       WHERE email = ?
     `,
-    [email]
+    [emailNormalise]
   );
 }
 
@@ -56,6 +67,9 @@ async function trouverUtilisateurParNom(nom) {
 }
 
 async function trouverUtilisateurParNomOuEmail(identifiant) {
+  const identifiantNormalise = String(identifiant || "").trim();
+  const emailNormalise = normaliserEmailUtilisateur(identifiantNormalise);
+
   return get(
     `
       SELECT
@@ -81,7 +95,7 @@ async function trouverUtilisateurParNomOuEmail(identifiant) {
       FROM utilisateurs
       WHERE lower(nom) = lower(?) OR lower(email) = lower(?)
     `,
-    [identifiant, identifiant]
+    [identifiantNormalise, emailNormalise]
   );
 }
 
@@ -155,6 +169,8 @@ async function creerUtilisateur({
   doitChangerMotDePasse = 1,
   tarifHoraire = 100,
 }) {
+  const emailNormalise = normaliserEmailUtilisateur(email);
+
   return run(
     `
       INSERT INTO utilisateurs (
@@ -168,13 +184,14 @@ async function creerUtilisateur({
         peut_voir_aujourdhui,
         peut_voir_indisponibilites,
         doit_changer_mot_de_passe,
-        tarif_horaire
+        tarif_horaire,
+        created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `,
     [
       nom,
-      email,
+      emailNormalise,
       motDePasse,
       estAdmin ? 1 : 0,
       accesActive ? 1 : 0,
@@ -278,6 +295,7 @@ async function listerCompteUtilisateurs() {
   );
 }
 module.exports = {
+  normaliserEmailUtilisateur,
   trouverUtilisateurParEmail,
   trouverUtilisateurParNom,
   trouverUtilisateurParNomOuEmail,

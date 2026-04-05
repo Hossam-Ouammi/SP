@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
+    "test": "node scripts/smoke-test.js",
     "push:due": "node scripts/run-push-jobs.js"
   },
   "keywords": [
@@ -29,6 +30,7 @@
     "express-rate-limit": "^8.3.1",
     "express-session": "^1.19.0",
     "multer": "^2.1.1",
+    "puppeteer": "^24.40.0",
     "sqlite3": "^5.1.7",
     "web-push": "^3.6.7"
   },

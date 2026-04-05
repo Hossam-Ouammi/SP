@@ -9,10 +9,14 @@ const {
   mettreAJourStatutSeance,
   supprimerSeance,
 } = require("../models/seance.model");
+const { run } = require("../models/db");
 const { listerCatalogueOptions } = require("../models/catalogue.model");
 const { trouverIndisponibiliteChevauchante } = require("../models/indisponibilite.model");
 const { recupererPhotosParSeance } = require("../models/photo.model");
-const { creerEntreeHistorique } = require("../models/historique.model");
+const {
+  creerEntreeHistorique,
+  detacherSeancesHistorique,
+} = require("../models/historique.model");
 const { resoudreCheminScreenshot } = require("../utils/screenshot-storage");
 
 const statutsSeanceValides = ["planifiee", "faite", "annulee", "reportee"];
@@ -54,6 +58,10 @@ function estIdentifiantValide(valeur) {
 }
 
 function convertirHeureEnMinutes(heure) {
+  if (heure === "24:00") {
+    return 24 * 60;
+  }
+
   const [heures, minutes] = heure.split(":").map(Number);
   return heures * 60 + minutes;
 }
@@ -77,6 +85,10 @@ function estHeureValide(heure) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(heure);
 }
 
+function estHeureFinLegacyValide(heure) {
+  return estHeureValide(heure) || heure === "24:00";
+}
+
 function estHeureDebutSeanceValide(heure) {
   return estHeureValide(heure) && /:(00|30)$/.test(heure);
 }
@@ -88,7 +100,7 @@ function calculerHeureFin(heureDebut, dureeMinutes) {
 
   const minutesFin = convertirHeureEnMinutes(heureDebut) + Number(dureeMinutes);
 
-  if (minutesFin > 24 * 60) {
+  if (minutesFin >= 24 * 60) {
     return "";
   }
 
@@ -96,7 +108,7 @@ function calculerHeureFin(heureDebut, dureeMinutes) {
 }
 
 function calculerDureeMinutes(heureDebut, heureFin) {
-  if (!estHeureValide(heureDebut) || !estHeureValide(heureFin)) {
+  if (!estHeureValide(heureDebut) || !estHeureFinLegacyValide(heureFin)) {
     return 0;
   }
 
@@ -290,6 +302,16 @@ function construireListeSuppression(etatSeance) {
   }));
 }
 
+function construireDetailsSuppression(etatSeance) {
+  return {
+    type: "suppression",
+    seance: {
+      ...etatSeance,
+    },
+    changements: construireListeSuppression(etatSeance),
+  };
+}
+
 function construireListeChangements(avant, apres) {
   return Object.keys(libellesChampHistorique)
     .filter(
@@ -331,7 +353,7 @@ function construireLibelleSeance(donneesSeance) {
 }
 
 function construireDateHeureLocale(date, heure) {
-  if (!estDateIsoValide(date) || !estHeureValide(heure)) {
+  if (!estDateIsoValide(date) || !estHeureFinLegacyValide(heure)) {
     return null;
   }
 
@@ -499,7 +521,8 @@ function transformerSeancePourClient(seance) {
     return seance;
   }
 
-  const dureeMinutes = calculerDureeMinutes(seance.heure_debut, seance.heure_fin);
+  const dureeMinutes =
+    Number(seance.duree_minutes) || calculerDureeMinutes(seance.heure_debut, seance.heure_fin);
   const statutAffiche = calculerStatutSeanceAffiche(seance);
   const { titre, prix, statut_paiement, ...seanceTransformee } = seance;
 
@@ -767,19 +790,25 @@ async function supprimerUneSeance(req, res) {
 
   const photos = await recupererPhotosParSeance(req.params.id);
   const etatAvantSuppression = extraireEtatAuditSeance(seance);
-  await supprimerSeance(req.params.id);
+  await run("BEGIN IMMEDIATE TRANSACTION");
+  try {
+    await detacherSeancesHistorique([seance]);
+    await supprimerSeance(req.params.id);
 
   await journaliserActionSeance({
     actionType: "seance_supprimee",
     actionLabel: "Suppression de la séance",
     acteur: req.utilisateur,
-    seanceId: seance.id,
+    seanceId: null,
     seanceLibelle: construireLibelleSeance(seance),
-    details: {
-      type: "suppression",
-      changements: construireListeSuppression(etatAvantSuppression),
-    },
-  });
+    details: construireDetailsSuppression(etatAvantSuppression),
+    });
+
+    await run("COMMIT");
+  } catch (error) {
+    await run("ROLLBACK").catch(() => {});
+    throw error;
+  }
 
   await Promise.all(
     photos.map(async (photo) => {

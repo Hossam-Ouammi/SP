@@ -1,8 +1,5 @@
 
-
-
-
- p365657uy,,-import { envoyerRequete } from "./http.js";
+import { envoyerRequete } from "./http.js";
 
 let serviceWorkerRegistrationPromise = null;
 let configurationPushPromise = null;

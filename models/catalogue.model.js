@@ -1,6 +1,11 @@
 const { all, get, run } = require("./db");
 
 const typesCatalogueAutorises = new Set(["matiere", "compte"]);
+const tarifsHorairesParDefautComptes = {
+  abdo: 90,
+  yassine: 130,
+  hossam: 150,
+};
 
 function normaliserTypeCatalogue(type) {
   const typeNormalise = String(type || "").trim().toLowerCase();
@@ -9,6 +14,16 @@ function normaliserTypeCatalogue(type) {
 
 function normaliserValeurCatalogue(valeur) {
   return String(valeur || "").trim();
+}
+
+function obtenirTarifHoraireCatalogueParDefaut(type, valeur) {
+  if (type !== "compte") {
+    return 0;
+  }
+
+  return (
+    tarifsHorairesParDefautComptes[normaliserValeurCatalogue(valeur).toLowerCase()] || 100
+  );
 }
 
 async function listerValeursCatalogueParType(type) {
@@ -73,7 +88,10 @@ async function trouverValeurCatalogueParId(id) {
 async function ajouterValeurCatalogue(type, valeur) {
   const typeNormalise = normaliserTypeCatalogue(type);
   const valeurNormalisee = normaliserValeurCatalogue(valeur);
-  const tarifHoraire = typeNormalise === "compte" ? 100 : 0;
+  const tarifHoraire = obtenirTarifHoraireCatalogueParDefaut(
+    typeNormalise,
+    valeurNormalisee
+  );
 
   if (!typeNormalise || !valeurNormalisee) {
     throw new Error("Type ou valeur de catalogue invalide.");

@@ -5,10 +5,29 @@ function genererTokenCsrf() {
   return crypto.randomBytes(32).toString("hex");
 }
 
+function recupererPremiereValeurEntete(req, nomEntete) {
+  return String(req.get(nomEntete) || "")
+    .split(",")[0]
+    .trim();
+}
+
+function requeteEstSecurisee(req) {
+  const forwardedProto = recupererPremiereValeurEntete(req, "x-forwarded-proto").toLowerCase();
+
+  if (forwardedProto) {
+    return forwardedProto === "https";
+  }
+
+  return req.secure === true || String(req.protocol || "").toLowerCase() === "https";
+}
+
 function determinerOrigineAttendue(req) {
-  const protoEntete = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
-  const protocole = protoEntete || req.protocol || "http";
-  return `${protocole}://${req.get("host")}`;
+  const forwardedProto = recupererPremiereValeurEntete(req, "x-forwarded-proto").toLowerCase();
+  const forwardedHost = recupererPremiereValeurEntete(req, "x-forwarded-host");
+  const protocole = forwardedProto || (requeteEstSecurisee(req) ? "https" : req.protocol || "http");
+  const host = forwardedHost || req.get("host");
+
+  return `${protocole}://${host}`;
 }
 
 function origineCorrespond(origine, origineAttendue) {
@@ -42,7 +61,7 @@ function appliquerEnTetesSecurite(req, res, next) {
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
 
-  if (req.secure || String(req.headers["x-forwarded-proto"]).includes("https")) {
+  if (requeteEstSecurisee(req)) {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
 
@@ -150,12 +169,7 @@ function normaliserValeurIp(valeur) {
 }
 
 function normaliserIpClient(req) {
-  const forwardedFor = String(req.headers["x-forwarded-for"] || "")
-    .split(",")[0]
-    .trim();
-  const ip = normaliserValeurIp(
-    forwardedFor || req.ip || req.socket?.remoteAddress || ""
-  );
+  const ip = normaliserValeurIp(req.ip || req.socket?.remoteAddress || "");
   return ip || "ip-inconnue";
 }
 
@@ -167,4 +181,5 @@ module.exports = {
   verifierProtectionCsrf,
   genererTokenCsrf,
   normaliserIpClient,
+  requeteEstSecurisee,
 };

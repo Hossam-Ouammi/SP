@@ -1,6 +1,16 @@
 const { diffuserMiseAJourApplication } = require("./realtime");
 const { notifierEvenementApplicationPush } = require("./push-notifications");
 
+function valeurBooleenneActive(valeur) {
+  return (
+    valeur === true ||
+    valeur === 1 ||
+    valeur === "1" ||
+    valeur === "true" ||
+    valeur === "on"
+  );
+}
+
 function determinerActionTempsReel(req, scope, reponseJson = null) {
   const methode = String(req.method || "").toUpperCase();
   const chemin = String(req.route?.path || req.path || "");
@@ -25,7 +35,7 @@ function determinerActionTempsReel(req, scope, reponseJson = null) {
 
   if (scope === "indisponibilites") {
     if (methode === "POST") {
-      return Number(req.body?.jour_complet) === 1 || req.body?.jour_complet === true
+      return valeurBooleenneActive(req.body?.jour_complet)
         ? "full_day_unavailability_added"
         : "unavailability_added";
     }

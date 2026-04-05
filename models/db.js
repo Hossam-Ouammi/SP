@@ -13,7 +13,7 @@ const databaseDirectory = path.join(__dirname, "..", "database");
 const databasePath = process.env.DATABASE_PATH || path.join(databaseDirectory, "database.db");
 const activerDonneesExemple = process.env.SEED_DEMO_DATA === "true" && process.env.NODE_ENV !== "production";
 const matieresParDefaut = ["Maths", "Physique chimie", "Python", "C++"];
-const comptesParDefaut = ["Abdo", "Yassine"];
+const comptesParDefaut = ["Abdo", "Yassine", "Hossam"];
 const tarifsComptesParDefaut = {
   abdo: 90,
   yassine: 130,
@@ -358,6 +358,10 @@ async function ajouterColonnesSeancesSystemeSiNecessaire() {
   const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
   const migrations = [
     {
+      nom: "duree_minutes",
+      sql: "ALTER TABLE seances ADD COLUMN duree_minutes INTEGER",
+    },
+    {
       nom: "created_at",
       sql: "ALTER TABLE seances ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP",
     },
@@ -388,6 +392,21 @@ async function ajouterColonnesSeancesSystemeSiNecessaire() {
   await run(`
     UPDATE seances
     SET
+      duree_minutes = COALESCE(
+        duree_minutes,
+        CASE
+          WHEN heure_debut IS NOT NULL
+            AND heure_fin IS NOT NULL
+            AND length(heure_debut) = 5
+            AND length(heure_fin) = 5
+          THEN
+            (
+              (CAST(substr(heure_fin, 1, 2) AS INTEGER) * 60 + CAST(substr(heure_fin, 4, 2) AS INTEGER))
+              - (CAST(substr(heure_debut, 1, 2) AS INTEGER) * 60 + CAST(substr(heure_debut, 4, 2) AS INTEGER))
+            )
+          ELSE NULL
+        END
+      ),
       created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
       updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP),
       revision = COALESCE(revision, 1)
@@ -836,7 +855,7 @@ async function synchroniserCatalogueDepuisSeances() {
   }
 }
 
-async function initialiserUtilisateursDeTest() {
+async function initialiserUtilisateursInitiaux() {
   const resultat = await get("SELECT COUNT(*) AS total FROM utilisateurs");
 
   if (resultat.total > 0) {
@@ -852,7 +871,7 @@ async function initialiserUtilisateursDeTest() {
     },
     {
       nom: "Abdo",
-      email: "ami@test.com",
+      email: "abdo@test.com",
       motDePasse: "123456",
       estAdmin: 0,
     },
@@ -877,9 +896,10 @@ async function initialiserUtilisateursDeTest() {
           doit_changer_mot_de_passe,
           mot_de_passe_change_at,
           echecs_connexion,
-          tarif_horaire
+          tarif_horaire,
+          created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `,
       [
         utilisateur.nom,
@@ -895,7 +915,7 @@ async function initialiserUtilisateursDeTest() {
         1,
         null,
         0,
-        utilisateur.nom === "Hossam" ? 150 : 100
+        obtenirTarifHoraireCompteParDefaut(utilisateur.nom)
       ]
     );
   }
@@ -905,7 +925,20 @@ async function normaliserNomsUtilisateurs() {
   await run(`
     UPDATE utilisateurs
     SET nom = 'Abdo'
-    WHERE email = 'ami@test.com' OR nom = 'Ami'
+    WHERE lower(email) IN ('abdo@test.com', 'ami@test.com') OR nom = 'Ami'
+  `);
+}
+
+async function normaliserEmailsUtilisateurs() {
+  await run(`
+    UPDATE utilisateurs
+    SET email = 'abdo@test.com'
+    WHERE lower(email) = 'ami@test.com'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM utilisateurs AS utilisateurs_existants
+        WHERE lower(utilisateurs_existants.email) = 'abdo@test.com'
+      )
   `);
 }
 
@@ -922,7 +955,7 @@ async function initialiserSeancesExemple() {
   );
   const abdoUtilisateur = await get(
     "SELECT id FROM utilisateurs WHERE email = ?",
-    ["ami@test.com"]
+    ["abdo@test.com"]
   );
 
   if (!hossam || !abdoUtilisateur) {
@@ -1044,6 +1077,7 @@ async function initialiserBaseDeDonnees() {
       date TEXT NOT NULL,
       heure_debut TEXT NOT NULL,
       heure_fin TEXT NOT NULL,
+      duree_minutes INTEGER,
       statut_seance TEXT NOT NULL DEFAULT 'planifiee',
       prix REAL DEFAULT 0,
       statut_paiement TEXT DEFAULT 'non_payee',
@@ -1232,15 +1266,17 @@ async function initialiserBaseDeDonnees() {
   await ajouterColonnesPushSubscriptionsSiNecessaire();
   await ajouterColonnesJournalAuthSiNecessaire();
   await synchroniserHistoriqueActionsSiNecessaire();
+  await initialiserUtilisateursInitiaux();
+  await normaliserEmailsUtilisateurs();
+  await normaliserNomsUtilisateurs();
+  await marquerComptesTemporairesCommeASecuriser();
   await initialiserCatalogueParDefaut();
   await synchroniserCatalogueDepuisSeances();
 
   if (activerDonneesExemple) {
-    await initialiserUtilisateursDeTest();
-    await normaliserNomsUtilisateurs();
     await initialiserSeancesExemple();
-    await marquerComptesTemporairesCommeASecuriser();
     await normaliserSeancesExistantes();
+    await synchroniserCatalogueDepuisSeances();
   }
 }
 

@@ -14,6 +14,7 @@ const {
   storageUploadsDirectory,
   assurerDossiersScreenshots,
 } = require("../utils/screenshot-storage");
+const { detacherSeancesHistorique } = require("./historique.model");
 
 function normaliserCleCompte(utilisateur) {
   const email = String(utilisateur?.email || "").trim().toLowerCase();
@@ -22,7 +23,7 @@ function normaliserCleCompte(utilisateur) {
     return "hossam";
   }
 
-  if (email === "ami@test.com") {
+  if (email === "abdo@test.com" || email === "ami@test.com") {
     return "abdo";
   }
 
@@ -124,7 +125,7 @@ async function trouverCompteParCle(cleCompte) {
   }
 
   if (cle === "abdo") {
-    return trouverCompteParEmail("ami@test.com");
+    return trouverCompteParEmail("abdo@test.com");
   }
 
   if (cle.startsWith("user-")) {
@@ -292,8 +293,15 @@ async function revoquerSessionsUtilisateur(utilisateurId, options = {}) {
 }
 
 async function supprimerTousLesScreenshotsStockes() {
-  await fsPromises.rm(storageUploadsDirectory, { recursive: true, force: true });
-  assurerDossiersScreenshots();
+  try {
+    await fsPromises.rm(storageUploadsDirectory, { recursive: true, force: true });
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.error("Suppression globale des screenshots impossible :", error);
+    }
+  } finally {
+    assurerDossiersScreenshots();
+  }
 }
 
 async function supprimerToutesLesSeances() {
@@ -302,9 +310,35 @@ async function supprimerToutesLesSeances() {
       (SELECT COUNT(*) FROM seances) AS total_seances,
       (SELECT COUNT(*) FROM photos) AS total_photos
   `);
+  const seances = await all(`
+    SELECT
+      id,
+      etudiant,
+      parent,
+      matiere,
+      compte,
+      est_essai,
+      date,
+      heure_debut,
+      heure_fin,
+      duree_minutes,
+      statut_seance,
+      description
+    FROM seances
+  `);
+
+  await run("BEGIN IMMEDIATE TRANSACTION");
+
+  try {
+    await detacherSeancesHistorique(seances);
+    await run("DELETE FROM seances");
+    await run("COMMIT");
+  } catch (error) {
+    await run("ROLLBACK").catch(() => {});
+    throw error;
+  }
 
   await supprimerTousLesScreenshotsStockes();
-  await run("DELETE FROM seances");
 
   return {
     totalSeances: Number(resume?.total_seances || 0),

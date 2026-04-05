@@ -1,0 +1,25 @@
+=3213 : The term '=3213' is not recognized as the name of a cmdlet, function, script file, or operable program. Check 
+the spelling of the name, or if a path was included, verify that the path is correct and try again.
+At line:1 char:1
++ ='3213'; ='E:\Projets_Perso\SP\database\audit-review-log.db'; ='devel ...
++ ~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=3213:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+=E:\Projets_Perso\SP\database\audit-review-log.db : The term '=E:\Projets_Perso\SP\database\audit-review-log.db' is 
+not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or 
+if a path was included, verify that the path is correct and try again.
+At line:1 char:10
++ ='3213'; ='E:\Projets_Perso\SP\database\audit-review-log.db'; ='devel ...
++          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=E:\Projets_Per...t-review-log.db:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+=development : The term '=development' is not recognized as the name of a cmdlet, function, script file, or operable 
+program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+At line:1 char:63
++ ... rojets_Perso\SP\database\audit-review-log.db'; ='development'; node a ...
++                                                    ~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=development:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 

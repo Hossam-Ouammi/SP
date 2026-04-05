@@ -8,6 +8,7 @@ const {
 const {
   verifierAuthentification,
   verifierCompteSecurise,
+  verifierAccesIndisponibilites,
   verifierAccesHossamUniquement,
 } = require("../middleware/auth.middleware");
 const { notifierMiseAJourApplication } = require("../utils/realtime-route");
@@ -16,7 +17,7 @@ const router = express.Router();
 
 router.use(verifierAuthentification, verifierCompteSecurise);
 
-router.get("/", recupererIndisponibilites);
+router.get("/", verifierAccesIndisponibilites, recupererIndisponibilites);
 router.post(
   "/",
   verifierAccesHossamUniquement,
