@@ -15,6 +15,11 @@ const realtimeRoutes = require("./routes/realtime.routes");
 const pushRoutes = require("./routes/push.routes");
 const seancesRoutes = require("./routes/seances.routes");
 const photosRoutes = require("./routes/photos.routes");
+const reservationLinksRoutes = require("./routes/reservation-links.routes");
+const {
+  pageRouter: publicReservationPageRoutes,
+  apiRouter: publicReservationApiRoutes,
+} = require("./routes/public-reservation.routes");
 const { connecterUtilisateurDepuisFormulaire } = require("./controllers/auth.controller");
 const { initialiserBaseDeDonnees } = require("./models/db");
 const { recupererSecretSession } = require("./models/session-secret");
@@ -78,30 +83,7 @@ app.use(appliquerEnTetesSecurite);
 app.use(desactiverCacheApi);
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: false, limit: "100kb" }));
-
-app.use(
-  session({
-    name: SESSION_COOKIE_NAME,
-    secret: recupererSecretSession(),
-    store: new SQLiteSessionStore(),
-    resave: false,
-    saveUninitialized: false,
-    rolling: true,
-    unset: "destroy",
-    proxy: trustProxy,
-    cookie: {
-      httpOnly: true,
-      sameSite: "strict",
-      secure: "auto",
-      maxAge: SESSION_MAX_AGE_MS,
-    },
-  })
-);
-
-app.use(restaurerConnexionAutomatique);
 app.use(verifierOrigineRequete);
-app.use(verifierProtectionCsrf);
-app.use(attacherTokenCsrf);
 
 app.use(
   "/vendor/@fullcalendar/core",
@@ -145,6 +127,36 @@ app.use(
   })
 );
 
+app.use("/api/reservation-public", publicReservationApiRoutes);
+app.use("/reservation", publicReservationPageRoutes);
+
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+app.use(
+  session({
+    name: SESSION_COOKIE_NAME,
+    secret: recupererSecretSession(),
+    store: new SQLiteSessionStore(),
+    resave: false,
+    saveUninitialized: false,
+    rolling: true,
+    unset: "destroy",
+    proxy: trustProxy,
+    cookie: {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: "auto",
+      maxAge: SESSION_MAX_AGE_MS,
+    },
+  })
+);
+
+app.use(restaurerConnexionAutomatique);
+app.use(verifierProtectionCsrf);
+app.use(attacherTokenCsrf);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/historique", historiqueRoutes);
@@ -152,12 +164,9 @@ app.use("/api/indisponibilites", indisponibilitesRoutes);
 app.use("/api/monetisation", monetisationRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/realtime", realtimeRoutes);
+app.use("/api/liens-reservation", reservationLinksRoutes);
 app.use("/api/seances", seancesRoutes);
 app.use("/api/photos", photosRoutes);
-
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
-});
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));

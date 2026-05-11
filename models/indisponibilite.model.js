@@ -17,6 +17,17 @@ async function listerToutesLesIndisponibilites() {
   );
 }
 
+async function listerIndisponibilitesParPlageDates(dateDebut, dateFin) {
+  return all(
+    `
+      ${requeteIndisponibiliteComplete}
+      WHERE indisponibilites.date >= ? AND indisponibilites.date <= ?
+      ORDER BY indisponibilites.date ASC, indisponibilites.heure_debut ASC, indisponibilites.id ASC
+    `,
+    [dateDebut, dateFin]
+  );
+}
+
 async function trouverIndisponibiliteParId(id) {
   return get(
     `
@@ -88,6 +99,7 @@ async function trouverIndisponibiliteChevauchante({
 
 module.exports = {
   listerToutesLesIndisponibilites,
+  listerIndisponibilitesParPlageDates,
   trouverIndisponibiliteParId,
   creerIndisponibilite,
   supprimerIndisponibilite,

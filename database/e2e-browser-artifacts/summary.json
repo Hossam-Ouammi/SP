@@ -1,0 +1,101 @@
+{
+  "responsive": {
+    "adminDesktopScreenshot": "E:\\Projets_Perso\\SP\\database\\e2e-browser-artifacts\\admin-monetisation-desktop.png",
+    "adminMobileScreenshot": "E:\\Projets_Perso\\SP\\database\\e2e-browser-artifacts\\admin-monetisation-mobile.png",
+    "userDesktopScreenshot": "E:\\Projets_Perso\\SP\\database\\e2e-browser-artifacts\\user-monetisation-desktop.png"
+  },
+  "push": {
+    "prompt": {
+      "status": "Inactive",
+      "permission": "A demander",
+      "info": "Les notifications sont desactivees sur cet appareil.",
+      "error": ""
+    },
+    "deniedBefore": {
+      "status": "Inactive",
+      "permission": "Refusee",
+      "info": "Les notifications sont desactivees sur cet appareil.",
+      "error": ""
+    },
+    "deniedAfter": {
+      "status": "Inactive",
+      "permission": "Refusee",
+      "info": "Les notifications sont desactivees sur cet appareil.",
+      "error": "Les notifications ont ete refusees dans ce navigateur."
+    },
+    "grantedBefore": {
+      "status": "Inactive",
+      "permission": "Autorisee",
+      "info": "Les notifications sont desactivees sur cet appareil.",
+      "error": ""
+    },
+    "activation": {
+      "responseStatus": null,
+      "etat": {
+        "status": "Inactive",
+        "permission": "Autorisee",
+        "info": "Les notifications sont desactivees sur cet appareil.",
+        "error": ""
+      }
+    },
+    "testStatus": null,
+    "logs": [],
+    "qualityWarnings": []
+  },
+  "monetisationPermissions": {
+    "userReportSelectionVisible": false,
+    "userContainsHossam": false
+  },
+  "pdfDownloads": {
+    "monthly": {
+      "ui": {
+        "status": 200,
+        "contentType": "application/pdf",
+        "size": 68269,
+        "signature": "%PDF",
+        "fileName": "releve-monetisation-mensuelle-2026-04-abdo-hossam-yassine.pdf"
+      },
+      "direct": {
+        "status": 200,
+        "contentType": "application/pdf",
+        "size": 66486,
+        "signature": "%PDF"
+      }
+    },
+    "annual": {
+      "ui": {
+        "status": 200,
+        "contentType": "application/pdf",
+        "size": 70564,
+        "signature": "%PDF",
+        "fileName": "releve-monetisation-annuelle-2026-abdo-hossam-yassine.pdf"
+      },
+      "direct": {
+        "status": 200,
+        "contentType": "application/pdf",
+        "size": 68998,
+        "signature": "%PDF"
+      }
+    },
+    "global": {
+      "ui": {
+        "status": 200,
+        "contentType": "application/pdf",
+        "size": 71931,
+        "signature": "%PDF",
+        "fileName": "releve-monetisation-globale-abdo-hossam-yassine.pdf"
+      },
+      "direct": {
+        "status": 200,
+        "contentType": "application/pdf",
+        "size": 70539,
+        "signature": "%PDF"
+      }
+    }
+  },
+  "htmlPreviews": {
+    "monthly": "E:\\Projets_Perso\\SP\\database\\e2e-browser-artifacts\\releve-mensuel-html-preview.png",
+    "annual": "E:\\Projets_Perso\\SP\\database\\e2e-browser-artifacts\\releve-annuel-html-preview.png",
+    "global": "E:\\Projets_Perso\\SP\\database\\e2e-browser-artifacts\\releve-global-html-preview.png"
+  }
+}

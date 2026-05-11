@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reservation de creneau</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/style.css?v=20260327a" />
+  </head>
+  <body class="reservation-public-body" data-reservation-token="<%= tokenReservation %>">
+    <main class="reservation-public-main">
+      <section class="reservation-public-shell">
+        <header class="reservation-public-hero panel">
+          <div class="reservation-public-hero-copy">
+            <span class="reservation-public-kicker">Reservation etudiant</span>
+            <h1 id="reservation-public-title">Choisissez votre creneau</h1>
+            <p id="reservation-public-subtitle" class="section-note">
+              Chargement du planning...
+            </p>
+          </div>
+
+          <div class="reservation-public-legend">
+            <span class="reservation-public-legend-item">
+              <span class="reservation-public-legend-swatch reservation-public-legend-swatch-free"></span>
+              Creneau disponible
+            </span>
+            <span class="reservation-public-legend-item">
+              <span class="reservation-public-legend-swatch reservation-public-legend-swatch-booked"></span>
+              Votre reservation
+            </span>
+            <span class="reservation-public-legend-item">
+              <span class="reservation-public-legend-swatch reservation-public-legend-swatch-blocked"></span>
+              Deja reserve ou indisponible
+            </span>
+          </div>
+        </header>
+
+        <section class="reservation-public-layout">
+          <section class="panel reservation-public-calendar-panel">
+            <div class="section-heading section-heading-stack">
+              <div>
+                <h2>Planning de la semaine</h2>
+                <p class="section-note">
+                  Les plages hachurees ne peuvent pas etre reservees.
+                </p>
+              </div>
+            </div>
+
+            <div id="reservation-public-error" class="form-error hidden"></div>
+            <div id="reservation-public-calendar" class="reservation-public-calendar"></div>
+          </section>
+
+          <aside class="reservation-public-side">
+            <article class="panel reservation-public-selection-card">
+              <div class="section-heading section-heading-stack">
+                <div>
+                  <h2>Votre choix</h2>
+                  <p id="reservation-public-selection-note" class="section-note">
+                    Cliquez sur un creneau libre dans la semaine.
+                  </p>
+                </div>
+              </div>
+
+              <div id="reservation-public-editing-state" class="reservation-public-editing-state hidden">
+                <strong>Reprogrammation en cours</strong>
+                <p id="reservation-public-editing-meta" class="reservation-public-editing-meta">
+                  -
+                </p>
+                <button
+                  id="reservation-public-editing-cancel-button"
+                  class="button secondary full-width"
+                  type="button"
+                >
+                  Annuler la reprogrammation
+                </button>
+              </div>
+
+              <div id="reservation-public-selection-empty" class="empty-state">
+                Aucun creneau selectionne pour le moment.
+              </div>
+
+              <div id="reservation-public-selection-content" class="hidden">
+                <div class="reservation-public-selection-grid">
+                  <div class="reservation-public-selection-row">
+                    <span>Date</span>
+                    <strong id="reservation-public-selection-date">-</strong>
+                  </div>
+                  <div class="reservation-public-selection-row">
+                    <span>Horaire</span>
+                    <strong id="reservation-public-selection-time">-</strong>
+                  </div>
+                  <div class="reservation-public-selection-row">
+                    <span>Duree</span>
+                    <strong id="reservation-public-selection-duration">-</strong>
+                  </div>
+                </div>
+
+                <div class="reservation-public-selection-actions">
+                  <button
+                    id="reservation-public-submit-button"
+                    class="button primary full-width"
+                    type="button"
+                  >
+                    Reserver ce creneau
+                  </button>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel reservation-public-reservations-card">
+              <div class="section-heading section-heading-stack">
+                <div>
+                  <h2>Vos reservations</h2>
+                  <p class="section-note">
+                    Seules les reservations liees a ce lien sont detaillees ici.
+                  </p>
+                </div>
+              </div>
+
+              <div id="reservation-public-reservations-list" class="reservation-public-reservations-list">
+                <div class="empty-state">Aucune reservation pour le moment.</div>
+              </div>
+            </article>
+          </aside>
+        </section>
+      </section>
+    </main>
+
+    <script src="/vendor/@fullcalendar/core/index.global.js"></script>
+    <script src="/vendor/@fullcalendar/core/locales-all.global.js"></script>
+    <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
+    <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
+    <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
+    <script type="module" src="/js/public-reservation.js"></script>
+  </body>
+</html>

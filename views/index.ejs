@@ -456,6 +456,103 @@
                 </div>
               </form>
 
+              <article id="reservation-links-card" class="admin-card reservation-links-card">
+                <div class="admin-card-head">
+                  <div>
+                    <h3 class="user-form-title">Liens de reservation etudiant</h3>
+                    <p class="section-note">
+                      Genere un lien public a envoyer a un etudiant pour qu'il choisisse son
+                      creneau dans une vue semaine.
+                    </p>
+                  </div>
+                </div>
+
+                <form id="reservation-link-form" class="stack-form admin-card-body">
+                  <label class="field">
+                    <span>Etudiant</span>
+                    <input
+                      id="reservation-link-student"
+                      type="text"
+                      maxlength="120"
+                      placeholder="Nom de l'etudiant"
+                      required
+                    />
+                  </label>
+
+                  <label class="field">
+                    <span>Parent</span>
+                    <input
+                      id="reservation-link-parent"
+                      type="text"
+                      maxlength="120"
+                      placeholder="Optionnel"
+                    />
+                  </label>
+
+                  <div class="form-grid">
+                    <label class="field">
+                      <span>Matiere</span>
+                      <select id="reservation-link-subject" required></select>
+                    </label>
+
+                    <label class="field">
+                      <span>Compte</span>
+                      <select id="reservation-link-account" required></select>
+                    </label>
+                  </div>
+
+                  <label class="field">
+                    <span>Duree</span>
+                    <select id="reservation-link-duration" required>
+                      <option value="60">1h</option>
+                      <option value="90">1h30</option>
+                      <option value="120">2h</option>
+                    </select>
+                  </label>
+
+                  <p id="reservation-link-error" class="form-error hidden"></p>
+                  <div class="reservation-link-result-row">
+                    <div
+                      id="reservation-link-result"
+                      class="security-notice security-notice-success hidden"
+                    ></div>
+                    <div
+                      id="reservation-link-result-actions"
+                      class="reservation-link-result-actions hidden"
+                    >
+                      <button
+                        id="reservation-link-copy-button"
+                        class="button secondary"
+                        type="button"
+                      >
+                        Copier le dernier lien
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="form-actions">
+                    <button id="reservation-link-button" class="button primary" type="submit">
+                      Generer le lien
+                    </button>
+                  </div>
+                </form>
+
+                <div class="reservation-links-list-shell">
+                  <div class="admin-card-head reservation-links-head">
+                    <div>
+                      <h3 class="user-form-title">Liens actifs</h3>
+                      <p class="section-note">
+                        Copiez le lien et revoquez-le si vous ne voulez plus qu'il soit utilise.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div id="reservation-links-list" class="reservation-links-list">
+                    <div class="empty-state">Aucun lien de reservation actif.</div>
+                  </div>
+                </div>
+              </article>
+
               <section id="admin-tools-panel" class="user-admin-shell hidden">
                 <article class="admin-card admin-directory-card">
                   <div class="admin-card-head">

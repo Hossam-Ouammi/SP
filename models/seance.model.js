@@ -53,6 +53,31 @@ async function listerSeancesPourMonetisation(utilisateurId = null) {
   );
 }
 
+async function listerSeancesParPlageDates(dateDebut, dateFin) {
+  return all(
+    `
+      SELECT
+        id,
+        etudiant,
+        parent,
+        matiere,
+        compte,
+        est_essai,
+        date,
+        heure_debut,
+        heure_fin,
+        duree_minutes,
+        statut_seance,
+        utilisateur_id,
+        lien_reservation_id
+      FROM seances
+      WHERE date >= ? AND date <= ?
+      ORDER BY date ASC, heure_debut ASC, id ASC
+    `,
+    [dateDebut, dateFin]
+  );
+}
+
 async function trouverSeanceParId(id, utilisateurId = null) {
   const clauseWhereExtra = utilisateurId ? "AND seances.utilisateur_id = ?" : "";
   const parametres = utilisateurId ? [id, utilisateurId] : [id];
@@ -113,9 +138,10 @@ async function creerSeance(donneesSeance) {
         description,
         cree_par,
         modifie_par,
-        utilisateur_id
+        utilisateur_id,
+        lien_reservation_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       donneesSeance.titre,
@@ -135,6 +161,7 @@ async function creerSeance(donneesSeance) {
       donneesSeance.cree_par,
       donneesSeance.modifie_par,
       donneesSeance.utilisateur_id,
+      donneesSeance.lien_reservation_id || null,
     ]
   );
 
@@ -217,6 +244,7 @@ async function supprimerSeance(id, utilisateurId = null) {
 module.exports = {
   listerToutesLesSeances,
   listerSeancesPourMonetisation,
+  listerSeancesParPlageDates,
   trouverSeanceParId,
   trouverSeanceCompteChevauchante,
   creerSeance,

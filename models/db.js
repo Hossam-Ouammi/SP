@@ -381,6 +381,10 @@ async function ajouterColonnesSeancesSystemeSiNecessaire() {
       nom: "deleted_by",
       sql: "ALTER TABLE seances ADD COLUMN deleted_by INTEGER REFERENCES utilisateurs(id)",
     },
+    {
+      nom: "lien_reservation_id",
+      sql: "ALTER TABLE seances ADD COLUMN lien_reservation_id INTEGER REFERENCES liens_reservation(id)",
+    },
   ];
 
   for (const migration of migrations) {
@@ -1066,6 +1070,23 @@ async function initialiserBaseDeDonnees() {
   `);
 
   await run(`
+    CREATE TABLE IF NOT EXISTS liens_reservation (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      utilisateur_id INTEGER NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
+      token_public TEXT NOT NULL UNIQUE,
+      etudiant TEXT NOT NULL,
+      parent TEXT DEFAULT '',
+      matiere TEXT NOT NULL,
+      compte TEXT NOT NULL,
+      duree_minutes INTEGER NOT NULL DEFAULT 60,
+      actif INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_accessed_at TEXT
+    )
+  `);
+
+  await run(`
     CREATE TABLE IF NOT EXISTS seances (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       titre TEXT,
@@ -1089,7 +1110,8 @@ async function initialiserBaseDeDonnees() {
       revision INTEGER DEFAULT 1,
       deleted_at TEXT,
       deleted_by INTEGER REFERENCES utilisateurs(id),
-      utilisateur_id INTEGER REFERENCES utilisateurs(id)
+      utilisateur_id INTEGER REFERENCES utilisateurs(id),
+      lien_reservation_id INTEGER REFERENCES liens_reservation(id)
     )
   `);
 
@@ -1250,6 +1272,24 @@ async function initialiserBaseDeDonnees() {
   `);
   await run(`
     CREATE INDEX IF NOT EXISTS idx_push_subscriptions_last_used ON push_subscriptions(last_used_at)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_date_heure ON seances(date, heure_debut, heure_fin)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_date_compte_heure ON seances(date, compte, heure_debut, heure_fin)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_indisponibilites_date_heure ON indisponibilites(date, heure_debut, heure_fin)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_liens_reservation_utilisateur ON liens_reservation(utilisateur_id)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_liens_reservation_token_public ON liens_reservation(token_public)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_lien_reservation_id ON seances(lien_reservation_id)
   `);
 
   await ajouterColonneCompteSiNecessaire();

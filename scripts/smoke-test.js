@@ -158,6 +158,7 @@ async function run() {
     const admin = new SessionClient();
     const user = new SessionClient();
     const karim = new SessionClient();
+    const publicReservation = new SessionClient();
 
     let response = await admin.request(
       "POST",
@@ -428,6 +429,257 @@ async function run() {
     response = await user.request("GET", `/api/photos/${photoId}/file?download=1`);
     assert(response.status === 200, `download attendu=200 recu=${response.status}`);
     console.log("OK screenshots");
+
+    response = await user.request(
+      "POST",
+      "/api/seances",
+      {
+        etudiant: "Nadia",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-06-10",
+        heure_debut: "10:00",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+        description: "Blocage futur pour lien public",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 201, `blocage public compte attendu=201 recu=${response.status}`);
+    response = await user.request(
+      "POST",
+      "/api/seances",
+      {
+        etudiant: "Omar",
+        parent: "",
+        matiere: "Python",
+        compte: "Yassine",
+        est_essai: false,
+        date: "2026-06-11",
+        heure_debut: "11:00",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+        description: "Autre compte futur",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 201, `blocage public autre compte attendu=201 recu=${response.status}`);
+
+    response = await user.request(
+      "POST",
+      "/api/liens-reservation",
+      {
+        etudiant: "Nora",
+        parent: "Parent Nora",
+        matiere: "Maths",
+        compte: "Abdo",
+        duree_minutes: 60,
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 201, `lien reservation attendu=201 recu=${response.status}`);
+    const lienReservation = response.json.lien_reservation;
+    assert(lienReservation?.public_path, "Le lien public devrait etre renvoye.");
+    const tokenReservation = String(lienReservation.public_path).split("/").pop();
+
+    response = await publicReservation.request("GET", lienReservation.public_path);
+    assert(response.status === 200, `page reservation attendu=200 recu=${response.status}`);
+    response = await publicReservation.request(
+      "GET",
+      `/api/reservation-public/${tokenReservation}?week_start=2026-06-08`
+    );
+    assert(response.status === 200, `planning public attendu=200 recu=${response.status}`);
+    assert(
+      response.json.planning.blocages.some(
+        (blocage) =>
+          blocage.date === "2026-06-10" &&
+          blocage.heure_debut === "10:00" &&
+          blocage.heure_fin === "11:00"
+      ),
+      "Le creneau Abdo deja reserve devrait etre bloque."
+    );
+    assert(
+      !response.json.planning.blocages.some(
+        (blocage) =>
+          blocage.date === "2026-06-11" &&
+          blocage.heure_debut === "11:00" &&
+          blocage.heure_fin === "12:00"
+      ),
+      "Le creneau d'un autre compte ne devrait pas bloquer le lien Abdo."
+    );
+    response = await publicReservation.request(
+      "POST",
+      `/api/reservation-public/${tokenReservation}/reserver`,
+      {
+        date: "2026-06-10",
+        heure_debut: "10:00",
+      }
+    );
+    assert(response.status === 400, `reservation bloquee attendu=400 recu=${response.status}`);
+    response = await publicReservation.request(
+      "POST",
+      `/api/reservation-public/${tokenReservation}/reserver`,
+      {
+        date: "2026-06-10",
+        heure_debut: "12:00",
+      }
+    );
+    assert(response.status === 201, `reservation publique attendu=201 recu=${response.status}`);
+    response = await publicReservation.request(
+      "GET",
+      `/api/reservation-public/${tokenReservation}?week_start=2026-06-08`
+    );
+    assert(
+      response.json.planning.reservations.some(
+        (reservation) =>
+          reservation.date === "2026-06-10" &&
+          reservation.heure_debut === "12:00" &&
+          reservation.heure_fin === "13:00"
+      ),
+      "La reservation publique devrait apparaitre dans le planning du lien."
+    );
+    const reservationPublique = response.json.planning.reservations.find(
+      (reservation) =>
+        reservation.date === "2026-06-10" &&
+        reservation.heure_debut === "12:00" &&
+        reservation.heure_fin === "13:00"
+    );
+    assert(reservationPublique?.id, "La reservation publique devrait avoir un identifiant.");
+    response = await publicReservation.request(
+      "PATCH",
+      `/api/reservation-public/${tokenReservation}/reservations/${Number(reservationPublique.id)}`,
+      {
+        date: "2026-06-10",
+        heure_debut: "13:00",
+      }
+    );
+    assert(response.status === 200, `reprogrammation publique attendu=200 recu=${response.status}`);
+    response = await publicReservation.request(
+      "GET",
+      `/api/reservation-public/${tokenReservation}?week_start=2026-06-08`
+    );
+    assert(
+      response.json.planning.reservations.some(
+        (reservation) =>
+          reservation.date === "2026-06-10" &&
+          reservation.heure_debut === "13:00" &&
+          reservation.heure_fin === "14:00"
+      ),
+      "La reservation publique devrait etre reprogrammee."
+    );
+    assert(
+      !response.json.planning.reservations.some(
+        (reservation) =>
+          reservation.date === "2026-06-10" &&
+          reservation.heure_debut === "12:00" &&
+          reservation.heure_fin === "13:00"
+      ),
+      "L'ancien creneau ne devrait plus apparaitre apres reprogrammation."
+    );
+    response = await publicReservation.request(
+      "DELETE",
+      `/api/reservation-public/${tokenReservation}/reservations/${Number(reservationPublique.id)}`
+    );
+    assert(response.status === 200, `annulation publique attendu=200 recu=${response.status}`);
+    response = await publicReservation.request(
+      "GET",
+      `/api/reservation-public/${tokenReservation}?week_start=2026-06-08`
+    );
+    assert(
+      response.json.planning.reservations.length === 0,
+      "La reservation publique devrait etre supprimee apres annulation."
+    );
+    response = await publicReservation.request(
+      "POST",
+      `/api/reservation-public/${tokenReservation}/reserver`,
+      {
+        date: "2026-06-10",
+        heure_debut: "14:00",
+      }
+    );
+    assert(
+      response.status === 201,
+      `nouvelle reservation publique attendu=201 recu=${response.status}`
+    );
+    response = await user.request("GET", "/api/seances");
+    assert(
+      response.json.seances.some(
+        (seance) =>
+          seance.etudiant === "Nora" &&
+          seance.date === "2026-06-10" &&
+          seance.heure_debut === "14:00"
+      ),
+      "La reservation publique devrait creer une seance cote application."
+    );
+    response = await user.request(
+      "DELETE",
+      `/api/liens-reservation/${Number(lienReservation.id)}`,
+      {},
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 200, `revocation lien attendu=200 recu=${response.status}`);
+    response = await user.request("GET", "/api/liens-reservation");
+    assert(response.status === 200, `liste liens active attendu=200 recu=${response.status}`);
+    assert(
+      !response.json.liens_reservation.some(
+        (lien) => Number(lien.id) === Number(lienReservation.id)
+      ),
+      "Le lien revoque ne devrait plus apparaitre dans la liste des liens actifs."
+    );
+    response = await publicReservation.request(
+      "GET",
+      `/api/reservation-public/${tokenReservation}?week_start=2026-06-08`
+    );
+    assert(response.status === 404, `lien revoque attendu=404 recu=${response.status}`);
+
+    response = await user.request(
+      "POST",
+      "/api/liens-reservation",
+      {
+        etudiant: "Lina",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        duree_minutes: 60,
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 201, `second lien reservation attendu=201 recu=${response.status}`);
+    const lienReservationLectureSeule = response.json.lien_reservation;
+    const tokenLectureSeule = String(lienReservationLectureSeule.public_path).split("/").pop();
+    response = await admin.request(
+      "PATCH",
+      "/api/admin/read-only",
+      {
+        utilisateur_id: abdo.id,
+        mode_lecture_seule: true,
+        mot_de_passe_actuel: "Admin!Test1234",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `read-only Abdo attendu=200 recu=${response.status}`);
+    response = await publicReservation.request(
+      "GET",
+      `/api/reservation-public/${tokenLectureSeule}?week_start=2026-06-08`
+    );
+    assert(
+      response.status === 404,
+      `lien lecture seule attendu=404 recu=${response.status}`
+    );
+    response = await admin.request(
+      "PATCH",
+      "/api/admin/read-only",
+      {
+        utilisateur_id: abdo.id,
+        mode_lecture_seule: false,
+        mot_de_passe_actuel: "Admin!Test1234",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `read-only Abdo off attendu=200 recu=${response.status}`);
+    console.log("OK reservation publique");
 
     response = await user.request("GET", "/api/monetisation?mois=2026-04");
     assert(response.status === 200, `monetisation attendu=200 recu=${response.status}`);

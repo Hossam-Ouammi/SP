@@ -6,6 +6,7 @@ class SQLiteSessionStore extends session.Store {
   constructor(options = {}) {
     super();
     this.cleanupIntervalMs = options.cleanupIntervalMs || 15 * 60 * 1000;
+    this.touchIntervalMs = options.touchIntervalMs || 15 * 60 * 1000;
     this.cleanupTimer = setInterval(() => {
       this.supprimerSessionsExpirees().catch((error) => {
         console.error("Nettoyage des sessions expirées impossible :", error);
@@ -93,14 +94,16 @@ class SQLiteSessionStore extends session.Store {
 
   touch(sid, sessionData, callback) {
     const expiresAt = this.calculerExpiration(sessionData);
+    const seuilRafraichissement = Math.max(expiresAt - this.touchIntervalMs, Date.now());
 
     run(
       `
         UPDATE sessions
         SET expires_at = ?, updated_at = CURRENT_TIMESTAMP
         WHERE sid = ?
+          AND expires_at < ?
       `,
-      [expiresAt, sid]
+      [expiresAt, sid, seuilRafraichissement]
     )
       .then(() => callback && callback(null))
       .catch((error) => callback && callback(error));
