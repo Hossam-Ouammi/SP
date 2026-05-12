@@ -10,21 +10,14 @@
       href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <meta name="theme-color" content="#164fdc" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Seances" />
-    <link rel="manifest" href="/manifest.webmanifest?v=20260403a" />
-    <link rel="icon" type="image/x-icon" href="/icons/favicon.ico" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/css/style.css?v=20260327a" />
+    <link rel="icon" type="image/svg+xml" href="/logo-superprof-inspired.svg" />
+    <link rel="shortcut icon" href="/logo-superprof-inspired.svg" />
+    <link rel="apple-touch-icon" href="/logo-superprof-inspired.svg" />
+    <link rel="stylesheet" href="/css/style.css?v=20260326c" />
   </head>
   <body>
     <main>
-      <section id="login-view" class="page login-page<%= user ? " hidden" : "" %>">
+      <section id="login-view" class="page login-page">
         <div class="login-shell">
           <div class="panel login-card">
             <div class="login-header">
@@ -32,12 +25,6 @@
               <h1>Connexion</h1>
               <p>Acces partage pour les deux utilisateurs.</p>
             </div>
-
-            <noscript>
-              <p class="form-error">
-                JavaScript est requis pour utiliser l'application apres la connexion.
-              </p>
-            </noscript>
 
             <form id="login-form" class="stack-form" method="post" action="/">
               <label class="field">
@@ -48,7 +35,6 @@
                   type="text"
                   placeholder="Votre identifiant"
                   autocomplete="username"
-                  value="<%= loginUsername || "" %>"
                   required
                 />
               </label>
@@ -72,14 +58,12 @@
                 </label>
 
                 <label class="inline-option">
-                  <input id="login-remember" name="remember_device" type="checkbox" />
+                  <input id="login-remember" type="checkbox" />
                   <span>Entrer directement sur cet appareil</span>
                 </label>
               </div>
 
-              <p id="login-error" class="form-error<%= loginError ? "" : " hidden" %>">
-                <%= loginError || "" %>
-              </p>
+              <p id="login-error" class="form-error hidden"></p>
 
               <button id="login-button" class="button primary full-width" type="submit">
                 Se connecter
@@ -90,7 +74,7 @@
         </div>
       </section>
 
-      <section id="app-view" class="page app-page<%= user ? "" : " hidden" %>">
+      <section id="app-view" class="page app-page hidden">
         <header class="topbar panel">
           <div class="topbar-left">
             <h1 class="brand-title">Gestion des seances</h1>
@@ -587,24 +571,12 @@
 
                       <label class="field">
                         <span>Nom d'utilisateur</span>
-                        <input
-                          id="admin-new-user-name"
-                          type="text"
-                          maxlength="60"
-                          autocomplete="username"
-                          required
-                        />
+                        <input id="admin-new-user-name" type="text" maxlength="60" required />
                       </label>
 
                       <label class="field">
                         <span>Email</span>
-                        <input
-                          id="admin-new-user-email"
-                          type="email"
-                          maxlength="160"
-                          autocomplete="email"
-                          required
-                        />
+                        <input id="admin-new-user-email" type="email" maxlength="160" required />
                       </label>
 
                       <label class="field">
@@ -918,12 +890,12 @@
                       <div>
                         <h3 class="user-form-title">Tarif horaire</h3>
                         <p class="section-note">
-                          Definissez le tarif applique a chaque compte de seance pour la monetisation.
+                          Definissez le tarif applique a chaque compte pour la monetisation.
                         </p>
                       </div>
 
                       <label class="field">
-                        <span>Compte de seance</span>
+                        <span>Compte cible</span>
                         <select id="admin-rate-user-id" required></select>
                       </label>
 
@@ -1078,20 +1050,18 @@
                     </div>
                   </div>
 
-                  <form id="admin-session-form" class="stack-form" autocomplete="on">
-                    <label class="field">
-                      <span>Votre mot de passe actuel</span>
-                      <input
-                        id="admin-session-current-password"
-                        type="password"
-                        autocomplete="current-password"
-                      />
-                    </label>
+                  <label class="field">
+                    <span>Votre mot de passe actuel</span>
+                    <input
+                      id="admin-session-current-password"
+                      type="password"
+                      autocomplete="current-password"
+                    />
+                  </label>
 
-                    <p id="admin-session-error" class="form-error hidden"></p>
+                  <p id="admin-session-error" class="form-error hidden"></p>
 
-                    <div id="admin-sessions-list" class="admin-session-list"></div>
-                  </form>
+                  <div id="admin-sessions-list" class="admin-session-list"></div>
                 </article>
 
                 <article class="admin-card admin-sessions-card">
@@ -1104,20 +1074,18 @@
                     </div>
                   </div>
 
-                  <form id="admin-trusted-device-form" class="stack-form" autocomplete="on">
-                    <label class="field">
-                      <span>Votre mot de passe actuel</span>
-                      <input
-                        id="admin-trusted-device-current-password"
-                        type="password"
-                        autocomplete="current-password"
-                      />
-                    </label>
+                  <label class="field">
+                    <span>Votre mot de passe actuel</span>
+                    <input
+                      id="admin-trusted-device-current-password"
+                      type="password"
+                      autocomplete="current-password"
+                    />
+                  </label>
 
-                    <p id="admin-trusted-device-error" class="form-error hidden"></p>
+                  <p id="admin-trusted-device-error" class="form-error hidden"></p>
 
-                    <div id="admin-trusted-devices-list" class="admin-session-list"></div>
-                  </form>
+                  <div id="admin-trusted-devices-list" class="admin-session-list"></div>
                 </article>
 
                 <article class="admin-card admin-audit-card">
@@ -1130,7 +1098,7 @@
                     </div>
                   </div>
 
-                  <div id="admin-audit-log-list" class="admin-audit-list"></div>
+                  <div id="admin-audit-log-list" class="admin-session-list"></div>
                 </article>
 
                 <article class="admin-card admin-blacklist-card">
@@ -1177,220 +1145,124 @@
                 </article>
               </section>
             </div>
-
-            <article id="push-settings-card" class="admin-card user-notifications-card">
-              <div class="admin-card-head">
-                <div>
-                  <h3 class="user-form-title">Notifications push</h3>
-                  <p class="section-note">
-                    Activez les notifications sur cet appareil pour recevoir les mises a jour en temps reel
-                    et un rappel des seances du jour toutes les 2 heures.
-                  </p>
-                </div>
-              </div>
-
-              <div class="admin-card-body stack-form">
-                <div class="admin-identity-stats">
-                  <div class="admin-identity-stat">
-                    <span>Etat</span>
-                    <strong id="push-status-label">-</strong>
-                  </div>
-                  <div class="admin-identity-stat">
-                    <span>Permission</span>
-                    <strong id="push-permission-label">-</strong>
-                  </div>
-                </div>
-
-                <div
-                  id="push-settings-info"
-                  class="security-notice security-notice-subtle"
-                >
-                  Les notifications sont desactivees sur cet appareil.
-                </div>
-
-                <p id="push-settings-error" class="form-error hidden"></p>
-
-                <div class="form-actions">
-                  <button id="push-enable-button" class="button primary" type="button">
-                    Activer sur cet appareil
-                  </button>
-                  <button id="push-disable-button" class="button secondary" type="button">
-                    Desactiver
-                  </button>
-                  <button id="push-test-button" class="button secondary" type="button">
-                    Envoyer un test
-                  </button>
-                </div>
-              </div>
-            </article>
           </section>
         </section>
 
         <section id="monetisation-section" class="app-section hidden">
-          <section class="panel stats-compare-panel monetisation-period-panel">
-            <div class="monetisation-period-bar">
-              <div class="monetisation-period-nav" aria-label="Navigation de periode">
-                <button
-                  id="monetisation-previous-month-button"
-                  class="button secondary monetisation-period-nav-button"
-                  type="button"
-                  aria-label="Periode precedente"
-                >
-                  <span aria-hidden="true">&#8249;</span>
-                </button>
-
-                <button
-                  id="monetisation-next-month-button"
-                  class="button secondary monetisation-period-nav-button"
-                  type="button"
-                  aria-label="Periode suivante"
-                >
-                  <span aria-hidden="true">&#8250;</span>
-                </button>
-              </div>
-
-              <div class="monetisation-period-current">
-                <strong id="monetisation-period-title" class="monetisation-period-title">
-                  Mois courant
-                </strong>
-              </div>
-
-              <div class="monetisation-period-modes" aria-label="Mode de periode">
-                <button
-                  id="monetisation-mode-option-one-button"
-                  class="button secondary monetisation-period-mode-button"
-                  type="button"
-                >
-                  Annuelle
-                </button>
-                <button
-                  id="monetisation-mode-option-two-button"
-                  class="button secondary monetisation-period-mode-button"
-                  type="button"
-                >
-                  Globale
-                </button>
-              </div>
-            </div>
-
-            <div class="monetisation-floating-download">
-              <button
-                id="monetisation-download-statement-button"
-                class="button primary monetisation-download-button"
-                type="button"
-              >
-                Telecharger releve mensuel
-              </button>
-            </div>
-          </section>
-
-          <section class="statistics-overview-grid monetisation-overview-grid">
+          <section class="statistics-overview-grid">
             <article class="panel stat-overview-card monetisation-card-primary">
               <span class="stat-overview-label">Monetisation totale</span>
               <strong id="monetisation-total-amount" class="stat-overview-value">0 dh</strong>
+              <p class="section-note">Montant total cumule sur tous les comptes.</p>
             </article>
 
             <article class="panel stat-overview-card">
               <span class="stat-overview-label">Compte Yassine</span>
               <strong id="monetisation-yassine-amount-card" class="stat-overview-value">0 dh</strong>
+              <p class="section-note">Montant genere par les seances du compte Yassine.</p>
             </article>
 
             <article class="panel stat-overview-card">
               <span class="stat-overview-label">Compte Abdo</span>
               <strong id="monetisation-abdo-amount-card" class="stat-overview-value">0 dh</strong>
+              <p class="section-note">Montant genere par les seances du compte Abdo.</p>
             </article>
           </section>
 
-          <section class="panel stats-compare-panel monetisation-details-panel">
-            <div class="section-heading section-heading-stack">
-              <div>
-                <h2>Details par compte</h2>
+          <section class="account-stats-grid">
+            <article class="panel account-stats-card">
+              <div class="account-stats-header">
+                <div>
+                  <h3>Yassine</h3>
+                  <p>Detail de monetisation du compte Yassine.</p>
+                </div>
+                <strong id="monetisation-yassine-amount" class="account-stats-total">0 dh</strong>
               </div>
-            </div>
 
-            <div class="account-stats-grid monetisation-details-grid">
-              <article class="account-stats-card monetisation-account-card">
-                <div class="account-stats-header">
-                  <div>
-                    <h3>Yassine</h3>
-                  </div>
-                  <strong id="monetisation-yassine-amount" class="account-stats-total">0 dh</strong>
+              <div class="account-stats-list">
+                <div class="stats-list-row">
+                  <span>Tarif unitaire</span>
+                  <strong id="monetisation-yassine-rate">130 dh</strong>
                 </div>
+                <div class="stats-list-row">
+                  <span>Seances facturables</span>
+                  <strong id="monetisation-yassine-billable-count">0</strong>
+                </div>
+                <div class="stats-list-row">
+                  <span>Seances d'essai faites</span>
+                  <strong id="monetisation-yassine-trial-count">0</strong>
+                </div>
+              </div>
+            </article>
 
-                <div class="account-stats-list">
-                  <div class="stats-list-row">
-                    <span>Tarif unitaire</span>
-                    <strong id="monetisation-yassine-rate">130 dh</strong>
-                  </div>
-                  <div class="stats-list-row">
-                    <span>Seances facturables</span>
-                    <strong id="monetisation-yassine-billable-count">0</strong>
-                  </div>
-                  <div class="stats-list-row">
-                    <span>Seances d'essai faites</span>
-                    <strong id="monetisation-yassine-trial-count">0</strong>
-                  </div>
+            <article class="panel account-stats-card">
+              <div class="account-stats-header">
+                <div>
+                  <h3>Abdo</h3>
+                  <p>Detail de monetisation du compte Abdo.</p>
                 </div>
-              </article>
+                <strong id="monetisation-abdo-amount" class="account-stats-total">0 dh</strong>
+              </div>
 
-              <article class="account-stats-card monetisation-account-card">
-                <div class="account-stats-header">
-                  <div>
-                    <h3>Abdo</h3>
-                  </div>
-                  <strong id="monetisation-abdo-amount" class="account-stats-total">0 dh</strong>
+              <div class="account-stats-list">
+                <div class="stats-list-row">
+                  <span>Tarif unitaire</span>
+                  <strong id="monetisation-abdo-rate">90 dh</strong>
                 </div>
-
-                <div class="account-stats-list">
-                  <div class="stats-list-row">
-                    <span>Tarif unitaire</span>
-                    <strong id="monetisation-abdo-rate">90 dh</strong>
-                  </div>
-                  <div class="stats-list-row">
-                    <span>Seances facturables</span>
-                    <strong id="monetisation-abdo-billable-count">0</strong>
-                  </div>
-                  <div class="stats-list-row">
-                    <span>Seances d'essai faites</span>
-                    <strong id="monetisation-abdo-trial-count">0</strong>
-                  </div>
+                <div class="stats-list-row">
+                  <span>Seances facturables</span>
+                  <strong id="monetisation-abdo-billable-count">0</strong>
                 </div>
-              </article>
-            </div>
+                <div class="stats-list-row">
+                  <span>Seances d'essai faites</span>
+                  <strong id="monetisation-abdo-trial-count">0</strong>
+                </div>
+              </div>
+            </article>
           </section>
 
-          <section
-            id="monetisation-extra-section"
-            class="panel stats-compare-panel monetisation-extra-panel hidden"
-          >
+          <section class="panel stats-compare-panel">
             <div class="section-heading section-heading-stack">
               <div>
-                <h2>Autres comptes</h2>
-              </div>
-            </div>
-
-            <div id="monetisation-extra-accounts" class="account-stats-grid monetisation-details-grid"></div>
-          </section>
-
-          <section
-            id="monetisation-report-accounts-section"
-            class="panel stats-compare-panel monetisation-report-accounts-panel hidden"
-          >
-            <div class="section-heading section-heading-stack">
-              <div>
-                <h2>Comptes du releve</h2>
-                <p id="monetisation-report-accounts-note" class="section-note">
-                  Choisis les comptes a inclure dans le releve.
+                <h2>Repartition par compte</h2>
+                <p class="section-note">
+                  Une seance est comptee seulement si elle est faite et non d'essai.
                 </p>
               </div>
             </div>
 
-            <div
-              id="monetisation-report-accounts"
-              class="checkbox-options monetisation-report-accounts-grid"
-            ></div>
-          </section>
+            <div class="stats-table">
+              <div class="stats-table-row stats-table-head">
+                <span>Indicateur</span>
+                <strong>Yassine</strong>
+                <strong>Abdo</strong>
+              </div>
 
+              <div class="stats-table-row">
+                <span>Tarif unitaire</span>
+                <strong id="monetisation-yassine-rate-table">130 dh</strong>
+                <strong id="monetisation-abdo-rate-table">90 dh</strong>
+              </div>
+
+              <div class="stats-table-row">
+                <span>Seances faites facturables</span>
+                <strong id="monetisation-yassine-billable-count-table">0</strong>
+                <strong id="monetisation-abdo-billable-count-table">0</strong>
+              </div>
+
+              <div class="stats-table-row stats-table-row-muted">
+                <span>Seances d'essai faites</span>
+                <strong id="monetisation-yassine-trial-count-table">0</strong>
+                <strong id="monetisation-abdo-trial-count-table">0</strong>
+              </div>
+
+              <div class="stats-table-row stats-table-row-total">
+                <span>Montant par compte</span>
+                <strong id="monetisation-yassine-due">0 dh</strong>
+                <strong id="monetisation-abdo-due-table">0 dh</strong>
+              </div>
+            </div>
+          </section>
         </section>
 
         <section id="historique-section" class="app-section hidden">
@@ -1445,26 +1317,24 @@
                     </p>
                   </div>
 
-                  <form id="history-delete-form" class="stack-form" autocomplete="on">
-                    <label class="field">
-                      <span>Mot de passe actuel</span>
-                      <input
-                        id="history-delete-current-password"
-                        type="password"
-                        autocomplete="current-password"
-                      />
-                    </label>
+                  <label class="field">
+                    <span>Mot de passe actuel</span>
+                    <input
+                      id="history-delete-current-password"
+                      type="password"
+                      autocomplete="current-password"
+                    />
+                  </label>
 
-                    <p id="history-delete-error" class="form-error hidden"></p>
+                  <p id="history-delete-error" class="form-error hidden"></p>
 
-                    <button
-                      id="history-delete-button"
-                      class="button danger full-width"
-                      type="submit"
-                    >
-                      Supprimer cette action
-                    </button>
-                  </form>
+                  <button
+                    id="history-delete-button"
+                    class="button danger full-width"
+                    type="button"
+                  >
+                    Supprimer cette action
+                  </button>
                 </div>
               </div>
             </article>
@@ -1472,59 +1342,6 @@
         </section>
       </section>
     </main>
-
-    <div id="audit-log-modal" class="modal hidden" aria-hidden="true">
-      <div class="modal-backdrop" data-close-modal="audit-log-modal"></div>
-      <div class="modal-panel">
-        <div class="modal-header">
-          <div class="modal-heading">
-            <h3>Journal d'audit</h3>
-            <p id="audit-log-modal-subtitle" class="modal-subtitle hidden"></p>
-          </div>
-          <button class="icon-button" type="button" data-close-modal="audit-log-modal">
-            x
-          </button>
-        </div>
-
-        <div class="audit-log-detail">
-          <div class="detail-list">
-            <div class="detail-row">
-              <span>Resultat</span>
-              <strong id="audit-log-modal-result">-</strong>
-            </div>
-            <div class="detail-row">
-              <span>Action</span>
-              <strong id="audit-log-modal-action">-</strong>
-            </div>
-            <div class="detail-row">
-              <span>Identifiant</span>
-              <strong id="audit-log-modal-identifiant">-</strong>
-            </div>
-            <div class="detail-row">
-              <span>Utilisateur</span>
-              <strong id="audit-log-modal-user">-</strong>
-            </div>
-            <div class="detail-row">
-              <span>Adresse IP</span>
-              <strong id="audit-log-modal-ip">-</strong>
-            </div>
-            <div class="detail-row">
-              <span>Appareil</span>
-              <strong id="audit-log-modal-device">-</strong>
-            </div>
-            <div class="detail-row">
-              <span>Date</span>
-              <strong id="audit-log-modal-date">-</strong>
-            </div>
-          </div>
-
-          <div class="history-changes">
-            <h3>Details</h3>
-            <div id="audit-log-modal-details-list" class="history-changes-list"></div>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <div id="history-detail-modal" class="modal hidden" aria-hidden="true">
       <div class="modal-backdrop" data-close-modal="history-detail-modal"></div>
@@ -1572,26 +1389,24 @@
               </p>
             </div>
 
-            <form id="history-detail-modal-delete-form" class="stack-form" autocomplete="on">
-              <label class="field">
-                <span>Mot de passe actuel</span>
-                <input
-                  id="history-detail-modal-delete-current-password"
-                  type="password"
-                  autocomplete="current-password"
-                />
-              </label>
+            <label class="field">
+              <span>Mot de passe actuel</span>
+              <input
+                id="history-detail-modal-delete-current-password"
+                type="password"
+                autocomplete="current-password"
+              />
+            </label>
 
-              <p id="history-detail-modal-delete-error" class="form-error hidden"></p>
+            <p id="history-detail-modal-delete-error" class="form-error hidden"></p>
 
-              <button
-                id="history-detail-modal-delete-button"
-                class="button danger full-width"
-                type="submit"
-              >
-                Supprimer cette action
-              </button>
-            </form>
+            <button
+              id="history-detail-modal-delete-button"
+              class="button danger full-width"
+              type="button"
+            >
+              Supprimer cette action
+            </button>
           </div>
         </div>
       </div>
@@ -1944,6 +1759,6 @@
     <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
-    <script type="module" src="/js/ui.js?v=20260327a"></script>
+    <script type="module" src="/js/ui.js?v=20260326c"></script>
   </body>
 </html>

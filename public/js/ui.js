@@ -47,11 +47,6 @@ import {
   recupererMonetisation,
   telechargerReleveMonetisation,
 } from "./seances.js";
-import {
-  recupererLiensReservation,
-  creerLienReservation,
-  revoquerLienReservation,
-} from "./reservation-links.js";
 import { initialiserCalendrier, mettreAJourEvenements } from "./calendrier.js";
 import {
   recupererEtatNotificationsPush,
@@ -123,8 +118,6 @@ const etat = {
   monetisationComptesSelectionnes: [],
   monetisationSelectionInitialisee: false,
   administration: null,
-  liensReservation: [],
-  dernierLienReservationUrl: "",
   catalogue: creerCatalogueVide(),
   historiqueSelection: null,
   seanceSelectionnee: null,
@@ -183,19 +176,6 @@ const elements = {
   userSecurityStatus: document.getElementById("user-security-status"),
   passwordSecurityNotice: document.getElementById("password-security-notice"),
   adminToolsPanel: document.getElementById("admin-tools-panel"),
-  reservationLinksCard: document.getElementById("reservation-links-card"),
-  reservationLinkForm: document.getElementById("reservation-link-form"),
-  reservationLinkStudent: document.getElementById("reservation-link-student"),
-  reservationLinkParent: document.getElementById("reservation-link-parent"),
-  reservationLinkSubject: document.getElementById("reservation-link-subject"),
-  reservationLinkAccount: document.getElementById("reservation-link-account"),
-  reservationLinkDuration: document.getElementById("reservation-link-duration"),
-  reservationLinkError: document.getElementById("reservation-link-error"),
-  reservationLinkResult: document.getElementById("reservation-link-result"),
-  reservationLinkResultActions: document.getElementById("reservation-link-result-actions"),
-  reservationLinkCopyButton: document.getElementById("reservation-link-copy-button"),
-  reservationLinkButton: document.getElementById("reservation-link-button"),
-  reservationLinksList: document.getElementById("reservation-links-list"),
   userPasswordForm: document.getElementById("user-password-form"),
   userPasswordError: document.getElementById("user-password-error"),
   currentPassword: document.getElementById("current-password"),
@@ -658,8 +638,6 @@ function viderDonneesApplication() {
   etat.monetisationComptesSelectionnes = [];
   etat.monetisationSelectionInitialisee = false;
   etat.administration = null;
-  etat.liensReservation = [];
-  etat.dernierLienReservationUrl = "";
   etat.catalogue = creerCatalogueVide();
   etat.historiqueSelection = null;
   etat.seanceSelectionnee = null;
@@ -673,8 +651,6 @@ function viderDonneesApplication() {
   viderDetailHistorique();
   viderMonetisation();
   viderAdministration();
-  viderLiensReservation();
-  mettreAJourActionCopieDernierLien("");
   afficherListeIndisponibilitesAdministration();
   rendreOptionsCatalogueSeance();
 }
@@ -691,7 +667,6 @@ async function chargerDonneesApplication() {
     chargerIndisponibilites(),
     chargerHistorique(),
     chargerMonetisationSiAutorise(),
-    chargerLiensReservationSiAutorise(),
     chargerAdministrationSiAutorise(),
   ]);
 }
@@ -941,139 +916,6 @@ function rendreOptionsCatalogueSeance() {
     elements.compteCheckboxes,
     comptes.includes(compteSelectionne) ? compteSelectionne : obtenirCompteParDefaut()
   );
-
-  rendreOptionsLiensReservation();
-}
-
-function remplirSelectReservation(selectElement, valeurs, valeurParDefaut, libelleVide) {
-  if (!selectElement) {
-    return;
-  }
-
-  const liste = Array.isArray(valeurs) ? valeurs : [];
-
-  if (liste.length === 0) {
-    selectElement.innerHTML = `<option value="">${libelleVide}</option>`;
-    selectElement.value = "";
-    return;
-  }
-
-  selectElement.innerHTML = liste
-    .map((valeur) => `<option value="${valeur}">${valeur}</option>`)
-    .join("");
-
-  selectElement.value = liste.includes(valeurParDefaut) ? valeurParDefaut : liste[0];
-}
-
-function rendreOptionsLiensReservation() {
-  remplirSelectReservation(
-    elements.reservationLinkSubject,
-    obtenirMatieresDisponibles(),
-    elements.reservationLinkSubject?.value || obtenirMatiereParDefaut(),
-    "Aucune matiere disponible"
-  );
-  remplirSelectReservation(
-    elements.reservationLinkAccount,
-    obtenirComptesDisponibles(),
-    elements.reservationLinkAccount?.value || obtenirCompteParDefaut(),
-    "Aucun compte disponible"
-  );
-}
-
-function construireUrlLienReservation(publicPath) {
-  try {
-    return new URL(String(publicPath || ""), window.location.origin).toString();
-  } catch (error) {
-    return String(publicPath || "");
-  }
-}
-
-function viderLiensReservation() {
-  etat.liensReservation = [];
-
-  if (elements.reservationLinksList) {
-    elements.reservationLinksList.innerHTML =
-      '<div class="empty-state">Aucun lien de reservation actif.</div>';
-  }
-}
-
-function mettreAJourActionCopieDernierLien(url = "") {
-  etat.dernierLienReservationUrl = String(url || "").trim();
-
-  if (!elements.reservationLinkCopyButton || !elements.reservationLinkResultActions) {
-    return;
-  }
-
-  const aUneUrl = etat.dernierLienReservationUrl.length > 0;
-  elements.reservationLinkCopyButton.dataset.reservationLinkUrl = etat.dernierLienReservationUrl;
-  elements.reservationLinkResultActions.classList.toggle("hidden", !aUneUrl);
-}
-
-function afficherLiensReservation() {
-  if (!elements.reservationLinksList) {
-    return;
-  }
-
-  const liens = Array.isArray(etat.liensReservation) ? etat.liensReservation : [];
-  elements.reservationLinksList.innerHTML = "";
-
-  if (liens.length === 0) {
-    elements.reservationLinksList.innerHTML =
-      '<div class="empty-state">Aucun lien de reservation actif.</div>';
-    return;
-  }
-
-  liens.forEach((lienReservation) => {
-    const carte = document.createElement("article");
-    carte.className = "reservation-link-item";
-
-    const entete = document.createElement("div");
-    entete.className = "reservation-link-item-head";
-
-    const informations = document.createElement("div");
-    const titre = document.createElement("strong");
-    titre.textContent = lienReservation.etudiant;
-    const meta = document.createElement("div");
-    meta.className = "reservation-link-item-meta";
-    meta.textContent = `${lienReservation.matiere} • ${lienReservation.compte} • ${formaterDuree(
-      lienReservation.duree_minutes
-    )}`;
-    informations.append(titre, meta);
-
-    const dateCreation = document.createElement("span");
-    dateCreation.className = "reservation-link-item-meta";
-    dateCreation.textContent = lienReservation.created_at
-      ? formatDateHeureSecondes(lienReservation.created_at)
-      : "-";
-    entete.append(informations, dateCreation);
-
-    const url = document.createElement("div");
-    url.className = "reservation-link-item-url";
-    url.textContent = construireUrlLienReservation(lienReservation.public_path);
-
-    const actions = document.createElement("div");
-    actions.className = "reservation-link-item-actions";
-
-    const boutonCopier = document.createElement("button");
-    boutonCopier.type = "button";
-    boutonCopier.className = "button secondary";
-    boutonCopier.dataset.reservationLinkAction = "copy";
-    boutonCopier.dataset.reservationLinkUrl = construireUrlLienReservation(
-      lienReservation.public_path
-    );
-    boutonCopier.textContent = "Copier le lien";
-
-    const boutonRevoquer = document.createElement("button");
-    boutonRevoquer.type = "button";
-    boutonRevoquer.className = "button danger";
-    boutonRevoquer.dataset.reservationLinkAction = "revoke";
-    boutonRevoquer.dataset.reservationLinkId = String(lienReservation.id);
-    boutonRevoquer.textContent = "Revoquer";
-
-    actions.append(boutonCopier, boutonRevoquer);
-    carte.append(entete, url, actions);
-    elements.reservationLinksList.appendChild(carte);
-  });
 }
 
 function initialiserCatalogueSeanceParDefaut() {
@@ -1093,9 +935,6 @@ function attacherEcouteurs() {
     }
   });
   elements.userPasswordForm?.addEventListener("submit", gererModificationMotDePasse);
-  elements.reservationLinkCopyButton?.addEventListener("click", gererCopieDernierLienReservation);
-  elements.reservationLinkForm?.addEventListener("submit", gererCreationLienReservation);
-  elements.reservationLinksList?.addEventListener("click", gererActionListeLiensReservation);
   elements.adminAddSubjectForm?.addEventListener("submit", gererAjoutMatiereAdministration);
   elements.adminAddAccountForm?.addEventListener("submit", gererAjoutCompteAdministration);
   elements.adminUnavailabilityForm?.addEventListener("submit", gererCreationIndisponibilite);
@@ -1235,7 +1074,6 @@ function afficherApplication() {
   elements.currentUserName.textContent = etat.utilisateur.nom;
   synchroniserIdentifiantsFormulairesMotDePasse();
   mettreAJourResumeCompteConnecte();
-  elements.reservationLinksCard?.classList.toggle("hidden", !utilisateurPeutGererLiensReservation());
   elements.adminToolsPanel.classList.toggle("hidden", !utilisateurPeutVoirAdministration());
   mettreAJourPanneauAdministration();
   mettreAJourVueAujourdhui();
@@ -1630,10 +1468,6 @@ function utilisateurPeutModifierDonnees() {
   return !utilisateurDoitChangerMotDePasse() && !utilisateurEstEnLectureSeule();
 }
 
-function utilisateurPeutGererLiensReservation() {
-  return Boolean(etat.utilisateur) && utilisateurPeutModifierDonnees();
-}
-
 function mettreAJourNavigationProtegee() {
   const motDePasseAChanger = utilisateurDoitChangerMotDePasse();
   const lectureSeule = utilisateurEstEnLectureSeule();
@@ -1671,10 +1505,6 @@ function mettreAJourNavigationProtegee() {
 function reinitialiserFormulaireUtilisateur() {
   elements.userPasswordForm.reset();
   masquerErreur(elements.userPasswordError);
-  elements.reservationLinkForm?.reset?.();
-  masquerErreur(elements.reservationLinkError);
-  masquerInfo(elements.reservationLinkResult);
-  mettreAJourActionCopieDernierLien("");
   elements.adminAddSubjectForm.reset();
   masquerErreur(elements.adminAddSubjectError);
   elements.adminAddAccountForm.reset();
@@ -1898,162 +1728,6 @@ async function gererModificationMotDePasse(event) {
   } finally {
     elements.savePasswordButton.disabled = false;
     elements.savePasswordButton.textContent = "Modifier le mot de passe";
-  }
-}
-
-async function copierTexteDansPressePapier(texte) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(texte);
-    return true;
-  }
-
-  const champ = document.createElement("textarea");
-  champ.value = texte;
-  champ.setAttribute("readonly", "readonly");
-  champ.style.position = "fixed";
-  champ.style.opacity = "0";
-  document.body.appendChild(champ);
-  champ.select();
-  const copieReussie = document.execCommand("copy");
-  champ.remove();
-  return copieReussie;
-}
-
-async function gererCopieDernierLienReservation() {
-  const url = String(etat.dernierLienReservationUrl || "").trim();
-
-  if (!url) {
-    afficherToast("Aucun lien recent a copier.", "warning");
-    return;
-  }
-
-  try {
-    await copierTexteDansPressePapier(url);
-    afficherToast("Lien copie.");
-  } catch (erreur) {
-    afficherToast("Impossible de copier le lien.", "error");
-  }
-}
-
-async function gererCreationLienReservation(event) {
-  event.preventDefault();
-  masquerErreur(elements.reservationLinkError);
-  masquerInfo(elements.reservationLinkResult);
-  mettreAJourActionCopieDernierLien("");
-
-  if (!utilisateurPeutGererLiensReservation()) {
-    afficherErreur(
-      elements.reservationLinkError,
-      "Votre compte ne peut pas generer de liens de reservation."
-    );
-    return;
-  }
-
-  if (!elements.reservationLinkSubject.value) {
-    afficherErreur(elements.reservationLinkError, "Selectionnez une matiere.");
-    return;
-  }
-
-  if (!elements.reservationLinkAccount.value) {
-    afficherErreur(elements.reservationLinkError, "Selectionnez un compte.");
-    return;
-  }
-
-  elements.reservationLinkButton.disabled = true;
-  elements.reservationLinkButton.textContent = "Generation...";
-
-  try {
-    const lienReservation = await creerLienReservation({
-      etudiant: elements.reservationLinkStudent.value.trim(),
-      parent: elements.reservationLinkParent.value.trim(),
-      matiere: elements.reservationLinkSubject.value,
-      compte: elements.reservationLinkAccount.value,
-      duree_minutes: Number(elements.reservationLinkDuration.value || 0),
-    });
-    elements.reservationLinkForm.reset();
-    rendreOptionsLiensReservation();
-    await chargerLiensReservationSiAutorise();
-    const url = construireUrlLienReservation(lienReservation.public_path);
-    afficherInfo(
-      elements.reservationLinkResult,
-      `Lien pret pour ${lienReservation.etudiant} : ${url}`
-    );
-    mettreAJourActionCopieDernierLien(url);
-    afficherToast("Lien de reservation genere.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    afficherErreur(elements.reservationLinkError, erreur.message);
-  } finally {
-    elements.reservationLinkButton.disabled = false;
-    elements.reservationLinkButton.textContent = "Generer le lien";
-  }
-}
-
-async function gererActionListeLiensReservation(event) {
-  const bouton = event.target.closest("[data-reservation-link-action]");
-
-  if (!bouton) {
-    return;
-  }
-
-  const action = bouton.dataset.reservationLinkAction;
-
-  if (action === "copy") {
-    try {
-      await copierTexteDansPressePapier(bouton.dataset.reservationLinkUrl || "");
-      afficherToast("Lien copie.");
-    } catch (erreur) {
-      afficherToast("Impossible de copier le lien.", "error");
-    }
-    return;
-  }
-
-  if (action !== "revoke") {
-    return;
-  }
-
-  if (!utilisateurPeutGererLiensReservation()) {
-    afficherToast("Votre compte ne peut pas revoquer ce lien.", "warning");
-    return;
-  }
-
-  const lienId = Number(bouton.dataset.reservationLinkId);
-  const lien = Array.isArray(etat.liensReservation)
-    ? etat.liensReservation.find((element) => Number(element.id) === lienId)
-    : null;
-
-  if (!lien) {
-    afficherToast("Lien introuvable.", "error");
-    return;
-  }
-
-  const confirmation = window.confirm(
-    `Revoquer le lien de reservation de ${lien.etudiant} ?`
-  );
-
-  if (!confirmation) {
-    return;
-  }
-
-  bouton.disabled = true;
-
-  try {
-    await revoquerLienReservation(lienId);
-    await chargerLiensReservationSiAutorise();
-    afficherToast("Lien de reservation revoque.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    afficherToast(erreur.message, "error");
-  } finally {
-    bouton.disabled = false;
   }
 }
 
@@ -3629,42 +3303,6 @@ async function chargerMonetisationSiAutorise() {
       etat.monetisationFiltreMois = obtenirMoisCourantIso();
       etat.monetisation = null;
       viderMonetisation();
-    }
-
-    afficherToast(erreur.message, "error");
-  }
-}
-
-async function chargerLiensReservationSiAutorise() {
-  if (!utilisateurPeutGererLiensReservation()) {
-    viderLiensReservation();
-    mettreAJourActionCopieDernierLien("");
-    if (elements.reservationLinksCard) {
-      elements.reservationLinksCard.classList.add("hidden");
-    }
-    return;
-  }
-
-  if (elements.reservationLinksCard) {
-    elements.reservationLinksCard.classList.remove("hidden");
-  }
-
-  try {
-    etat.liensReservation = await recupererLiensReservation();
-    afficherLiensReservation();
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      viderLiensReservation();
-      mettreAJourActionCopieDernierLien("");
-      if (elements.reservationLinksCard) {
-        elements.reservationLinksCard.classList.add("hidden");
-      }
-      return;
     }
 
     afficherToast(erreur.message, "error");

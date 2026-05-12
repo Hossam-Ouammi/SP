@@ -157,7 +157,6 @@ async function run() {
 
     const admin = new SessionClient();
     const user = new SessionClient();
-    const karim = new SessionClient();
     const publicReservation = new SessionClient();
 
     let response = await admin.request(
@@ -222,74 +221,6 @@ async function run() {
       response.status === 200,
       `monetisation access attendu=200 recu=${response.status}`
     );
-
-    response = await admin.request(
-      "POST",
-      "/api/admin/users",
-      {
-        nom: "Karim",
-        email: "karim@test.com",
-        mot_de_passe_actuel: "Admin!Test1234",
-      },
-      { "x-csrf-token": admin.csrfToken }
-    );
-    assert(response.status === 201, `creation Karim attendu=201 recu=${response.status}`);
-    const karimId = Number(response.json.utilisateur.id);
-    const karimTempPassword = String(response.json.mot_de_passe_temporaire || "");
-    console.log("OK admin create user");
-
-    response = await karim.request("POST", "/api/auth/login", {
-      username: "Karim",
-      mot_de_passe: karimTempPassword,
-    });
-    assert(response.status === 200, `login Karim attendu=200 recu=${response.status}`);
-    response = await karim.request("GET", "/api/seances");
-    assert(
-      response.status === 403,
-      `compte temporaire attendu=403 recu=${response.status}`
-    );
-    response = await karim.request(
-      "PATCH",
-      "/api/auth/password",
-      {
-        mot_de_passe_actuel: karimTempPassword,
-        nouveau_mot_de_passe: "Karim!Test1234",
-      },
-      { "x-csrf-token": karim.csrfToken }
-    );
-    assert(response.status === 200, `password Karim attendu=200 recu=${response.status}`);
-    console.log("OK temp password flow");
-
-    response = await admin.request(
-      "PATCH",
-      "/api/admin/read-only",
-      {
-        utilisateur_id: karimId,
-        mode_lecture_seule: true,
-        mot_de_passe_actuel: "Admin!Test1234",
-      },
-      { "x-csrf-token": admin.csrfToken }
-    );
-    assert(response.status === 200, `read-only attendu=200 recu=${response.status}`);
-    response = await karim.request(
-      "POST",
-      "/api/seances",
-      {
-        etudiant: "RO",
-        parent: "",
-        matiere: "Maths",
-        compte: "Abdo",
-        est_essai: false,
-        date: "2026-04-15",
-        heure_debut: "09:00",
-        duree_minutes: 60,
-        statut_seance: "faite",
-        description: "",
-      },
-      { "x-csrf-token": karim.csrfToken }
-    );
-    assert(response.status === 403, `read-only attendu=403 recu=${response.status}`);
-    console.log("OK read-only");
 
     response = await admin.request(
       "PATCH",
@@ -404,31 +335,6 @@ async function run() {
       { "x-csrf-token": user.csrfToken }
     );
     assert(response.status === 201, `seance gratuite attendu=201 recu=${response.status}`);
-
-    fs.writeFileSync(
-      tinyPngPath,
-      Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+cY7QAAAAASUVORK5CYII=",
-        "base64"
-      )
-    );
-    const formData = new FormData();
-    formData.append(
-      "screenshots",
-      new Blob([fs.readFileSync(tinyPngPath)], { type: "image/png" }),
-      "tiny.png"
-    );
-    response = await user.request(
-      "POST",
-      `/api/photos/seance/${billableSeanceId}`,
-      formData,
-      { "x-csrf-token": user.csrfToken }
-    );
-    assert(response.status === 201, `upload attendu=201 recu=${response.status}`);
-    const photoId = Number(response.json.photos[0].id);
-    response = await user.request("GET", `/api/photos/${photoId}/file?download=1`);
-    assert(response.status === 200, `download attendu=200 recu=${response.status}`);
-    console.log("OK screenshots");
 
     response = await user.request(
       "POST",
@@ -647,38 +553,6 @@ async function run() {
       { "x-csrf-token": user.csrfToken }
     );
     assert(response.status === 201, `second lien reservation attendu=201 recu=${response.status}`);
-    const lienReservationLectureSeule = response.json.lien_reservation;
-    const tokenLectureSeule = String(lienReservationLectureSeule.public_path).split("/").pop();
-    response = await admin.request(
-      "PATCH",
-      "/api/admin/read-only",
-      {
-        utilisateur_id: abdo.id,
-        mode_lecture_seule: true,
-        mot_de_passe_actuel: "Admin!Test1234",
-      },
-      { "x-csrf-token": admin.csrfToken }
-    );
-    assert(response.status === 200, `read-only Abdo attendu=200 recu=${response.status}`);
-    response = await publicReservation.request(
-      "GET",
-      `/api/reservation-public/${tokenLectureSeule}?week_start=2026-06-08`
-    );
-    assert(
-      response.status === 404,
-      `lien lecture seule attendu=404 recu=${response.status}`
-    );
-    response = await admin.request(
-      "PATCH",
-      "/api/admin/read-only",
-      {
-        utilisateur_id: abdo.id,
-        mode_lecture_seule: false,
-        mot_de_passe_actuel: "Admin!Test1234",
-      },
-      { "x-csrf-token": admin.csrfToken }
-    );
-    assert(response.status === 200, `read-only Abdo off attendu=200 recu=${response.status}`);
     console.log("OK reservation publique");
 
     response = await user.request("GET", "/api/monetisation?mois=2026-04");
@@ -691,51 +565,12 @@ async function run() {
       Number(response.json.monetisation.periode.nombre_seances_essai_faites) >= 1,
       "La seance gratuite devrait etre comptee."
     );
-    response = await user.request(
-      "GET",
-      "/api/monetisation/releve?format=html&mois=2026-04&compte=Abdo&compte=Yassine"
-    );
-    assert(response.status === 200, `releve html attendu=200 recu=${response.status}`);
-    for (const token of ["Sara", "Yanis", "0 dh", "Facturable", "Gratuite"]) {
-      assert(response.text.includes(token), `Token manquant dans le releve: ${token}`);
-    }
-    response = await user.request(
-      "GET",
-      "/api/monetisation/releve?format=html&mode=annual&annee=2026&compte=Abdo&compte=Yassine"
-    );
-    assert(response.status === 200, `releve annuel attendu=200 recu=${response.status}`);
-    for (const token of ["2026", "Periode", "Releve de monetisation"]) {
-      assert(response.text.includes(token), `Token manquant dans le releve annuel: ${token}`);
-    }
-    response = await user.request(
-      "GET",
-      "/api/monetisation/releve?format=html&mode=global&compte=Abdo&compte=Yassine"
-    );
-    assert(response.status === 200, `releve global attendu=200 recu=${response.status}`);
-    for (const token of ["Vue globale", "Periode", "Releve de monetisation"]) {
-      assert(response.text.includes(token), `Token manquant dans le releve global: ${token}`);
-    }
-    assert(
-      !response.text.includes("Client prive"),
-      "Le releve user ne doit jamais contenir le compte prive Hossam."
-    );
     response = await admin.request("GET", "/api/monetisation?mode=global");
     assert(response.status === 200, `monetisation Hossam attendu=200 recu=${response.status}`);
     assert(
       response.json.monetisation.ordre_comptes.includes("Hossam"),
       "Hossam doit voir son propre compte dans la monetisation."
     );
-    response = await admin.request("GET", "/api/monetisation/releve?format=html&mode=global&compte=Hossam");
-    assert(response.status === 200, `releve Hossam attendu=200 recu=${response.status}`);
-    for (const token of ["Client prive", "Hossam"]) {
-      assert(response.text.includes(token), `Token manquant dans le releve Hossam: ${token}`);
-    }
-    for (const token of ["Sara", "Yanis"]) {
-      assert(
-        !response.text.includes(token),
-        `Le releve Hossam seul ne devrait pas contenir ${token}.`
-      );
-    }
     response = await user.request(
       "GET",
       "/api/monetisation/releve?mode=annual&annee=2026&compte=Abdo&compte=Yassine"
@@ -755,33 +590,39 @@ async function run() {
       "POST",
       "/api/admin/reset-password",
       {
-        utilisateur_id: karimId,
+        utilisateur_id: abdo.id,
         mot_de_passe_actuel: "Admin!Test1234",
       },
       { "x-csrf-token": admin.csrfToken }
     );
     assert(response.status === 200, `reset password attendu=200 recu=${response.status}`);
-    const karimResetPassword = String(response.json.mot_de_passe_temporaire || "");
+    const abdoResetPassword = String(response.json.mot_de_passe_temporaire || "");
     const tempSession = new SessionClient();
     response = await tempSession.request("POST", "/api/auth/login", {
-      username: "Karim",
-      mot_de_passe: karimResetPassword,
+      username: "Abdo",
+      mot_de_passe: abdoResetPassword,
     });
-    assert(response.status === 200, `login reset Karim attendu=200 recu=${response.status}`);
+    assert(response.status === 200, `login reset Abdo attendu=200 recu=${response.status}`);
+    response = await tempSession.request("GET", "/api/seances");
+    assert(
+      response.status === 403,
+      `compte temporaire attendu=403 recu=${response.status}`
+    );
+    console.log("OK temp password flow");
     response = await admin.request(
       "POST",
       "/api/admin/sessions/revoke-user",
       {
-        utilisateur_id: karimId,
+        utilisateur_id: abdo.id,
         mot_de_passe_actuel: "Admin!Test1234",
       },
       { "x-csrf-token": admin.csrfToken }
     );
     assert(response.status === 200, `revoke sessions attendu=200 recu=${response.status}`);
-    response = await karim.request("GET", "/api/auth/me");
+    response = await user.request("GET", "/api/auth/me");
     assert(
       response.status === 401,
-      `session Karim invalidee attendu=401 recu=${response.status}`
+      `session Abdo invalidee attendu=401 recu=${response.status}`
     );
     console.log("OK session revoke");
 

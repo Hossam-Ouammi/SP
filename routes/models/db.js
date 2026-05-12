@@ -13,17 +13,7 @@ const databaseDirectory = path.join(__dirname, "..", "database");
 const databasePath = process.env.DATABASE_PATH || path.join(databaseDirectory, "database.db");
 const activerDonneesExemple = process.env.SEED_DEMO_DATA === "true" && process.env.NODE_ENV !== "production";
 const matieresParDefaut = ["Maths", "Physique chimie", "Python", "C++"];
-const comptesParDefaut = ["Abdo", "Yassine", "Hossam"];
-const tarifsComptesParDefaut = {
-  abdo: 90,
-  yassine: 130,
-  hossam: 150,
-};
-
-function obtenirTarifHoraireCompteParDefaut(compte) {
-  const cle = String(compte || "").trim().toLowerCase();
-  return tarifsComptesParDefaut[cle] ?? 100;
-}
+const comptesParDefaut = ["Abdo", "Yassine"];
 
 fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 assurerDossiersScreenshots();
@@ -70,18 +60,6 @@ function all(sql, params = []) {
         reject(error);
       } else {
         resolve(rows);
-      }
-    });
-  });
-}
-
-function fermerBaseDeDonnees() {
-  return new Promise((resolve, reject) => {
-    db.close((error) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve();
       }
     });
   });
@@ -358,10 +336,6 @@ async function ajouterColonnesSeancesSystemeSiNecessaire() {
   const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
   const migrations = [
     {
-      nom: "duree_minutes",
-      sql: "ALTER TABLE seances ADD COLUMN duree_minutes INTEGER",
-    },
-    {
       nom: "created_at",
       sql: "ALTER TABLE seances ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP",
     },
@@ -392,21 +366,6 @@ async function ajouterColonnesSeancesSystemeSiNecessaire() {
   await run(`
     UPDATE seances
     SET
-      duree_minutes = COALESCE(
-        duree_minutes,
-        CASE
-          WHEN heure_debut IS NOT NULL
-            AND heure_fin IS NOT NULL
-            AND length(heure_debut) = 5
-            AND length(heure_fin) = 5
-          THEN
-            (
-              (CAST(substr(heure_fin, 1, 2) AS INTEGER) * 60 + CAST(substr(heure_fin, 4, 2) AS INTEGER))
-              - (CAST(substr(heure_debut, 1, 2) AS INTEGER) * 60 + CAST(substr(heure_debut, 4, 2) AS INTEGER))
-            )
-          ELSE NULL
-        END
-      ),
       created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
       updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP),
       revision = COALESCE(revision, 1)
@@ -464,93 +423,6 @@ async function ajouterColonneCreatedAtCatalogueSiNecessaire() {
   await run(`
     UPDATE catalogue_options
     SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)
-  `);
-}
-
-async function ajouterColonneTarifHoraireCatalogueSiNecessaire() {
-  const colonnes = await all("PRAGMA table_info(catalogue_options)");
-  const colonneTarifExiste = colonnes.some((colonne) => colonne.name === "tarif_horaire");
-
-  if (!colonneTarifExiste) {
-    await run("ALTER TABLE catalogue_options ADD COLUMN tarif_horaire INTEGER");
-  }
-
-  await run(`
-    UPDATE catalogue_options
-    SET tarif_horaire = COALESCE(
-      tarif_horaire,
-      (
-        SELECT utilisateurs.tarif_horaire
-        FROM utilisateurs
-        WHERE lower(trim(utilisateurs.nom)) = lower(trim(catalogue_options.valeur))
-          AND utilisateurs.tarif_horaire IS NOT NULL
-        ORDER BY utilisateurs.est_admin DESC, utilisateurs.id ASC
-        LIMIT 1
-      ),
-      CASE
-        WHEN type <> 'compte' THEN 0
-        WHEN lower(trim(valeur)) = 'abdo' THEN 90
-        WHEN lower(trim(valeur)) = 'yassine' THEN 130
-        WHEN lower(trim(valeur)) = 'hossam' THEN 150
-        ELSE 100
-      END
-    )
-  `);
-}
-
-async function ajouterColonnesPushSubscriptionsSiNecessaire() {
-  const colonnes = await all("PRAGMA table_info(push_subscriptions)");
-  const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
-
-  if (colonnesExistantes.size === 0) {
-    return;
-  }
-
-  const migrations = [
-    {
-      nom: "expiration_time",
-      sql: "ALTER TABLE push_subscriptions ADD COLUMN expiration_time TEXT",
-    },
-    {
-      nom: "device_label",
-      sql: "ALTER TABLE push_subscriptions ADD COLUMN device_label TEXT DEFAULT ''",
-    },
-    {
-      nom: "user_agent",
-      sql: "ALTER TABLE push_subscriptions ADD COLUMN user_agent TEXT DEFAULT ''",
-    },
-    {
-      nom: "actif",
-      sql: "ALTER TABLE push_subscriptions ADD COLUMN actif INTEGER DEFAULT 1",
-    },
-    {
-      nom: "updated_at",
-      sql: "ALTER TABLE push_subscriptions ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP",
-    },
-    {
-      nom: "last_used_at",
-      sql: "ALTER TABLE push_subscriptions ADD COLUMN last_used_at TEXT DEFAULT CURRENT_TIMESTAMP",
-    },
-    {
-      nom: "last_today_reminder_key",
-      sql: "ALTER TABLE push_subscriptions ADD COLUMN last_today_reminder_key TEXT",
-    },
-  ];
-
-  for (const migration of migrations) {
-    if (!colonnesExistantes.has(migration.nom)) {
-      await run(migration.sql);
-    }
-  }
-
-  await run(`
-    UPDATE push_subscriptions
-    SET
-      actif = COALESCE(actif, 1),
-      updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP),
-      last_used_at = COALESCE(last_used_at, updated_at, CURRENT_TIMESTAMP),
-      device_label = COALESCE(device_label, ''),
-      user_agent = COALESCE(user_agent, '')
   `);
 }
 
@@ -811,10 +683,10 @@ async function initialiserCatalogueParDefaut() {
   for (const compte of comptesParDefaut) {
     await run(
       `
-        INSERT OR IGNORE INTO catalogue_options (type, valeur, tarif_horaire)
-        VALUES ('compte', ?, ?)
+        INSERT OR IGNORE INTO catalogue_options (type, valeur)
+        VALUES ('compte', ?)
       `,
-      [compte, obtenirTarifHoraireCompteParDefaut(compte)]
+      [compte]
     );
   }
 }
@@ -847,15 +719,15 @@ async function synchroniserCatalogueDepuisSeances() {
   for (const compte of comptes) {
     await run(
       `
-        INSERT OR IGNORE INTO catalogue_options (type, valeur, tarif_horaire)
-        VALUES ('compte', ?, ?)
+        INSERT OR IGNORE INTO catalogue_options (type, valeur)
+        VALUES ('compte', ?)
       `,
-      [compte.valeur, obtenirTarifHoraireCompteParDefaut(compte.valeur)]
+      [compte.valeur]
     );
   }
 }
 
-async function initialiserUtilisateursInitiaux() {
+async function initialiserUtilisateursDeTest() {
   const resultat = await get("SELECT COUNT(*) AS total FROM utilisateurs");
 
   if (resultat.total > 0) {
@@ -871,7 +743,7 @@ async function initialiserUtilisateursInitiaux() {
     },
     {
       nom: "Abdo",
-      email: "abdo@test.com",
+      email: "ami@test.com",
       motDePasse: "123456",
       estAdmin: 0,
     },
@@ -896,10 +768,9 @@ async function initialiserUtilisateursInitiaux() {
           doit_changer_mot_de_passe,
           mot_de_passe_change_at,
           echecs_connexion,
-          tarif_horaire,
-          created_at
+          tarif_horaire
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         utilisateur.nom,
@@ -915,7 +786,7 @@ async function initialiserUtilisateursInitiaux() {
         1,
         null,
         0,
-        obtenirTarifHoraireCompteParDefaut(utilisateur.nom)
+        utilisateur.nom === "Hossam" ? 150 : 100
       ]
     );
   }
@@ -925,20 +796,7 @@ async function normaliserNomsUtilisateurs() {
   await run(`
     UPDATE utilisateurs
     SET nom = 'Abdo'
-    WHERE lower(email) IN ('abdo@test.com', 'ami@test.com') OR nom = 'Ami'
-  `);
-}
-
-async function normaliserEmailsUtilisateurs() {
-  await run(`
-    UPDATE utilisateurs
-    SET email = 'abdo@test.com'
-    WHERE lower(email) = 'ami@test.com'
-      AND NOT EXISTS (
-        SELECT 1
-        FROM utilisateurs AS utilisateurs_existants
-        WHERE lower(utilisateurs_existants.email) = 'abdo@test.com'
-      )
+    WHERE email = 'ami@test.com' OR nom = 'Ami'
   `);
 }
 
@@ -955,7 +813,7 @@ async function initialiserSeancesExemple() {
   );
   const abdoUtilisateur = await get(
     "SELECT id FROM utilisateurs WHERE email = ?",
-    ["abdo@test.com"]
+    ["ami@test.com"]
   );
 
   if (!hossam || !abdoUtilisateur) {
@@ -1077,7 +935,6 @@ async function initialiserBaseDeDonnees() {
       date TEXT NOT NULL,
       heure_debut TEXT NOT NULL,
       heure_fin TEXT NOT NULL,
-      duree_minutes INTEGER,
       statut_seance TEXT NOT NULL DEFAULT 'planifiee',
       prix REAL DEFAULT 0,
       statut_paiement TEXT DEFAULT 'non_payee',
@@ -1152,7 +1009,6 @@ async function initialiserBaseDeDonnees() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       valeur TEXT NOT NULL,
-      tarif_horaire INTEGER DEFAULT 100,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(type, valeur)
     )
@@ -1207,24 +1063,6 @@ async function initialiserBaseDeDonnees() {
   `);
 
   await run(`
-    CREATE TABLE IF NOT EXISTS push_subscriptions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      utilisateur_id INTEGER NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
-      endpoint TEXT NOT NULL UNIQUE,
-      p256dh TEXT NOT NULL,
-      auth TEXT NOT NULL,
-      expiration_time TEXT,
-      device_label TEXT DEFAULT '',
-      user_agent TEXT DEFAULT '',
-      actif INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      last_used_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      last_today_reminder_key TEXT
-    )
-  `);
-
-  await run(`
     CREATE INDEX IF NOT EXISTS idx_journal_auth_date ON journal_auth(created_at)
   `);
   await run(`
@@ -1242,15 +1080,6 @@ async function initialiserBaseDeDonnees() {
   await run(`
     CREATE INDEX IF NOT EXISTS idx_trusted_devices_last_used ON trusted_devices(last_used_at)
   `);
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(utilisateur_id)
-  `);
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_active ON push_subscriptions(actif)
-  `);
-  await run(`
-    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_last_used ON push_subscriptions(last_used_at)
-  `);
 
   await ajouterColonneCompteSiNecessaire();
   await ajouterColonneEssaiSiNecessaire();
@@ -1262,21 +1091,17 @@ async function initialiserBaseDeDonnees() {
   await ajouterColonneJourCompletIndisponibilitesSiNecessaire();
   await ajouterColonnesIndisponibilitesSystemeSiNecessaire();
   await ajouterColonneCreatedAtCatalogueSiNecessaire();
-  await ajouterColonneTarifHoraireCatalogueSiNecessaire();
-  await ajouterColonnesPushSubscriptionsSiNecessaire();
   await ajouterColonnesJournalAuthSiNecessaire();
   await synchroniserHistoriqueActionsSiNecessaire();
-  await initialiserUtilisateursInitiaux();
-  await normaliserEmailsUtilisateurs();
-  await normaliserNomsUtilisateurs();
-  await marquerComptesTemporairesCommeASecuriser();
   await initialiserCatalogueParDefaut();
   await synchroniserCatalogueDepuisSeances();
 
   if (activerDonneesExemple) {
+    await initialiserUtilisateursDeTest();
+    await normaliserNomsUtilisateurs();
     await initialiserSeancesExemple();
+    await marquerComptesTemporairesCommeASecuriser();
     await normaliserSeancesExistantes();
-    await synchroniserCatalogueDepuisSeances();
   }
 }
 
@@ -1285,7 +1110,6 @@ module.exports = {
   run,
   get,
   all,
-  fermerBaseDeDonnees,
   initialiserBaseDeDonnees,
   calculerHashHistorique,
   construireListeCreationHistorique,

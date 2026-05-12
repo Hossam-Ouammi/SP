@@ -12,10 +12,8 @@ const historiqueRoutes = require("./routes/historique.routes");
 const indisponibilitesRoutes = require("./routes/indisponibilites.routes");
 const monetisationRoutes = require("./routes/monetisation.routes");
 const realtimeRoutes = require("./routes/realtime.routes");
-const pushRoutes = require("./routes/push.routes");
 const seancesRoutes = require("./routes/seances.routes");
 const photosRoutes = require("./routes/photos.routes");
-const { connecterUtilisateurDepuisFormulaire } = require("./controllers/auth.controller");
 const { initialiserBaseDeDonnees } = require("./models/db");
 const { recupererSecretSession } = require("./models/session-secret");
 const { SQLiteSessionStore } = require("./models/session.store");
@@ -33,21 +31,16 @@ const {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_MS,
 } = require("./config/security.config");
-const { demarrerPlanificateurRappelsPush } = require("./utils/push-notifications");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || process.env.IP || "0.0.0.0";
-const trustProxy =
-  ["1", "true", "yes", "on"].includes(
-    String(process.env.TRUST_PROXY || "").trim().toLowerCase()
-  );
 
 fs.mkdirSync(path.join(__dirname, "database"), { recursive: true });
 assurerDossiersScreenshots();
 
 app.disable("x-powered-by");
-app.set("trust proxy", trustProxy);
+app.set("trust proxy", 1);
 
 function appliquerNoCacheStatic(res) {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
@@ -88,7 +81,7 @@ app.use(
     saveUninitialized: false,
     rolling: true,
     unset: "destroy",
-    proxy: trustProxy,
+    proxy: true,
     cookie: {
       httpOnly: true,
       sameSite: "strict",
@@ -150,7 +143,6 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/historique", historiqueRoutes);
 app.use("/api/indisponibilites", indisponibilitesRoutes);
 app.use("/api/monetisation", monetisationRoutes);
-app.use("/api/push", pushRoutes);
 app.use("/api/realtime", realtimeRoutes);
 app.use("/api/seances", seancesRoutes);
 app.use("/api/photos", photosRoutes);
@@ -161,42 +153,16 @@ app.get("/health", (req, res) => {
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
-
-function recupererEtatConnexionFormulaire(req) {
-  const loginError = String(req.session?.login_error || "").trim();
-  const loginUsername = String(req.session?.login_username || "").trim();
-
-  if (req.session) {
-    delete req.session.login_error;
-    delete req.session.login_username;
-  }
-
-  return {
-    loginError,
-    loginUsername,
-  };
-}
-
 app.get("/", async (req, res) => {
   appliquerNoCacheStatic(res);
   const { chargerUtilisateurAuthentifie } = require("./middleware/auth.middleware");
-  const etatConnexion = recupererEtatConnexionFormulaire(req);
   try {
     const user = await chargerUtilisateurAuthentifie(req, res);
-    res.render("index", {
-      user,
-      loginError: etatConnexion.loginError,
-      loginUsername: etatConnexion.loginUsername,
-    });
+    res.render("index", { user });
   } catch (error) {
-    res.render("index", {
-      user: null,
-      loginError: etatConnexion.loginError,
-      loginUsername: etatConnexion.loginUsername,
-    });
+    res.render("index", { user: null });
   }
 });
-app.post("/", connecterUtilisateurDepuisFormulaire);
 
 app.use((req, res) => {
   if (req.path.startsWith("/api/")) {
@@ -236,7 +202,6 @@ app.use((error, req, res, next) => {
 async function demarrerServeur() {
   try {
     await initialiserBaseDeDonnees();
-    demarrerPlanificateurRappelsPush();
 
     app.listen(PORT, HOST, () => {
       console.log(`Serveur lancé sur http://${HOST}:${PORT}`);
