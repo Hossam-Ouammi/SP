@@ -5,8 +5,8 @@ const { spawn } = require("child_process");
 const root = path.join(__dirname, "..");
 const port = 3321;
 const baseUrl = `http://127.0.0.1:${port}`;
-const databasePath = path.join(root, "database", "smoke-test.db");
-const tinyPngPath = path.join(root, "database", "smoke-test.png");
+const databasePath = path.join(root, "database", ".smoke-test.db");
+const tinyPngPath = path.join(root, "database", ".smoke-test.png");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -66,7 +66,7 @@ class SessionClient {
   }
 
   async request(method, pathname, body = undefined, extraHeaders = {}) {
-    const headers = { ...extraHeaders };
+    const headers = { "x-requested-with": "XMLHttpRequest", ...extraHeaders };
     const cookie = this.cookieHeader();
 
     if (cookie) {
@@ -373,98 +373,56 @@ async function run() {
     );
     assert(response.status === 201, `blocage public autre compte attendu=201 recu=${response.status}`);
 
-    response = await user.request(
-      "POST",
-      "/api/liens-reservation",
-      {
-        etudiant: "Nora",
-        parent: "Parent Nora",
-        matiere: "Maths",
-        compte: "Abdo",
-        duree_minutes: 60,
-      },
-      { "x-csrf-token": user.csrfToken }
-    );
-    assert(response.status === 201, `lien reservation attendu=201 recu=${response.status}`);
-    const lienReservation = response.json.lien_reservation;
-    assert(lienReservation?.public_path, "Le lien public devrait etre renvoye.");
-    const tokenReservation = String(lienReservation.public_path).split("/").pop();
-
-    response = await publicReservation.request("GET", lienReservation.public_path);
+    response = await publicReservation.request("GET", "/reservation");
     assert(response.status === 200, `page reservation attendu=200 recu=${response.status}`);
     response = await publicReservation.request(
       "GET",
-      `/api/reservation-public/${tokenReservation}?week_start=2026-06-08`
+      "/api/reservation-public?week_start=2026-06-08"
     );
     assert(response.status === 200, `planning public attendu=200 recu=${response.status}`);
     assert(
       response.json.planning.blocages.some(
         (blocage) =>
           blocage.date === "2026-06-10" &&
-          blocage.heure_debut === "10:00" &&
-          blocage.heure_fin === "11:00"
-      ),
-      "Le creneau Abdo deja reserve devrait etre bloque."
-    );
-    assert(
-      !response.json.planning.blocages.some(
-        (blocage) =>
-          blocage.date === "2026-06-11" &&
           blocage.heure_debut === "11:00" &&
           blocage.heure_fin === "12:00"
       ),
-      "Le creneau d'un autre compte ne devrait pas bloquer le lien Abdo."
-    );
-    response = await publicReservation.request(
-      "POST",
-      `/api/reservation-public/${tokenReservation}/reserver`,
-      {
-        date: "2026-06-10",
-        heure_debut: "10:00",
-      }
-    );
-    assert(response.status === 400, `reservation bloquee attendu=400 recu=${response.status}`);
-    response = await publicReservation.request(
-      "POST",
-      `/api/reservation-public/${tokenReservation}/reserver`,
-      {
-        date: "2026-06-10",
-        heure_debut: "12:00",
-      }
-    );
-    assert(response.status === 201, `reservation publique attendu=201 recu=${response.status}`);
-    response = await publicReservation.request(
-      "GET",
-      `/api/reservation-public/${tokenReservation}?week_start=2026-06-08`
+      "Le creneau reserve a 10:00 Maroc doit apparaitre a 11:00 France en ete."
     );
     assert(
-      response.json.planning.reservations.some(
-        (reservation) =>
-          reservation.date === "2026-06-10" &&
-          reservation.heure_debut === "12:00" &&
-          reservation.heure_fin === "13:00"
+      response.json.planning.blocages.some(
+        (blocage) =>
+          blocage.date === "2026-06-11" &&
+          blocage.heure_debut === "12:00" &&
+          blocage.heure_fin === "13:00"
       ),
-      "La reservation publique devrait apparaitre dans le planning du lien."
+      "Les autres seances du calendrier central doivent aussi bloquer la page publique."
     );
-    const reservationPublique = response.json.planning.reservations.find(
-      (reservation) =>
-        reservation.date === "2026-06-10" &&
-        reservation.heure_debut === "12:00" &&
-        reservation.heure_fin === "13:00"
+    response = await publicReservation.request("POST", "/api/reservation-public/reserver", {
+      date: "2026-06-10",
+      heure_debut: "11:00",
+      duree_minutes: 60,
+      etudiant: "Nora Test",
+      parent: "Parent Nora",
+      matiere: "Maths",
+    });
+    assert(response.status === 400, `reservation bloquee attendu=400 recu=${response.status}`);
+    response = await publicReservation.request("POST", "/api/reservation-public/reserver", {
+      date: "2026-06-10",
+      heure_debut: "13:00",
+      duree_minutes: 60,
+      etudiant: "Nora Test",
+      parent: "Parent Nora",
+      matiere: "Maths",
+    });
+    assert(response.status === 201, `reservation publique attendu=201 recu=${response.status}`);
+    assert(
+      response.json.profil?.connu === true,
+      "Le profil public devrait etre memorise apres la premiere reservation."
     );
-    assert(reservationPublique?.id, "La reservation publique devrait avoir un identifiant.");
-    response = await publicReservation.request(
-      "PATCH",
-      `/api/reservation-public/${tokenReservation}/reservations/${Number(reservationPublique.id)}`,
-      {
-        date: "2026-06-10",
-        heure_debut: "13:00",
-      }
-    );
-    assert(response.status === 200, `reprogrammation publique attendu=200 recu=${response.status}`);
     response = await publicReservation.request(
       "GET",
-      `/api/reservation-public/${tokenReservation}?week_start=2026-06-08`
+      "/api/reservation-public?week_start=2026-06-08"
     );
     assert(
       response.json.planning.reservations.some(
@@ -473,86 +431,104 @@ async function run() {
           reservation.heure_debut === "13:00" &&
           reservation.heure_fin === "14:00"
       ),
-      "La reservation publique devrait etre reprogrammee."
+      "La reservation publique doit reapparaitre pour le meme appareil."
     );
     assert(
-      !response.json.planning.reservations.some(
-        (reservation) =>
-          reservation.date === "2026-06-10" &&
-          reservation.heure_debut === "12:00" &&
-          reservation.heure_fin === "13:00"
-      ),
-      "L'ancien creneau ne devrait plus apparaitre apres reprogrammation."
+      response.json.profil?.etudiant === "Nora Test",
+      "Le nom de l'etudiant devrait etre restitue depuis le cookie appareil."
     );
-    response = await publicReservation.request(
-      "DELETE",
-      `/api/reservation-public/${tokenReservation}/reservations/${Number(reservationPublique.id)}`
-    );
-    assert(response.status === 200, `annulation publique attendu=200 recu=${response.status}`);
-    response = await publicReservation.request(
+    const autreAppareil = new SessionClient();
+    response = await autreAppareil.request(
       "GET",
-      `/api/reservation-public/${tokenReservation}?week_start=2026-06-08`
+      "/api/reservation-public?week_start=2026-06-08"
     );
     assert(
       response.json.planning.reservations.length === 0,
-      "La reservation publique devrait etre supprimee apres annulation."
-    );
-    response = await publicReservation.request(
-      "POST",
-      `/api/reservation-public/${tokenReservation}/reserver`,
-      {
-        date: "2026-06-10",
-        heure_debut: "14:00",
-      }
+      "Un autre appareil ne doit pas voir les reservations detaillees."
     );
     assert(
-      response.status === 201,
-      `nouvelle reservation publique attendu=201 recu=${response.status}`
+      response.json.planning.blocages.some(
+        (blocage) =>
+          blocage.date === "2026-06-10" &&
+          blocage.heure_debut === "13:00" &&
+          blocage.heure_fin === "14:00"
+      ),
+      "La reservation du premier appareil doit etre hachuree pour les autres appareils."
     );
     response = await user.request("GET", "/api/seances");
     assert(
       response.json.seances.some(
         (seance) =>
-          seance.etudiant === "Nora" &&
+          seance.etudiant === "Nora Test" &&
           seance.date === "2026-06-10" &&
-          seance.heure_debut === "14:00"
+          seance.heure_debut === "12:00" &&
+          seance.heure_fin === "13:00"
       ),
-      "La reservation publique devrait creer une seance cote application."
+      "La reservation publique doit etre convertie en heure du Maroc dans le calendrier central."
     );
-    response = await user.request(
-      "DELETE",
-      `/api/liens-reservation/${Number(lienReservation.id)}`,
-      {},
-      { "x-csrf-token": user.csrfToken }
-    );
-    assert(response.status === 200, `revocation lien attendu=200 recu=${response.status}`);
-    response = await user.request("GET", "/api/liens-reservation");
-    assert(response.status === 200, `liste liens active attendu=200 recu=${response.status}`);
-    assert(
-      !response.json.liens_reservation.some(
-        (lien) => Number(lien.id) === Number(lienReservation.id)
-      ),
-      "Le lien revoque ne devrait plus apparaitre dans la liste des liens actifs."
-    );
-    response = await publicReservation.request(
-      "GET",
-      `/api/reservation-public/${tokenReservation}?week_start=2026-06-08`
-    );
-    assert(response.status === 404, `lien revoque attendu=404 recu=${response.status}`);
 
-    response = await user.request(
-      "POST",
-      "/api/liens-reservation",
-      {
-        etudiant: "Lina",
+    response = await publicReservation.request("POST", "/api/reservation-public/reserver", {
+      date: "2026-12-15",
+      heure_debut: "15:00",
+      duree_minutes: 60,
+      etudiant: "Winter France Test",
+      parent: "",
+      matiere: "Maths",
+    });
+    assert(response.status === 201, `reservation hiver attendu=201 recu=${response.status}`);
+    response = await user.request("GET", "/api/seances");
+    assert(
+      response.json.seances.some(
+        (seance) =>
+          seance.etudiant === "Winter France Test" &&
+          seance.date === "2026-12-15" &&
+          seance.heure_debut === "15:00" &&
+          seance.heure_fin === "16:00"
+      ),
+      "En hiver, 15:00 France doit rester 15:00 Maroc dans le calendrier central."
+    );
+
+    const reservationConcurrenteA = new SessionClient();
+    const reservationConcurrenteB = new SessionClient();
+    const [premiereReservationConcurrente, secondeReservationConcurrente] = await Promise.all([
+      reservationConcurrenteA.request("POST", "/api/reservation-public/reserver", {
+        date: "2026-06-12",
+        heure_debut: "15:00",
+        duree_minutes: 60,
+        etudiant: "Race Test",
         parent: "",
         matiere: "Maths",
-        compte: "Abdo",
+      }),
+      reservationConcurrenteB.request("POST", "/api/reservation-public/reserver", {
+        date: "2026-06-12",
+        heure_debut: "15:00",
         duree_minutes: 60,
-      },
-      { "x-csrf-token": user.csrfToken }
+        etudiant: "Race Test",
+        parent: "",
+        matiere: "Maths",
+      }),
+    ]);
+    const statutsReservationsConcurrentes = [
+      premiereReservationConcurrente.status,
+      secondeReservationConcurrente.status,
+    ].sort();
+    assert(
+      statutsReservationsConcurrentes[0] === 201 &&
+        statutsReservationsConcurrentes[1] === 400,
+      `reservations concurrentes attendu=201/400 recu=${statutsReservationsConcurrentes.join("/")}`
     );
-    assert(response.status === 201, `second lien reservation attendu=201 recu=${response.status}`);
+    response = await user.request("GET", "/api/seances");
+    const reservationsRace = response.json.seances.filter(
+      (seance) =>
+        seance.etudiant === "Race Test" &&
+        seance.date === "2026-06-12" &&
+        seance.heure_debut === "14:00" &&
+        seance.heure_fin === "15:00"
+    );
+    assert(
+      reservationsRace.length === 1,
+      `une seule reservation concurrente doit etre creee, recu=${reservationsRace.length}`
+    );
     console.log("OK reservation publique");
 
     response = await user.request("GET", "/api/monetisation?mois=2026-04");

@@ -3,139 +3,252 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Reservation de creneau</title>
+    <title>Réservation</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260327a" />
+    <link rel="stylesheet" href="/css/style.css?v=20260518c" />
   </head>
-  <body class="reservation-public-body" data-reservation-token="<%= tokenReservation %>">
+  <body
+    class="reservation-public-body"
+    data-public-timezone-label="<%= timezonePubliqueLabel %>"
+    data-central-timezone-label="<%= timezoneCentraleLabel %>"
+  >
     <main class="reservation-public-main">
       <section class="reservation-public-shell">
-        <header class="reservation-public-hero panel">
-          <div class="reservation-public-hero-copy">
-            <span class="reservation-public-kicker">Reservation etudiant</span>
-            <h1 id="reservation-public-title">Choisissez votre creneau</h1>
-            <p id="reservation-public-subtitle" class="section-note">
-              Chargement du planning...
-            </p>
+        <header class="panel reservation-public-toolbar">
+          <div>
+            <p class="reservation-public-eyebrow">Réservation</p>
+            <h1>Calendrier de réservation</h1>
           </div>
 
-          <div class="reservation-public-legend">
-            <span class="reservation-public-legend-item">
-              <span class="reservation-public-legend-swatch reservation-public-legend-swatch-free"></span>
-              Creneau disponible
-            </span>
-            <span class="reservation-public-legend-item">
-              <span class="reservation-public-legend-swatch reservation-public-legend-swatch-booked"></span>
-              Votre reservation
-            </span>
-            <span class="reservation-public-legend-item">
-              <span class="reservation-public-legend-swatch reservation-public-legend-swatch-blocked"></span>
-              Deja reserve ou indisponible
-            </span>
+          <div class="reservation-public-actions">
+            <span class="reservation-public-timezone"><%= timezonePubliqueLabel %></span>
+            <button
+              id="reservation-public-open-button"
+              class="button primary reservation-public-add-button"
+              type="button"
+            >
+              Réserver
+            </button>
           </div>
         </header>
 
-        <section class="reservation-public-layout">
-          <section class="panel reservation-public-calendar-panel">
-            <div class="section-heading section-heading-stack">
-              <div>
-                <h2>Planning de la semaine</h2>
-                <p class="section-note">
-                  Les plages hachurees ne peuvent pas etre reservees.
-                </p>
-              </div>
+        <nav class="panel reservation-public-tabs" aria-label="Navigation réservation">
+          <button
+            id="reservation-public-calendar-tab"
+            class="reservation-public-tab is-active"
+            type="button"
+            data-reservation-view="calendar"
+          >
+            Calendrier
+          </button>
+          <button
+            id="reservation-public-list-tab"
+            class="reservation-public-tab"
+            type="button"
+            data-reservation-view="reservations"
+          >
+            Mes réservations
+          </button>
+        </nav>
+
+        <section
+          id="reservation-public-calendar-panel"
+          class="panel reservation-public-calendar-panel"
+        >
+          <div class="reservation-public-calendar-head">
+            <div class="reservation-public-legend" aria-label="Legende">
+              <span class="reservation-public-legend-item">
+                <span class="reservation-public-legend-swatch reservation-public-legend-swatch-own"></span>
+                Mes séances
+              </span>
+              <span class="reservation-public-legend-item">
+                <span class="reservation-public-legend-swatch reservation-public-legend-swatch-blocked"></span>
+                Occupé
+              </span>
             </div>
 
-            <div id="reservation-public-error" class="form-error hidden"></div>
-            <div id="reservation-public-calendar" class="reservation-public-calendar"></div>
-          </section>
+            <p
+              id="reservation-public-device-note"
+              class="reservation-public-device-note hidden"
+            ></p>
+          </div>
 
-          <aside class="reservation-public-side">
-            <article class="panel reservation-public-selection-card">
-              <div class="section-heading section-heading-stack">
-                <div>
-                  <h2>Votre choix</h2>
-                  <p id="reservation-public-selection-note" class="section-note">
-                    Cliquez sur un creneau libre dans la semaine.
-                  </p>
-                </div>
-              </div>
+          <div id="reservation-public-error" class="form-error hidden"></div>
+          <div
+            id="reservation-public-feedback"
+            class="reservation-public-feedback hidden"
+            role="status"
+            aria-live="polite"
+          ></div>
+          <div id="reservation-public-calendar" class="reservation-public-calendar"></div>
+        </section>
 
-              <div id="reservation-public-editing-state" class="reservation-public-editing-state hidden">
-                <strong>Reprogrammation en cours</strong>
-                <p id="reservation-public-editing-meta" class="reservation-public-editing-meta">
-                  -
-                </p>
-                <button
-                  id="reservation-public-editing-cancel-button"
-                  class="button secondary full-width"
-                  type="button"
-                >
-                  Annuler la reprogrammation
-                </button>
-              </div>
+        <section
+          id="reservation-public-list-panel"
+          class="panel reservation-public-reservations-card hidden"
+        >
+          <div class="section-heading section-heading-stack">
+            <div>
+              <h2>Mes réservations</h2>
+            </div>
+          </div>
 
-              <div id="reservation-public-selection-empty" class="empty-state">
-                Aucun creneau selectionne pour le moment.
-              </div>
-
-              <div id="reservation-public-selection-content" class="hidden">
-                <div class="reservation-public-selection-grid">
-                  <div class="reservation-public-selection-row">
-                    <span>Date</span>
-                    <strong id="reservation-public-selection-date">-</strong>
-                  </div>
-                  <div class="reservation-public-selection-row">
-                    <span>Horaire</span>
-                    <strong id="reservation-public-selection-time">-</strong>
-                  </div>
-                  <div class="reservation-public-selection-row">
-                    <span>Duree</span>
-                    <strong id="reservation-public-selection-duration">-</strong>
-                  </div>
-                </div>
-
-                <div class="reservation-public-selection-actions">
-                  <button
-                    id="reservation-public-submit-button"
-                    class="button primary full-width"
-                    type="button"
-                  >
-                    Reserver ce creneau
-                  </button>
-                </div>
-              </div>
-            </article>
-
-            <article class="panel reservation-public-reservations-card">
-              <div class="section-heading section-heading-stack">
-                <div>
-                  <h2>Vos reservations</h2>
-                  <p class="section-note">
-                    Seules les reservations liees a ce lien sont detaillees ici.
-                  </p>
-                </div>
-              </div>
-
-              <div id="reservation-public-reservations-list" class="reservation-public-reservations-list">
-                <div class="empty-state">Aucune reservation pour le moment.</div>
-              </div>
-            </article>
-          </aside>
+          <div id="reservation-public-reservations-list" class="reservation-public-reservations-list">
+            <div class="empty-state">Aucune réservation pour le moment.</div>
+          </div>
         </section>
       </section>
     </main>
+
+    <div id="reservation-public-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="reservation-public-modal"></div>
+      <div class="modal-panel reservation-public-modal-panel">
+        <div class="modal-header">
+          <div class="modal-heading">
+            <h3>Réserver une séance</h3>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="reservation-public-modal">
+            x
+          </button>
+        </div>
+
+        <form id="reservation-public-form" class="stack-form reservation-public-form">
+          <div class="reservation-public-form-grid">
+            <label class="field">
+              <span>Date</span>
+              <input
+                id="reservation-public-date"
+                name="date"
+                type="date"
+                required
+              />
+            </label>
+
+            <label class="field">
+              <span>Heure début</span>
+              <input
+                id="reservation-public-start"
+                name="heure_debut"
+                type="time"
+                step="1800"
+                required
+              />
+            </label>
+
+            <label class="field">
+              <span>Durée</span>
+              <select id="reservation-public-duration" name="duree_minutes" required></select>
+            </label>
+
+            <label class="field">
+              <span>Prénom étudiant</span>
+              <input
+                id="reservation-public-student"
+                name="etudiant"
+                type="text"
+                maxlength="120"
+                autocomplete="given-name"
+                placeholder="Ex. Sara"
+                required
+              />
+            </label>
+
+            <label class="field">
+              <span>Prénom parent</span>
+              <input
+                id="reservation-public-parent"
+                name="parent"
+                type="text"
+                maxlength="120"
+                autocomplete="off"
+                placeholder="Ex. Nadia"
+              />
+            </label>
+
+            <label class="field">
+              <span>Matière</span>
+              <input
+                id="reservation-public-subject"
+                name="matiere"
+                type="text"
+                maxlength="80"
+                autocomplete="off"
+                placeholder="Ex. Maths"
+                required
+              />
+            </label>
+          </div>
+
+          <p id="reservation-public-form-error" class="form-error hidden"></p>
+
+          <div class="form-actions">
+            <button
+              id="reservation-public-submit-button"
+              class="button primary full-width"
+              type="submit"
+            >
+              Confirmer
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="reservation-public-details-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="reservation-public-details-modal"></div>
+      <div class="modal-panel reservation-public-details-panel">
+        <div class="modal-header">
+          <div class="modal-heading">
+            <h3>Détails de la réservation</h3>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            data-close-modal="reservation-public-details-modal"
+          >
+            x
+          </button>
+        </div>
+
+        <dl class="reservation-public-details-list">
+          <div>
+            <dt>Date</dt>
+            <dd id="reservation-public-details-date">-</dd>
+          </div>
+          <div>
+            <dt>Heure</dt>
+            <dd id="reservation-public-details-time">-</dd>
+          </div>
+          <div>
+            <dt>Durée</dt>
+            <dd id="reservation-public-details-duration">-</dd>
+          </div>
+          <div>
+            <dt>Étudiant</dt>
+            <dd id="reservation-public-details-student">-</dd>
+          </div>
+          <div>
+            <dt>Parent</dt>
+            <dd id="reservation-public-details-parent">-</dd>
+          </div>
+          <div>
+            <dt>Matière</dt>
+            <dd id="reservation-public-details-subject">-</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
 
     <script src="/vendor/@fullcalendar/core/index.global.js"></script>
     <script src="/vendor/@fullcalendar/core/locales-all.global.js"></script>
     <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
-    <script type="module" src="/js/public-reservation.js"></script>
+    <script type="module" src="/js/public-reservation.js?v=20260518c"></script>
   </body>
 </html>

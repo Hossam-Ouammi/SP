@@ -51,14 +51,14 @@
       "ui": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 68269,
+        "size": 60018,
         "signature": "%PDF",
-        "fileName": "releve-monetisation-mensuelle-2026-04-abdo-hossam-yassine.pdf"
+        "fileName": "releve-monetisation-mensuelle-2026-05-abdo-hossam-yassine.pdf"
       },
       "direct": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 66486,
+        "size": 66757,
         "signature": "%PDF"
       }
     },
@@ -66,14 +66,14 @@
       "ui": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 70564,
+        "size": 70835,
         "signature": "%PDF",
         "fileName": "releve-monetisation-annuelle-2026-abdo-hossam-yassine.pdf"
       },
       "direct": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 68998,
+        "size": 69266,
         "signature": "%PDF"
       }
     },
@@ -81,14 +81,14 @@
       "ui": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 71931,
+        "size": 72201,
         "signature": "%PDF",
         "fileName": "releve-monetisation-globale-abdo-hossam-yassine.pdf"
       },
       "direct": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 70539,
+        "size": 70806,
         "signature": "%PDF"
       }
     }

@@ -2,6 +2,11 @@ node_modules/
 database/database.db
 database/*.db-wal
 database/*.db-shm
+database/*.db.backup-*
+database/*.db.stale-*
+database/*.db-wal.*
+database/*.db-shm.*
+database/.smoke-test.*
 database.db
 database/.audit-secret
 database/.session-secret
@@ -10,6 +15,7 @@ public/uploads/*
 !public/uploads/.gitkeep
 storage/uploads/*
 !storage/uploads/.gitkeep
+backups/
 .server.out.log
 .tmp-cookies.txt
 .tmp-invalid.png

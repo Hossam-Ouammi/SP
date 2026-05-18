@@ -7,7 +7,9 @@
     "start": "node app.js",
     "dev": "nodemon app.js",
     "test": "node scripts/smoke-test.js",
-    "push:due": "node scripts/run-push-jobs.js"
+    "oracle:rebuild-sqlite": "npm rebuild sqlite3 --build-from-source",
+    "push:due": "node scripts/run-push-jobs.js",
+    "backup:seances": "node scripts/run-seances-backup.js"
   },
   "keywords": [
     "express",
@@ -30,8 +32,10 @@
     "express-rate-limit": "^8.3.1",
     "express-session": "^1.19.0",
     "multer": "^2.1.1",
+    "nodemailer": "^8.0.7",
+    "path-to-regexp": "8.4.2",
     "puppeteer": "^24.40.0",
-    "sqlite3": "^5.1.7",
+    "sqlite3": "6.0.1",
     "web-push": "^3.6.7"
   },
   "devDependencies": {

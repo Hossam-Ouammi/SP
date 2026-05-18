@@ -15,6 +15,10 @@ const realtimeRoutes = require("./routes/realtime.routes");
 const pushRoutes = require("./routes/push.routes");
 const seancesRoutes = require("./routes/seances.routes");
 const photosRoutes = require("./routes/photos.routes");
+const {
+  pageRouter: publicReservationPageRoutes,
+  apiRouter: publicReservationApiRoutes,
+} = require("./routes/public-reservation.routes");
 const { connecterUtilisateurDepuisFormulaire } = require("./controllers/auth.controller");
 const { initialiserBaseDeDonnees } = require("./models/db");
 const { recupererSecretSession } = require("./models/session-secret");
@@ -34,6 +38,7 @@ const {
   SESSION_MAX_AGE_MS,
 } = require("./config/security.config");
 const { demarrerPlanificateurRappelsPush } = require("./utils/push-notifications");
+const { demarrerPlanificateurBackupSeances } = require("./utils/seances-backup-email");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -47,7 +52,7 @@ fs.mkdirSync(path.join(__dirname, "database"), { recursive: true });
 assurerDossiersScreenshots();
 
 app.disable("x-powered-by");
-app.set("trust proxy", trustProxy);
+app.set("trust proxy", trustProxy ? 1 : false);
 
 function appliquerNoCacheStatic(res) {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
@@ -152,8 +157,10 @@ app.use("/api/indisponibilites", indisponibilitesRoutes);
 app.use("/api/monetisation", monetisationRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/realtime", realtimeRoutes);
+app.use("/api/reservation-public", publicReservationApiRoutes);
 app.use("/api/seances", seancesRoutes);
 app.use("/api/photos", photosRoutes);
+app.use("/reservation", publicReservationPageRoutes);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -237,6 +244,7 @@ async function demarrerServeur() {
   try {
     await initialiserBaseDeDonnees();
     demarrerPlanificateurRappelsPush();
+    demarrerPlanificateurBackupSeances();
 
     app.listen(PORT, HOST, () => {
       console.log(`Serveur lancé sur http://${HOST}:${PORT}`);
