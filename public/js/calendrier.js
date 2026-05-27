@@ -129,6 +129,113 @@ function estCalendrierCompact() {
   return globalThis.matchMedia?.("(max-width: 720px)")?.matches ?? false;
 }
 
+const CALENDRIER_PAS_CRENEAU_MINUTES = 30;
+const CALENDRIER_SLOT_MIN_TIME = "08:00:00";
+const CALENDRIER_SLOT_MAX_TIME = "23:30:00";
+const CALENDRIER_ACTUALISATION_MAINTENANT_MS = 60 * 1000;
+
+function convertirHeureOptionEnMinutes(heure) {
+  const correspondance = String(heure || "")
+    .trim()
+    .match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+
+  if (!correspondance) {
+    return null;
+  }
+
+  const heures = Number(correspondance[1]);
+  const minutes = Number(correspondance[2]);
+
+  if (!Number.isFinite(heures) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return heures * 60 + minutes;
+}
+
+function convertirMinutesEnHeureOption(totalMinutes) {
+  const minutesNormalisees = Math.max(0, Math.min(24 * 60, Number(totalMinutes) || 0));
+  const heures = String(Math.floor(minutesNormalisees / 60)).padStart(2, "0");
+  const minutes = String(minutesNormalisees % 60).padStart(2, "0");
+  return `${heures}:${minutes}:00`;
+}
+
+function calculerFenetreHoraireVisible({
+  slotMinTime,
+  slotMaxTime,
+  maintenantMinutes,
+  pasMinutes = CALENDRIER_PAS_CRENEAU_MINUTES,
+}) {
+  const minBase = convertirHeureOptionEnMinutes(slotMinTime);
+  const maxBase = convertirHeureOptionEnMinutes(slotMaxTime);
+
+  if (
+    !Number.isFinite(minBase) ||
+    !Number.isFinite(maxBase) ||
+    !Number.isFinite(maintenantMinutes)
+  ) {
+    return {
+      slotMinTime,
+      slotMaxTime,
+    };
+  }
+
+  const minVisible = minBase;
+  const maxVisible =
+    maintenantMinutes >= maxBase
+      ? Math.min(24 * 60, Math.ceil((maintenantMinutes + 1) / pasMinutes) * pasMinutes)
+      : maxBase;
+
+  return {
+    slotMinTime: convertirMinutesEnHeureOption(minVisible),
+    slotMaxTime: convertirMinutesEnHeureOption(maxVisible),
+  };
+}
+
+function obtenirMinutesMaintenantNavigateur(dateObjet = new Date()) {
+  return dateObjet.getHours() * 60 + dateObjet.getMinutes();
+}
+
+function appliquerFenetreHoraireVisible(calendrier) {
+  if (!calendrier) {
+    return;
+  }
+
+  const fenetre = calculerFenetreHoraireVisible({
+    slotMinTime: CALENDRIER_SLOT_MIN_TIME,
+    slotMaxTime: CALENDRIER_SLOT_MAX_TIME,
+    maintenantMinutes: obtenirMinutesMaintenantNavigateur(),
+  });
+
+  if (calendrier.getOption("slotMinTime") !== fenetre.slotMinTime) {
+    calendrier.setOption("slotMinTime", fenetre.slotMinTime);
+  }
+
+  if (calendrier.getOption("slotMaxTime") !== fenetre.slotMaxTime) {
+    calendrier.setOption("slotMaxTime", fenetre.slotMaxTime);
+  }
+}
+
+function demarrerActualisationMaintenant(calendrier) {
+  if (!calendrier || calendrier.__maintenantTimer) {
+    return;
+  }
+
+  const rafraichir = () => appliquerFenetreHoraireVisible(calendrier);
+
+  rafraichir();
+  calendrier.__maintenantTimer = window.setInterval(
+    rafraichir,
+    CALENDRIER_ACTUALISATION_MAINTENANT_MS
+  );
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      rafraichir();
+    }
+  });
+}
+
 function creerElementCalendrier(tagName, className, texte) {
   const element = document.createElement(tagName);
 
@@ -498,6 +605,11 @@ export function initialiserCalendrier(
   }
 
   const optionsResponsive = obtenirOptionsResponsiveCalendrier();
+  const fenetreInitiale = calculerFenetreHoraireVisible({
+    slotMinTime: CALENDRIER_SLOT_MIN_TIME,
+    slotMaxTime: CALENDRIER_SLOT_MAX_TIME,
+    maintenantMinutes: obtenirMinutesMaintenantNavigateur(),
+  });
 
   const calendrier = new FullCalendar.Calendar(element, {
     plugins,
@@ -512,9 +624,9 @@ export function initialiserCalendrier(
     fixedWeekCount: Boolean(optionsResponsive.fixedWeekCount),
     allDaySlot: false,
     nowIndicator: true,
-    slotMinTime: "08:00:00",
-    slotMaxTime: "23:30:00",
-    scrollTime: "08:00:00",
+    slotMinTime: fenetreInitiale.slotMinTime,
+    slotMaxTime: fenetreInitiale.slotMaxTime,
+    scrollTime: fenetreInitiale.slotMinTime,
     dayMaxEvents: optionsResponsive.dayMaxEvents,
     headerToolbar: optionsResponsive.headerToolbar,
     buttonText: optionsResponsive.buttonText,
@@ -562,6 +674,7 @@ export function initialiserCalendrier(
   });
 
   calendrier.render();
+  demarrerActualisationMaintenant(calendrier);
   synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
   return calendrier;
 }
