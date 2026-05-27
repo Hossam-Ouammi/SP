@@ -10,7 +10,6 @@ const {
   mettreAJourTarifHoraireCompteCatalogue,
   compterUtilisationValeurCatalogue,
   supprimerValeurCatalogueParId,
-  restaurerValeurCatalogueSupprimeeParId,
 } = require("./catalogue.model");
 const {
   storageUploadsDirectory,
@@ -392,10 +391,6 @@ async function trouverElementCatalogueSupprimeParId(elementId) {
   return trouverValeurCatalogueSupprimeeParId(elementId);
 }
 
-async function restaurerElementCatalogue(elementId) {
-  return restaurerValeurCatalogueSupprimeeParId(elementId);
-}
-
 async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemplacementId) {
   await run("BEGIN IMMEDIATE TRANSACTION");
 
@@ -480,6 +475,5 @@ module.exports = {
   ajouterElementCatalogue,
   compterUtilisationElementCatalogue,
   supprimerElementCatalogue,
-  restaurerElementCatalogue,
   supprimerUtilisateurAdministration,
 };

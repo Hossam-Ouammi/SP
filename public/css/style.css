@@ -2113,9 +2113,82 @@ button {
   max-width: 560px;
 }
 
+.admin-panel-layout-workbench {
+  grid-template-columns: 1fr;
+}
+
+.admin-panel-layout:has(#admin-tools-panel:not(.hidden)) {
+  grid-template-columns: 1fr;
+}
+
+.admin-panel-layout-workbench > .user-admin-shell {
+  grid-column: 1 / -1;
+  order: -1;
+}
+
+.admin-panel-layout:has(#admin-tools-panel:not(.hidden)) > .user-admin-shell {
+  grid-column: 1 / -1;
+  order: -1;
+}
+
+.admin-panel-layout-password > .admin-password-card {
+  grid-column: 1 / -1;
+  max-width: 640px;
+}
+
+.admin-panel-layout:has(#admin-tools-panel:not(.hidden)) > .admin-password-card:not(.hidden) {
+  grid-column: 1 / -1;
+  max-width: 640px;
+}
+
 .user-admin-shell {
   display: grid;
   gap: 16px;
+}
+
+.admin-workbench-nav {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(116px, 1fr));
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  overflow-x: auto;
+}
+
+.admin-workbench-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.admin-workbench-tab:hover {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: var(--text);
+}
+
+.admin-workbench-tab.is-active {
+  border-color: #bfdbfe;
+  background: #ffffff;
+  color: #1e40af;
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
 }
 
 .user-password-form {
@@ -3898,6 +3971,11 @@ button {
   .admin-identity-card,
   .admin-guide-card {
     padding: 16px;
+  }
+
+  .admin-workbench-nav {
+    grid-template-columns: repeat(8, minmax(112px, 132px));
+    padding: 6px;
   }
 
   .summary-value,

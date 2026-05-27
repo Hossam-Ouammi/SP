@@ -478,6 +478,17 @@ async function run() {
     assert(compteYassine, "Le compte Yassine devrait exister.");
 
     response = await admin.request(
+      "POST",
+      "/api/admin/catalogue-items",
+      {
+        type: "matiere",
+        valeur: "Science test",
+        mot_de_passe_actuel: "Admin!Test1234",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 400, `add matiere desactive attendu=400 recu=${response.status}`);
+    response = await admin.request(
       "DELETE",
       `/api/admin/catalogue-items/${matierePhysique.id}`,
       {
@@ -485,7 +496,7 @@ async function run() {
       },
       { "x-csrf-token": admin.csrfToken }
     );
-    assert(response.status === 200, `delete matiere utilisee attendu=200 recu=${response.status}`);
+    assert(response.status === 400, `delete matiere desactive attendu=400 recu=${response.status}`);
     response = await admin.request(
       "DELETE",
       `/api/admin/catalogue-items/${compteYassine.id}`,
@@ -504,8 +515,8 @@ async function run() {
       typeof compte === "string" ? compte : compte.valeur
     );
     assert(
-      !matieresApresSuppression.includes("Physique chimie"),
-      "La matiere supprimee ne devrait plus etre proposee pour les nouvelles seances."
+      matieresApresSuppression.includes("Physique chimie"),
+      "La matiere ne devrait pas etre supprimable par l'administration."
     );
     assert(
       !comptesApresSuppression.includes("Yassine"),
@@ -521,8 +532,8 @@ async function run() {
       typeof compte === "string" ? compte : compte.valeur
     );
     assert(
-      !matieresApresReinitialisation.includes("Physique chimie"),
-      "La matiere supprimee ne doit pas revenir apres reinitialisation."
+      matieresApresReinitialisation.includes("Physique chimie"),
+      "La matiere doit rester disponible apres reinitialisation."
     );
     assert(
       !comptesApresReinitialisation.includes("Yassine"),
@@ -564,26 +575,17 @@ async function run() {
     );
 
     response = await admin.request("GET", "/api/admin");
-    const matierePhysiqueSupprimee =
-      response.json.administration.catalogue.matieres_supprimees.find(
-        (matiere) => matiere.valeur === "Physique chimie"
-      );
     const compteYassineSupprime =
       response.json.administration.catalogue.comptes_supprimes.find(
         (compte) => compte.valeur === "Yassine"
       );
-    assert(matierePhysiqueSupprimee, "La matiere supprimee devrait etre restaurable.");
-    assert(compteYassineSupprime, "Le compte supprime devrait etre restaurable.");
-
-    response = await admin.request(
-      "POST",
-      `/api/admin/catalogue-items/${matierePhysiqueSupprimee.id}/restore`,
-      {
-        mot_de_passe_actuel: "Admin!Test1234",
-      },
-      { "x-csrf-token": admin.csrfToken }
+    const matierePhysiqueSupprimee =
+      response.json.administration.catalogue.matieres_supprimees.find(
+        (matiere) => matiere.valeur === "Physique chimie"
     );
-    assert(response.status === 200, `restore matiere attendu=200 recu=${response.status}`);
+    assert(!matierePhysiqueSupprimee, "La matiere ne devrait pas etre archivee par l'admin.");
+    assert(compteYassineSupprime, "Le compte supprime devrait rester visible en archive.");
+
     response = await admin.request(
       "POST",
       `/api/admin/catalogue-items/${compteYassineSupprime.id}/restore`,
@@ -592,7 +594,7 @@ async function run() {
       },
       { "x-csrf-token": admin.csrfToken }
     );
-    assert(response.status === 200, `restore compte attendu=200 recu=${response.status}`);
+    assert(response.status === 404, `restore compte desactive attendu=404 recu=${response.status}`);
     response = await user.request("GET", "/api/seances/options");
     const matieresApresRestauration = response.json.options.matieres.map((matiere) =>
       typeof matiere === "string" ? matiere : matiere.valeur
@@ -602,11 +604,11 @@ async function run() {
     );
     assert(
       matieresApresRestauration.includes("Physique chimie"),
-      "La matiere restauree devrait revenir dans les options."
+      "La matiere doit rester disponible dans les options."
     );
     assert(
-      comptesApresRestauration.includes("Yassine"),
-      "Le compte restaure devrait revenir dans les options."
+      !comptesApresRestauration.includes("Yassine"),
+      "Le compte supprime ne devrait pas revenir dans les options sans restauration."
     );
     console.log("OK suppression catalogue conserve seances");
 
@@ -640,6 +642,21 @@ async function run() {
       "Le relevé PDF devrait proposer un nom de fichier .pdf."
     );
     console.log("OK monetisation");
+
+    response = await admin.request(
+      "POST",
+      "/api/admin/maintenance/sqlite",
+      {
+        mot_de_passe_actuel: "Admin!Test1234",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `maintenance SQLite attendu=200 recu=${response.status}`);
+    assert(
+      response.json.maintenance?.integrity_check === "ok",
+      "La maintenance SQLite devrait confirmer l'integrite de la base."
+    );
+    console.log("OK maintenance SQLite admin");
 
     response = await admin.request(
       "POST",

@@ -1413,6 +1413,21 @@ async function initialiserBaseDeDonnees() {
   }
 }
 
+async function executerMaintenanceBaseDeDonnees() {
+  await initialiserBaseDeDonnees();
+
+  const integrite = await get("PRAGMA integrity_check");
+  const checkpoint = await all("PRAGMA wal_checkpoint(TRUNCATE)");
+  await run("PRAGMA optimize");
+
+  return {
+    integrity_check: Object.values(integrite || {})[0] || "unknown",
+    wal_checkpoint: checkpoint?.[0] || null,
+    optimize: "ok",
+    checked_at: new Date().toISOString(),
+  };
+}
+
 module.exports = {
   db,
   run,
@@ -1420,6 +1435,7 @@ module.exports = {
   all,
   fermerBaseDeDonnees,
   initialiserBaseDeDonnees,
+  executerMaintenanceBaseDeDonnees,
   calculerHashHistorique,
   construireListeCreationHistorique,
 };

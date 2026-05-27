@@ -8,7 +8,6 @@ import {
   recupererVueAdministration,
   ajouterElementCatalogueAdmin,
   supprimerElementCatalogueAdmin,
-  restaurerElementCatalogueAdmin,
   creerUtilisateurAdmin,
   supprimerUtilisateurAdmin,
   reinitialiserMotDePasseCompte,
@@ -22,6 +21,7 @@ import {
   revoquerSessionAdmin,
   supprimerToutesLesSeancesAdmin,
   supprimerToutHistoriqueAdmin,
+  executerMaintenanceSqliteAdmin,
   recupererJournalAuthAdmin,
   recupererSessionsAdmin,
   revoquerSessionSpecifiqueAdmin,
@@ -117,6 +117,7 @@ const etat = {
   monetisationComptesSelectionnes: [],
   monetisationSelectionInitialisee: false,
   administration: null,
+  adminVueActive: "accounts",
   catalogue: creerCatalogueVide(),
   historiqueSelection: null,
   seanceSelectionnee: null,
@@ -128,6 +129,41 @@ const etat = {
     subscribed: false,
   },
 };
+const vuesAdministration = {
+  accounts: {
+    titre: "Comptes",
+    note: "Creez, securisez ou retirez les comptes collaborateurs.",
+  },
+  catalogue: {
+    titre: "Catalogue",
+    note: "Gerez les comptes de seance et les tarifs utilises dans l'application.",
+  },
+  access: {
+    titre: "Acces",
+    note: "Activez les modules disponibles pour chaque compte sans modifier les seances existantes.",
+  },
+  security: {
+    titre: "Securite",
+    note: "Surveillez les sessions, les appareils auto-login, l'audit et les IP bloquees.",
+  },
+  maintenance: {
+    titre: "Maintenance",
+    note: "Executez des controles SQLite legers et adaptes a une petite instance Oracle.",
+  },
+  password: {
+    titre: "MDP",
+    note: "Changez le mot de passe du compte connecte.",
+  },
+  notifications: {
+    titre: "Notifications",
+    note: "Activez ou testez les notifications push sur cet appareil.",
+  },
+  danger: {
+    titre: "Zone critique",
+    note: "Actions destructrices a utiliser seulement apres verification.",
+  },
+};
+const vuesAdministrationValides = new Set(Object.keys(vuesAdministration));
 const connexionTempsReel = {
   source: null,
   synchronisationProgrammee: null,
@@ -175,6 +211,11 @@ const elements = {
   userSecurityStatus: document.getElementById("user-security-status"),
   passwordSecurityNotice: document.getElementById("password-security-notice"),
   adminToolsPanel: document.getElementById("admin-tools-panel"),
+  adminViewTabs: Array.from(document.querySelectorAll("[data-admin-view]")),
+  adminGroupItems: Array.from(document.querySelectorAll("[data-admin-group]")),
+  adminGroupShells: Array.from(document.querySelectorAll("[data-admin-group-shell]")),
+  adminActionsTitle: document.getElementById("admin-actions-title"),
+  adminActionsNote: document.getElementById("admin-actions-note"),
   userPasswordForm: document.getElementById("user-password-form"),
   userPasswordError: document.getElementById("user-password-error"),
   currentPassword: document.getElementById("current-password"),
@@ -197,14 +238,6 @@ const elements = {
   adminCreateUserForm: document.getElementById("admin-create-user-form"),
   adminCreateUserName: document.getElementById("admin-new-user-name"),
   adminCreateUserEmail: document.getElementById("admin-new-user-email"),
-  adminAddSubjectForm: document.getElementById("admin-add-subject-form"),
-  adminNewSubjectName: document.getElementById("admin-new-subject-name"),
-  adminSubjectList: document.getElementById("admin-subject-list"),
-  adminAddSubjectCurrentPassword: document.getElementById(
-    "admin-add-subject-current-password"
-  ),
-  adminAddSubjectError: document.getElementById("admin-add-subject-error"),
-  adminAddSubjectButton: document.getElementById("admin-add-subject-button"),
   adminAddAccountForm: document.getElementById("admin-add-account-form"),
   adminNewAccountName: document.getElementById("admin-new-account-name"),
   adminAccountList: document.getElementById("admin-account-list"),
@@ -344,6 +377,14 @@ const elements = {
     "admin-clear-history-current-password"
   ),
   adminClearHistoryButton: document.getElementById("admin-clear-history-button"),
+  adminMaintenanceSqliteForm: document.getElementById("admin-maintenance-sqlite-form"),
+  adminMaintenanceSqliteStatus: document.getElementById("admin-maintenance-sqlite-status"),
+  adminMaintenanceSqliteCurrentPassword: document.getElementById(
+    "admin-maintenance-sqlite-current-password"
+  ),
+  adminMaintenanceSqliteError: document.getElementById("admin-maintenance-sqlite-error"),
+  adminMaintenanceSqliteResult: document.getElementById("admin-maintenance-sqlite-result"),
+  adminMaintenanceSqliteButton: document.getElementById("admin-maintenance-sqlite-button"),
   calendar: document.getElementById("calendar"),
   totalCount: document.getElementById("total-count"),
   statsAccountsOverview: document.getElementById("stats-accounts-overview"),
@@ -962,7 +1003,11 @@ function attacherEcouteurs() {
     }
   });
   elements.userPasswordForm?.addEventListener("submit", gererModificationMotDePasse);
-  elements.adminAddSubjectForm?.addEventListener("submit", gererAjoutMatiereAdministration);
+  elements.adminViewTabs.forEach((bouton) => {
+    bouton?.addEventListener("click", () => {
+      afficherVueAdministration(bouton.dataset.adminView);
+    });
+  });
   elements.adminAddAccountForm?.addEventListener("submit", gererAjoutCompteAdministration);
   elements.adminUnavailabilityForm?.addEventListener("submit", gererCreationIndisponibilite);
   elements.adminCreateUserForm?.addEventListener("submit", gererCreationUtilisateurAdmin);
@@ -1023,6 +1068,10 @@ function attacherEcouteurs() {
   elements.adminClearHistoryForm?.addEventListener(
     "submit",
     gererSuppressionToutHistorique
+  );
+  elements.adminMaintenanceSqliteForm?.addEventListener(
+    "submit",
+    gererMaintenanceSqliteAdmin
   );
   elements.historyDeleteForm?.addEventListener("submit", gererSuppressionEntreeHistorique);
   elements.historyDetailModalDeleteForm?.addEventListener(
@@ -1532,8 +1581,6 @@ function mettreAJourNavigationProtegee() {
 function reinitialiserFormulaireUtilisateur() {
   elements.userPasswordForm.reset();
   masquerErreur(elements.userPasswordError);
-  elements.adminAddSubjectForm.reset();
-  masquerErreur(elements.adminAddSubjectError);
   elements.adminAddAccountForm.reset();
   masquerErreur(elements.adminAddAccountError);
   elements.adminCreateUserForm.reset();
@@ -1568,11 +1615,74 @@ function reinitialiserFormulaireUtilisateur() {
   masquerErreur(elements.adminClearSeancesError);
   elements.adminClearHistoryForm.reset();
   masquerErreur(elements.adminClearHistoryError);
+  elements.adminMaintenanceSqliteForm.reset();
+  masquerErreur(elements.adminMaintenanceSqliteError);
+  masquerInfo(elements.adminMaintenanceSqliteResult);
+  elements.adminMaintenanceSqliteStatus.textContent = "Non verifie";
   elements.adminUnavailabilityForm?.reset?.();
   masquerErreur(elements.adminUnavailabilityError);
   elements.adminBlockIpForm.reset();
   masquerErreur(elements.adminBlockIpError);
   initialiserFormulaireIndisponibilite();
+}
+
+function obtenirVueAdministrationValide(vue) {
+  return vuesAdministrationValides.has(vue) ? vue : "accounts";
+}
+
+function elementAdministrationAppartientVue(element, vue) {
+  return String(element?.dataset?.adminGroup || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .includes(vue);
+}
+
+function mettreAJourVisibiliteGroupesAdministration(vue) {
+  elements.adminGroupItems.forEach((element) => {
+    element.classList.toggle("hidden", !elementAdministrationAppartientVue(element, vue));
+  });
+
+  elements.adminGroupShells.forEach((shell) => {
+    const contientElementVisible = Array.from(shell.querySelectorAll("[data-admin-group]")).some(
+      (element) => !element.classList.contains("hidden")
+    );
+
+    shell.classList.toggle("hidden", !contientElementVisible);
+  });
+}
+
+function mettreAJourDispositionAdministration(activee) {
+  const layout = elements.adminToolsPanel?.closest(".admin-panel-layout");
+
+  if (!layout) {
+    return;
+  }
+
+  layout.classList.toggle("admin-panel-layout-workbench", Boolean(activee));
+  layout.classList.toggle("admin-panel-layout-password", activee && etat.adminVueActive === "password");
+}
+
+function afficherVueAdministration(vueDemandee = "accounts") {
+  const vue = obtenirVueAdministrationValide(vueDemandee);
+  const configuration = vuesAdministration[vue];
+  etat.adminVueActive = vue;
+  mettreAJourDispositionAdministration(true);
+
+  elements.adminViewTabs.forEach((bouton) => {
+    const actif = bouton.dataset.adminView === vue;
+    bouton.classList.toggle("is-active", actif);
+    bouton.setAttribute("aria-selected", actif ? "true" : "false");
+  });
+
+  if (elements.adminActionsTitle) {
+    elements.adminActionsTitle.textContent = configuration.titre;
+  }
+
+  if (elements.adminActionsNote) {
+    elements.adminActionsNote.textContent = configuration.note;
+  }
+
+  mettreAJourVisibiliteGroupesAdministration(vue);
 }
 
 function definirBadgeAdmin(element, texte, type) {
@@ -1979,22 +2089,6 @@ async function gererAjoutElementCatalogueAdministration({
   }
 }
 
-async function gererAjoutMatiereAdministration(event) {
-  event.preventDefault();
-
-  await gererAjoutElementCatalogueAdministration({
-    type: "matiere",
-    valeur: elements.adminNewSubjectName.value.trim(),
-    motDePasseActuel: elements.adminAddSubjectCurrentPassword.value,
-    form: elements.adminAddSubjectForm,
-    erreurElement: elements.adminAddSubjectError,
-    bouton: elements.adminAddSubjectButton,
-    libelleChargement: "Ajout...",
-    libelleBouton: "Ajouter la matière",
-    messageSucces: "Matière ajoutée.",
-  });
-}
-
 async function gererAjoutCompteAdministration(event) {
   event.preventDefault();
 
@@ -2056,70 +2150,6 @@ async function gererSuppressionElementCatalogueAdministration({
     }
     await chargerAdministrationSiAutorise();
     afficherToast(resultat.message || "Element du catalogue supprime.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      elements.adminToolsPanel.classList.add("hidden");
-      afficherSectionApplication("dashboard");
-      afficherToast(erreur.message, "error");
-      return;
-    }
-
-    afficherErreur(erreurElement, erreur.message);
-  } finally {
-    bouton.disabled = false;
-  }
-}
-
-async function gererRestaurationElementCatalogueAdministration({
-  type,
-  elementCatalogue,
-  motDePasseInput,
-  erreurElement,
-  bouton,
-}) {
-  masquerErreur(erreurElement);
-
-  if (!utilisateurPeutVoirAdministration()) {
-    elements.adminToolsPanel.classList.add("hidden");
-    return;
-  }
-
-  const motDePasseActuel = String(motDePasseInput?.value || "");
-
-  if (!motDePasseActuel) {
-    afficherErreur(
-      erreurElement,
-      "Saisissez votre mot de passe actuel avant de restaurer cet element."
-    );
-    return;
-  }
-
-  const libelleType = type === "matiere" ? "matiere" : "compte";
-  const confirmation = window.confirm(
-    `Restaurer ${libelleType} ${elementCatalogue.valeur} dans le catalogue ?`
-  );
-
-  if (!confirmation) {
-    return;
-  }
-
-  bouton.disabled = true;
-
-  try {
-    const resultat = await restaurerElementCatalogueAdmin(
-      elementCatalogue.id,
-      motDePasseActuel
-    );
-    if (motDePasseInput) {
-      motDePasseInput.value = "";
-    }
-    await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Element du catalogue restaure.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -2806,6 +2836,75 @@ async function gererSuppressionToutHistorique(event) {
   }
 }
 
+function formaterResultatCheckpointSqlite(checkpoint) {
+  if (!checkpoint || typeof checkpoint !== "object") {
+    return "WAL non detaille";
+  }
+
+  const busy = Number(checkpoint.busy ?? checkpoint.BUSY ?? 0);
+  const log = Number(checkpoint.log ?? checkpoint.LOG ?? 0);
+  const checkpointed = Number(checkpoint.checkpointed ?? checkpoint.CHECKPOINTED ?? 0);
+
+  return `WAL busy ${busy}, log ${log}, checkpoint ${checkpointed}`;
+}
+
+async function gererMaintenanceSqliteAdmin(event) {
+  event.preventDefault();
+  masquerErreur(elements.adminMaintenanceSqliteError);
+  masquerInfo(elements.adminMaintenanceSqliteResult);
+
+  if (!utilisateurPeutVoirAdministration()) {
+    elements.adminToolsPanel.classList.add("hidden");
+    return;
+  }
+
+  const motDePasseActuel = elements.adminMaintenanceSqliteCurrentPassword.value;
+
+  if (!motDePasseActuel) {
+    afficherErreur(
+      elements.adminMaintenanceSqliteError,
+      "Entrez votre mot de passe actuel pour lancer la maintenance."
+    );
+    return;
+  }
+
+  elements.adminMaintenanceSqliteButton.disabled = true;
+  elements.adminMaintenanceSqliteButton.textContent = "Verification...";
+
+  try {
+    const resultat = await executerMaintenanceSqliteAdmin(motDePasseActuel);
+    const maintenance = resultat.maintenance || {};
+    const integrite = String(maintenance.integrity_check || "unknown");
+    const checkpoint = formaterResultatCheckpointSqlite(maintenance.wal_checkpoint);
+    const statut = integrite === "ok" ? "Base OK" : "A verifier";
+
+    elements.adminMaintenanceSqliteForm.reset();
+    elements.adminMaintenanceSqliteStatus.textContent = `${statut} - ${integrite}`;
+    afficherInfo(
+      elements.adminMaintenanceSqliteResult,
+      `Integrite: ${integrite}. ${checkpoint}. Optimisation: ${maintenance.optimize || "ok"}.`
+    );
+    afficherToast(resultat.message || "Maintenance SQLite terminee.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      elements.adminToolsPanel.classList.add("hidden");
+      afficherSectionApplication("dashboard");
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherErreur(elements.adminMaintenanceSqliteError, erreur.message);
+  } finally {
+    elements.adminMaintenanceSqliteButton.disabled = false;
+    elements.adminMaintenanceSqliteButton.textContent = "Verifier SQLite";
+  }
+}
+
 function obtenirControlesSuppressionHistorique() {
   return [
     {
@@ -3464,8 +3563,6 @@ function viderAdministration() {
     '<div class="admin-session-empty">Aucun log disponible.</div>';
   elements.adminBlockedIpsList.innerHTML =
     '<div class="admin-session-empty">Aucune IP bloquee.</div>';
-  elements.adminSubjectList.innerHTML =
-    '<div class="admin-user-empty">Aucune matière disponible.</div>';
   elements.adminAccountList.innerHTML =
     '<div class="admin-user-empty">Aucun compte disponible.</div>';
   elements.adminUnavailabilityList.innerHTML =
@@ -3474,7 +3571,7 @@ function viderAdministration() {
   masquerInfo(elements.adminResetPasswordResult);
   masquerErreur(elements.adminTrustedDeviceError);
   masquerErreur(elements.adminRateError);
-  elements.adminUnavailabilityForm.classList.toggle(
+  elements.adminUnavailabilityForm?.classList.toggle(
     "hidden",
     !utilisateurPeutGererIndisponibilites()
   );
@@ -4798,17 +4895,7 @@ function afficherListeCatalogueAdministration(
     label.textContent = elementCatalogue.valeur;
     item.appendChild(label);
 
-    if (container === elements.adminSubjectList || container === elements.adminAccountList) {
-      const type = container === elements.adminSubjectList ? "matiere" : "compte";
-      const motDePasseInput =
-        type === "matiere"
-          ? elements.adminAddSubjectCurrentPassword
-          : elements.adminAddAccountCurrentPassword;
-      const erreurElement =
-        type === "matiere"
-          ? elements.adminAddSubjectError
-          : elements.adminAddAccountError;
-
+    if (container === elements.adminAccountList) {
       const action = document.createElement("button");
       action.type = "button";
       action.className = "admin-catalog-remove";
@@ -4816,10 +4903,10 @@ function afficherListeCatalogueAdministration(
       action.title = `Supprimer ${elementCatalogue.valeur}`;
       action?.addEventListener("click", async () => {
         await gererSuppressionElementCatalogueAdministration({
-          type,
+          type: "compte",
           elementCatalogue,
-          motDePasseInput,
-          erreurElement,
+          motDePasseInput: elements.adminAddAccountCurrentPassword,
+          erreurElement: elements.adminAddAccountError,
           bouton: action,
         });
       });
@@ -4837,34 +4924,6 @@ function afficherListeCatalogueAdministration(
     label.className = "admin-catalog-item-label";
     label.textContent = `${elementCatalogue.valeur} (supprime)`;
     item.appendChild(label);
-
-    if (container === elements.adminSubjectList || container === elements.adminAccountList) {
-      const type = container === elements.adminSubjectList ? "matiere" : "compte";
-      const motDePasseInput =
-        type === "matiere"
-          ? elements.adminAddSubjectCurrentPassword
-          : elements.adminAddAccountCurrentPassword;
-      const erreurElement =
-        type === "matiere"
-          ? elements.adminAddSubjectError
-          : elements.adminAddAccountError;
-
-      const action = document.createElement("button");
-      action.type = "button";
-      action.className = "button secondary";
-      action.textContent = "Restaurer";
-      action.title = `Restaurer ${elementCatalogue.valeur}`;
-      action?.addEventListener("click", async () => {
-        await gererRestaurationElementCatalogueAdministration({
-          type,
-          elementCatalogue,
-          motDePasseInput,
-          erreurElement,
-          bouton: action,
-        });
-      });
-      item.appendChild(action);
-    }
 
     container.appendChild(item);
   });
@@ -4918,6 +4977,14 @@ function selectionnerCompteAdministration(utilisateurId) {
   });
 
   mettreAJourControlesAdministration();
+
+  if (utilisateurPeutVoirAdministration()) {
+    afficherVueAdministration(etat.adminVueActive);
+  } else {
+    mettreAJourDispositionAdministration(false);
+    elements.userPasswordForm?.classList.remove("hidden");
+    elements.pushSettingsCard?.classList.remove("hidden");
+  }
 }
 
 function creerCarteUtilisateurAdministration(compte) {
@@ -5538,9 +5605,7 @@ function mettreAJourControlesAdministration() {
 function mettreAJourPanneauAdministration() {
   const comptes = obtenirComptesAdministration();
   const sessions = Array.isArray(etat.administration?.sessions) ? etat.administration.sessions : [];
-  const matieres = obtenirCatalogueAdministration("matieres");
   const comptesSeance = obtenirCatalogueAdministration("comptes");
-  const matieresSupprimees = obtenirCatalogueSupprimeAdministration("matieres");
   const comptesSupprimes = obtenirCatalogueSupprimeAdministration("comptes");
   const comptesActifs = comptes.filter((compte) => Number(compte.acces_active) === 1);
   const comptesLectureSeule = comptes.filter(
@@ -5551,7 +5616,7 @@ function mettreAJourPanneauAdministration() {
   elements.adminActiveUsers.textContent = String(comptesActifs.length);
   elements.adminReadonlyUsers.textContent = String(comptesLectureSeule.length);
   elements.adminActiveSessions.textContent = String(sessions.length);
-  elements.adminUnavailabilityForm.classList.toggle(
+  elements.adminUnavailabilityForm?.classList.toggle(
     "hidden",
     !utilisateurPeutGererIndisponibilites()
   );
@@ -5562,12 +5627,6 @@ function mettreAJourPanneauAdministration() {
   afficherJournalAuthAdministration();
   afficherIpsBloqueesAdministration();
   afficherListeIndisponibilitesAdministration();
-  afficherListeCatalogueAdministration(
-    elements.adminSubjectList,
-    matieres,
-    "Aucune matière disponible.",
-    matieresSupprimees
-  );
   afficherListeCatalogueAdministration(
     elements.adminAccountList,
     comptesSeance,

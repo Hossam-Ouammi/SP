@@ -41,15 +41,6 @@ export async function supprimerElementCatalogueAdmin(elementId, motDePasseActuel
   });
 }
 
-export async function restaurerElementCatalogueAdmin(elementId, motDePasseActuel) {
-  return envoyerRequete(`/api/admin/catalogue-items/${Number(elementId)}/restore`, {
-    method: "POST",
-    body: JSON.stringify({
-      mot_de_passe_actuel: motDePasseActuel,
-    }),
-  });
-}
-
 export async function reinitialiserMotDePasseCompte(utilisateurId, motDePasseActuel) {
   return envoyerRequete("/api/admin/reset-password", {
     method: "POST",
@@ -183,6 +174,16 @@ export async function supprimerToutHistoriqueAdmin(motDePasseActuel) {
     }),
   });
 }
+
+export async function executerMaintenanceSqliteAdmin(motDePasseActuel) {
+  return envoyerRequete("/api/admin/maintenance/sqlite", {
+    method: "POST",
+    body: JSON.stringify({
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+
 export async function recupererJournalAuthAdmin(limit = 200) {
   return envoyerRequete(`/api/admin/audit-logins?limit=${limit}`);
 }

@@ -392,7 +392,11 @@
             </section>
 
             <div class="admin-panel-layout">
-              <form id="user-password-form" class="stack-form user-password-form admin-card admin-password-card">
+              <form
+                id="user-password-form"
+                class="stack-form user-password-form admin-card admin-password-card"
+                data-admin-group="password"
+              >
                 <div class="admin-card-head">
                   <div>
                     <h3 class="user-form-title">Securite du compte</h3>
@@ -457,7 +461,39 @@
               </form>
 
               <section id="admin-tools-panel" class="user-admin-shell hidden">
-                <article class="admin-card admin-directory-card">
+                <nav class="admin-workbench-nav" aria-label="Navigation admin">
+                  <button
+                    class="admin-workbench-tab is-active"
+                    type="button"
+                    data-admin-view="accounts"
+                    aria-selected="true"
+                  >
+                    Comptes
+                  </button>
+                  <button class="admin-workbench-tab" type="button" data-admin-view="catalogue">
+                    Catalogue
+                  </button>
+                  <button class="admin-workbench-tab" type="button" data-admin-view="access">
+                    Acces
+                  </button>
+                  <button class="admin-workbench-tab" type="button" data-admin-view="security">
+                    Securite
+                  </button>
+                  <button class="admin-workbench-tab" type="button" data-admin-view="password">
+                    MDP
+                  </button>
+                  <button class="admin-workbench-tab" type="button" data-admin-view="notifications">
+                    Notifications
+                  </button>
+                  <button class="admin-workbench-tab" type="button" data-admin-view="maintenance">
+                    Maintenance
+                  </button>
+                  <button class="admin-workbench-tab" type="button" data-admin-view="danger">
+                    Zone critique
+                  </button>
+                </nav>
+
+                <article class="admin-card admin-directory-card" data-admin-group="accounts">
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Utilisateurs</h3>
@@ -489,11 +525,11 @@
                   <div id="admin-users-list" class="admin-user-list"></div>
                 </article>
 
-                <article class="admin-card admin-actions-shell">
+                <article class="admin-card admin-actions-shell" data-admin-group-shell>
                   <div class="admin-card-head">
                     <div>
-                      <h3 class="user-form-title">Outils de gestion</h3>
-                      <p class="section-note">
+                      <h3 id="admin-actions-title" class="user-form-title">Outils de gestion</h3>
+                      <p id="admin-actions-note" class="section-note">
                         Chaque action sensible demande votre mot de passe actuel.
                       </p>
                     </div>
@@ -501,45 +537,9 @@
 
                   <div class="admin-actions-grid">
                     <form
-                      id="admin-add-subject-form"
-                      class="stack-form user-password-form user-admin-form admin-action-card"
-                    >
-                      <div>
-                        <h3 class="user-form-title">Ajouter une matiere</h3>
-                        <p class="section-note">
-                          Ajoute une matiere disponible dans le formulaire des seances.
-                        </p>
-                      </div>
-
-                      <label class="field">
-                        <span>Nom de la matiere</span>
-                        <input id="admin-new-subject-name" type="text" maxlength="80" required />
-                      </label>
-
-                      <div id="admin-subject-list" class="admin-catalog-list"></div>
-
-                      <label class="field">
-                        <span>Votre mot de passe actuel</span>
-                        <input
-                          id="admin-add-subject-current-password"
-                          type="password"
-                          autocomplete="current-password"
-                          required
-                        />
-                      </label>
-
-                      <p id="admin-add-subject-error" class="form-error hidden"></p>
-
-                      <div class="form-actions">
-                        <button id="admin-add-subject-button" class="button primary" type="submit">
-                          Ajouter la matiere
-                        </button>
-                      </div>
-                    </form>
-
-                    <form
                       id="admin-add-account-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="catalogue"
                     >
                       <div>
                         <h3 class="user-form-title">Ajouter un compte</h3>
@@ -577,6 +577,7 @@
                     <form
                       id="admin-create-user-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="accounts"
                     >
                       <div>
                         <h3 class="user-form-title">Ajouter un utilisateur</h3>
@@ -633,6 +634,7 @@
                     <form
                       id="admin-delete-user-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="accounts danger"
                     >
                       <div>
                         <h3 class="user-form-title">Supprimer un utilisateur</h3>
@@ -668,6 +670,7 @@
                     <form
                       id="admin-reset-password-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="accounts"
                     >
                       <div>
                         <h3 class="user-form-title">Reinitialiser un mot de passe</h3>
@@ -711,6 +714,7 @@
                     <form
                       id="admin-toggle-access-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="access"
                     >
                       <div>
                         <h3 class="user-form-title">Gerer l'acces</h3>
@@ -754,6 +758,7 @@
                     <form
                       id="admin-readonly-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="access"
                     >
                       <div>
                         <h3 class="user-form-title">Lecture seule</h3>
@@ -793,6 +798,7 @@
                     <form
                       id="admin-today-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="access"
                     >
                       <div>
                         <h3 class="user-form-title">Afficher Aujourd'hui</h3>
@@ -832,6 +838,7 @@
                     <form
                       id="admin-unavailability-access-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="access"
                     >
                       <div>
                         <h3 class="user-form-title">Afficher Indisponibilites</h3>
@@ -875,6 +882,7 @@
                     <form
                       id="admin-monetisation-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="access"
                     >
                       <div>
                         <h3 class="user-form-title">Afficher Monetisation</h3>
@@ -914,6 +922,7 @@
                     <form
                       id="admin-rate-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="catalogue"
                     >
                       <div>
                         <h3 class="user-form-title">Tarif horaire</h3>
@@ -966,6 +975,7 @@
                     <form
                       id="admin-logout-user-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="security"
                     >
                       <div>
                         <h3 class="user-form-title">Couper les sessions d'un compte</h3>
@@ -999,8 +1009,52 @@
                     </form>
 
                     <form
+                      id="admin-maintenance-sqlite-form"
+                      class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="maintenance"
+                    >
+                      <div>
+                        <h3 class="user-form-title">Maintenance SQLite</h3>
+                        <p class="section-note">
+                          Verifie la base, libere le journal WAL et applique les optimisations legeres.
+                        </p>
+                      </div>
+
+                      <div class="security-notice security-notice-subtle">
+                        Dernier etat : <strong id="admin-maintenance-sqlite-status">Non verifie</strong>
+                      </div>
+
+                      <label class="field">
+                        <span>Votre mot de passe actuel</span>
+                        <input
+                          id="admin-maintenance-sqlite-current-password"
+                          type="password"
+                          autocomplete="current-password"
+                          required
+                        />
+                      </label>
+
+                      <p id="admin-maintenance-sqlite-error" class="form-error hidden"></p>
+                      <div
+                        id="admin-maintenance-sqlite-result"
+                        class="security-notice security-notice-success hidden"
+                      ></div>
+
+                      <div class="form-actions">
+                        <button
+                          id="admin-maintenance-sqlite-button"
+                          class="button secondary"
+                          type="submit"
+                        >
+                          Verifier SQLite
+                        </button>
+                      </div>
+                    </form>
+
+                    <form
                       id="admin-clear-seances-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="danger"
                     >
                       <div>
                         <h3 class="user-form-title">Supprimer toutes les seances</h3>
@@ -1035,6 +1089,7 @@
                     <form
                       id="admin-clear-history-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
+                      data-admin-group="danger"
                     >
                       <div>
                         <h3 class="user-form-title">Supprimer tout l'historique</h3>
@@ -1068,7 +1123,7 @@
                   </div>
                 </article>
 
-                <article class="admin-card admin-sessions-card">
+                <article class="admin-card admin-sessions-card" data-admin-group="security">
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Sessions actives</h3>
@@ -1094,7 +1149,7 @@
                   </form>
                 </article>
 
-                <article class="admin-card admin-sessions-card">
+                <article class="admin-card admin-sessions-card" data-admin-group="security">
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Appareils auto-login</h3>
@@ -1120,7 +1175,7 @@
                   </form>
                 </article>
 
-                <article class="admin-card admin-audit-card">
+                <article class="admin-card admin-audit-card" data-admin-group="security">
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Journal d'audit</h3>
@@ -1133,7 +1188,7 @@
                   <div id="admin-audit-log-list" class="admin-audit-list"></div>
                 </article>
 
-                <article class="admin-card admin-blacklist-card">
+                <article class="admin-card admin-blacklist-card" data-admin-group="security">
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Blacklist IP</h3>
@@ -1178,7 +1233,11 @@
               </section>
             </div>
 
-            <article id="push-settings-card" class="admin-card user-notifications-card">
+            <article
+              id="push-settings-card"
+              class="admin-card user-notifications-card"
+              data-admin-group="notifications"
+            >
               <div class="admin-card-head">
                 <div>
                   <h3 class="user-form-title">Notifications push</h3>

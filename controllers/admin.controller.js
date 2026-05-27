@@ -2,6 +2,8 @@ const net = require("net");
 const bcrypt = require("bcryptjs");
 const { genererMotDePasseAleatoire } = require("../utils/security");
 const { normaliserIpClient } = require("../middleware/security.middleware");
+const { executerAvecVerrou } = require("../utils/job-lock");
+const { executerMaintenanceBaseDeDonnees } = require("../models/db");
 
 const {
   creerUtilisateur,
@@ -29,11 +31,9 @@ const {
   recupererCatalogueAdministration,
   trouverElementCatalogue,
   trouverElementCatalogueParId,
-  trouverElementCatalogueSupprimeParId,
   ajouterElementCatalogue,
   compterUtilisationElementCatalogue,
   supprimerElementCatalogue,
-  restaurerElementCatalogue,
   supprimerUtilisateurAdministration: supprimerUtilisateurAdministrationModele,
 } = require("../models/admin.model");
 const {
@@ -147,9 +147,15 @@ async function ajouterElementCatalogueAdministration(req, res) {
   const typeNormalise = normaliserTexte(type).toLowerCase();
   const valeurNormalisee = normaliserTexte(valeur);
 
-  if (!["matiere", "compte"].includes(typeNormalise) || !valeurNormalisee || !motDePasseActuel) {
+  if (typeNormalise !== "compte") {
     return res.status(400).json({
-      message: "Type, valeur et mot de passe actuel obligatoires.",
+      message: "La gestion admin du catalogue est limitee aux comptes.",
+    });
+  }
+
+  if (!valeurNormalisee || !motDePasseActuel) {
+    return res.status(400).json({
+      message: "Valeur du compte et mot de passe actuel obligatoires.",
     });
   }
 
@@ -172,10 +178,7 @@ async function ajouterElementCatalogueAdministration(req, res) {
 
   if (valeurExistante) {
     return res.status(400).json({
-      message:
-        typeNormalise === "matiere"
-          ? "Cette matiere existe deja."
-          : "Ce compte existe deja.",
+      message: "Ce compte existe deja.",
     });
   }
 
@@ -188,10 +191,7 @@ async function ajouterElementCatalogueAdministration(req, res) {
   });
 
   return res.status(201).json({
-    message:
-      typeNormalise === "matiere"
-        ? `La matiere ${elementCatalogue.valeur} a ete ajoutee.`
-        : `Le compte ${elementCatalogue.valeur} a ete ajoute.`,
+    message: `Le compte ${elementCatalogue.valeur} a ete ajoute.`,
     element: elementCatalogue,
   });
 }
@@ -222,6 +222,12 @@ async function supprimerElementCatalogueAdministration(req, res) {
     });
   }
 
+  if (elementCatalogue.type === "matiere") {
+    return res.status(400).json({
+      message: "La gestion admin des matieres n'est plus disponible.",
+    });
+  }
+
   const totalUtilisations = await compterUtilisationElementCatalogue(
     elementCatalogue.type,
     elementCatalogue.valeur
@@ -237,54 +243,7 @@ async function supprimerElementCatalogueAdministration(req, res) {
   });
 
   return res.json({
-    message:
-      elementCatalogue.type === "matiere"
-        ? `La matiere ${elementCatalogue.valeur} a ete supprimee du catalogue. Les seances existantes restent conservees.`
-        : `Le compte ${elementCatalogue.valeur} a ete supprime du catalogue. Les seances existantes restent conservees.`,
-  });
-}
-
-async function restaurerElementCatalogueAdministration(req, res) {
-  const elementId = Number(req.params.id);
-  const { mot_de_passe_actuel: motDePasseActuel } = req.body;
-
-  if (!Number.isInteger(elementId) || elementId <= 0 || !motDePasseActuel) {
-    return res.status(400).json({
-      message: "Element cible et mot de passe actuel obligatoires.",
-    });
-  }
-
-  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
-
-  if (!verification.ok) {
-    return repondreErreurVerification(req, res, verification, "admin_restore_catalog_item", {
-      element_id: elementId,
-    });
-  }
-
-  const elementSupprime = await trouverElementCatalogueSupprimeParId(elementId);
-
-  if (!elementSupprime) {
-    return res.status(404).json({
-      message: "Element supprime du catalogue introuvable.",
-    });
-  }
-
-  const elementCatalogue = await restaurerElementCatalogue(elementSupprime.id);
-
-  await journaliserActionAdmin(req, "admin_restore_catalog_item", "success", {
-    element_id: elementSupprime.id,
-    type: elementSupprime.type,
-    valeur: elementSupprime.valeur,
-    restored_element_id: elementCatalogue?.id || null,
-  });
-
-  return res.json({
-    message:
-      elementSupprime.type === "matiere"
-        ? `La matiere ${elementSupprime.valeur} a ete restauree dans le catalogue.`
-        : `Le compte ${elementSupprime.valeur} a ete restaure dans le catalogue.`,
-    element: elementCatalogue,
+    message: `Le compte ${elementCatalogue.valeur} a ete supprime du catalogue. Les seances existantes restent conservees.`,
   });
 }
 
@@ -996,6 +955,44 @@ async function supprimerToutHistoriqueAdmin(req, res) {
   });
 }
 
+async function executerMaintenanceSqliteAdministration(req, res) {
+  const { mot_de_passe_actuel: motDePasseActuel } = req.body || {};
+
+  if (!motDePasseActuel) {
+    return res.status(400).json({
+      message: "Le mot de passe actuel est obligatoire.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(req, res, verification, "admin_sqlite_maintenance");
+  }
+
+  const execution = await executerAvecVerrou(
+    "sqlite-maintenance",
+    executerMaintenanceBaseDeDonnees,
+    { staleMs: 30 * 60 * 1000 }
+  );
+
+  if (execution.skipped) {
+    return res.status(409).json({
+      message: "Une maintenance SQLite est deja en cours.",
+    });
+  }
+
+  await journaliserActionAdmin(req, "admin_sqlite_maintenance", "success", {
+    integrity_check: execution.result.integrity_check,
+    wal_checkpoint: execution.result.wal_checkpoint,
+  });
+
+  return res.json({
+    message: "Maintenance SQLite terminee.",
+    maintenance: execution.result,
+  });
+}
+
 async function recupererJournalAuthentification(req, res) {
   try {
     const limite = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
@@ -1216,7 +1213,6 @@ module.exports = {
   recupererVueAdministration,
   ajouterElementCatalogueAdministration,
   supprimerElementCatalogueAdministration,
-  restaurerElementCatalogueAdministration,
   creerUtilisateurAdministration,
   supprimerUtilisateurAdministration,
   reinitialiserMotDePasseCompte,
@@ -1226,6 +1222,7 @@ module.exports = {
   revoquerSessionsUtilisateurAdministration,
   supprimerToutesLesSeancesAdmin,
   supprimerToutHistoriqueAdmin,
+  executerMaintenanceSqliteAdministration,
   mettreAJourAccesAujourdhuiUtilisateur,
   mettreAJourAccesIndisponibilitesUtilisateur,
   mettreAJourAccesMonetisationUtilisateur,

@@ -4,7 +4,6 @@ const {
   recupererVueAdministration,
   ajouterElementCatalogueAdministration,
   supprimerElementCatalogueAdministration,
-  restaurerElementCatalogueAdministration,
   creerUtilisateurAdministration,
   supprimerUtilisateurAdministration,
   reinitialiserMotDePasseCompte,
@@ -18,6 +17,7 @@ const {
   revoquerSessionsUtilisateurAdministration,
   supprimerToutesLesSeancesAdmin,
   supprimerToutHistoriqueAdmin,
+  executerMaintenanceSqliteAdministration,
   recupererJournalAuthentification,
   recupererToutesLesSessions,
   revoquerSessionSpecifique,
@@ -45,10 +45,6 @@ router.post(
 router.delete(
   "/catalogue-items/:id",
   notifierMiseAJourApplication(supprimerElementCatalogueAdministration, "catalogue")
-);
-router.post(
-  "/catalogue-items/:id/restore",
-  notifierMiseAJourApplication(restaurerElementCatalogueAdministration, "catalogue")
 );
 router.post("/users", notifierMiseAJourApplication(creerUtilisateurAdministration, "administration"));
 router.delete(
@@ -98,6 +94,10 @@ router.post(
 router.post(
   "/clear-history",
   notifierMiseAJourApplication(supprimerToutHistoriqueAdmin, "historique")
+);
+router.post(
+  "/maintenance/sqlite",
+  notifierMiseAJourApplication(executerMaintenanceSqliteAdministration, "administration")
 );
 
 router.get("/audit-logins", recupererJournalAuthentification);

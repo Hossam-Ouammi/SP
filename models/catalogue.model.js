@@ -246,55 +246,6 @@ async function supprimerValeurCatalogueParId(id) {
   }
 }
 
-async function restaurerValeurCatalogueSupprimeeParId(id) {
-  const elementSupprime = await trouverValeurCatalogueSupprimeeParId(id);
-
-  if (!elementSupprime) {
-    return null;
-  }
-
-  const tarifHoraire = obtenirTarifHoraireCatalogueParDefaut(
-    elementSupprime.type,
-    elementSupprime.valeur
-  );
-
-  await run("BEGIN IMMEDIATE TRANSACTION");
-
-  try {
-    const valeurActive = await trouverValeurCatalogue(
-      elementSupprime.type,
-      elementSupprime.valeur
-    );
-
-    await run(
-      `
-        DELETE FROM catalogue_options_supprimees
-        WHERE id = ?
-      `,
-      [elementSupprime.id]
-    );
-
-    if (valeurActive) {
-      await run("COMMIT");
-      return valeurActive;
-    }
-
-    const resultat = await run(
-      `
-        INSERT INTO catalogue_options (type, valeur, tarif_horaire)
-        VALUES (?, ?, ?)
-      `,
-      [elementSupprime.type, elementSupprime.valeur, tarifHoraire]
-    );
-
-    await run("COMMIT");
-    return trouverValeurCatalogueParId(resultat.id);
-  } catch (error) {
-    await run("ROLLBACK").catch(() => {});
-    throw error;
-  }
-}
-
 module.exports = {
   listerValeursCatalogueParType,
   listerCatalogueOptions,
@@ -306,5 +257,4 @@ module.exports = {
   mettreAJourTarifHoraireCompteCatalogue,
   compterUtilisationValeurCatalogue,
   supprimerValeurCatalogueParId,
-  restaurerValeurCatalogueSupprimeeParId,
 };
