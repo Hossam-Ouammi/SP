@@ -16,7 +16,7 @@ const etat = {
   config: {
     timezone_public: publicTimezone,
     timezone_public_label: publicTimezoneLabel,
-    slot_min_time: "08:00",
+    slot_min_time: "09:00",
     slot_max_time: "23:00",
     refresh_interval_ms: 15000,
   },
@@ -159,7 +159,7 @@ function appliquerOptionsMaintenantCalendrierPublic(dateObjet = new Date()) {
   }
 
   const fenetre = calculerFenetreHoraireVisible({
-    slotMinTime: etat.config.slot_min_time || "08:00",
+    slotMinTime: etat.config.slot_min_time || "09:00",
     slotMaxTime: etat.config.slot_max_time || "23:00",
     maintenantMinutes: obtenirMinutesMaintenantFuseauPublic(dateObjet),
   });
@@ -438,7 +438,7 @@ function initialiserCalendrier(initialWeekStart) {
   }
 
   const fenetreInitiale = calculerFenetreHoraireVisible({
-    slotMinTime: etat.config.slot_min_time || "08:00",
+    slotMinTime: etat.config.slot_min_time || "09:00",
     slotMaxTime: etat.config.slot_max_time || "23:00",
     maintenantMinutes: obtenirMinutesMaintenantFuseauPublic(),
   });

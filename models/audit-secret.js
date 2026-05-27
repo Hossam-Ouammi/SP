@@ -14,6 +14,7 @@ function recupererSecretAudit() {
   if (!fs.existsSync(secretPath)) {
     fs.writeFileSync(secretPath, crypto.randomBytes(48).toString("hex"), {
       encoding: "utf8",
+      mode: 0o600,
     });
   }
 

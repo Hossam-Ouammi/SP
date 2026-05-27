@@ -1,14 +1,4 @@
-const { all, get, run } = require("./db");
-
-async function creerPhoto({ seanceId, cheminFichier, nomFichier }) {
-  return run(
-    `
-      INSERT INTO photos (seance_id, chemin_fichier, nom_fichier)
-      VALUES (?, ?, ?)
-    `,
-    [seanceId, cheminFichier, nomFichier]
-  );
-}
+const { all, get } = require("./db");
 
 async function recupererPhotosParSeance(seanceId) {
   return all(
@@ -34,7 +24,6 @@ async function trouverPhotoParId(photoId) {
 }
 
 module.exports = {
-  creerPhoto,
   recupererPhotosParSeance,
   trouverPhotoParId,
 };

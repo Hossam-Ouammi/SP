@@ -16,6 +16,10 @@ function normaliserValeurCatalogue(valeur) {
   return String(valeur || "").trim();
 }
 
+function normaliserValeurCataloguePourSuppression(valeur) {
+  return normaliserValeurCatalogue(valeur).toLowerCase();
+}
+
 function obtenirTarifHoraireCatalogueParDefaut(type, valeur) {
   if (type !== "compte") {
     return 0;
@@ -88,6 +92,7 @@ async function trouverValeurCatalogueParId(id) {
 async function ajouterValeurCatalogue(type, valeur) {
   const typeNormalise = normaliserTypeCatalogue(type);
   const valeurNormalisee = normaliserValeurCatalogue(valeur);
+  const valeurSuppression = normaliserValeurCataloguePourSuppression(valeurNormalisee);
   const tarifHoraire = obtenirTarifHoraireCatalogueParDefaut(
     typeNormalise,
     valeurNormalisee
@@ -97,13 +102,30 @@ async function ajouterValeurCatalogue(type, valeur) {
     throw new Error("Type ou valeur de catalogue invalide.");
   }
 
-  const resultat = await run(
-    `
-      INSERT INTO catalogue_options (type, valeur, tarif_horaire)
-      VALUES (?, ?, ?)
-    `,
-    [typeNormalise, valeurNormalisee, tarifHoraire]
-  );
+  await run("BEGIN IMMEDIATE TRANSACTION");
+
+  let resultat;
+
+  try {
+    await run(
+      `
+        DELETE FROM catalogue_options_supprimees
+        WHERE type = ? AND valeur_normalisee = ?
+      `,
+      [typeNormalise, valeurSuppression]
+    );
+    resultat = await run(
+      `
+        INSERT INTO catalogue_options (type, valeur, tarif_horaire)
+        VALUES (?, ?, ?)
+      `,
+      [typeNormalise, valeurNormalisee, tarifHoraire]
+    );
+    await run("COMMIT");
+  } catch (error) {
+    await run("ROLLBACK").catch(() => {});
+    throw error;
+  }
 
   return get(
     `
@@ -148,13 +170,47 @@ async function compterUtilisationValeurCatalogue(type, valeur) {
 }
 
 async function supprimerValeurCatalogueParId(id) {
-  return run(
-    `
-      DELETE FROM catalogue_options
-      WHERE id = ?
-    `,
-    [id]
-  );
+  const elementCatalogue = await trouverValeurCatalogueParId(id);
+
+  if (!elementCatalogue) {
+    return { changes: 0 };
+  }
+
+  await run("BEGIN IMMEDIATE TRANSACTION");
+
+  try {
+    await run(
+      `
+        INSERT INTO catalogue_options_supprimees (
+          type,
+          valeur_normalisee,
+          valeur,
+          deleted_at
+        )
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(type, valeur_normalisee) DO UPDATE SET
+          valeur = excluded.valeur,
+          deleted_at = CURRENT_TIMESTAMP
+      `,
+      [
+        elementCatalogue.type,
+        normaliserValeurCataloguePourSuppression(elementCatalogue.valeur),
+        elementCatalogue.valeur,
+      ]
+    );
+    const resultat = await run(
+      `
+        DELETE FROM catalogue_options
+        WHERE id = ?
+      `,
+      [id]
+    );
+    await run("COMMIT");
+    return resultat;
+  } catch (error) {
+    await run("ROLLBACK").catch(() => {});
+    throw error;
+  }
 }
 
 module.exports = {

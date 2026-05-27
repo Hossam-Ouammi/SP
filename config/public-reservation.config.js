@@ -26,7 +26,7 @@ module.exports = {
     .trim()
     .toLowerCase(),
   PUBLIC_RESERVATION_SLOT_MIN_TIME:
-    process.env.PUBLIC_RESERVATION_SLOT_MIN_TIME || "08:00",
+    process.env.PUBLIC_RESERVATION_SLOT_MIN_TIME || "09:00",
   PUBLIC_RESERVATION_SLOT_MAX_TIME:
     process.env.PUBLIC_RESERVATION_SLOT_MAX_TIME || "23:00",
 };

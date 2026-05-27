@@ -2,10 +2,10 @@ const express = require("express");
 
 const {
   afficherPageReservationPublique,
+  ouvrirFluxPlanningPublic,
   recupererPlanningReservationPublique,
   reserverCreneauPublic,
 } = require("../controllers/public-reservation.controller");
-const { notifierMiseAJourApplication } = require("../utils/realtime-route");
 
 const pageRouter = express.Router();
 const apiRouter = express.Router();
@@ -13,7 +13,8 @@ const apiRouter = express.Router();
 pageRouter.get("/", afficherPageReservationPublique);
 
 apiRouter.get("/", recupererPlanningReservationPublique);
-apiRouter.post("/reserver", notifierMiseAJourApplication(reserverCreneauPublic, "seances"));
+apiRouter.get("/events", ouvrirFluxPlanningPublic);
+apiRouter.post("/reserver", reserverCreneauPublic);
 
 module.exports = {
   pageRouter,

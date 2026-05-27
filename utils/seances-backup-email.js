@@ -231,6 +231,10 @@ function planifierProchainBackupSeances() {
     }
   }, delai);
 
+  if (typeof backupTimer.unref === "function") {
+    backupTimer.unref();
+  }
+
   console.log(
     `Backup seances planifie pour ${prochaineExecution.toISOString()} (${BACKUP_SEANCES_TIMEZONE}).`
   );

@@ -225,28 +225,20 @@ async function supprimerElementCatalogueAdministration(req, res) {
     elementCatalogue.valeur
   );
 
-  if (totalUtilisations > 0) {
-    return res.status(400).json({
-      message:
-        elementCatalogue.type === "matiere"
-          ? `Impossible de supprimer cette matiere : elle est encore utilisee dans ${totalUtilisations} seance(s).`
-          : `Impossible de supprimer ce compte : il est encore utilise dans ${totalUtilisations} seance(s).`,
-    });
-  }
-
   await supprimerElementCatalogue(elementCatalogue.id);
 
   await journaliserActionAdmin(req, "admin_delete_catalog_item", "success", {
     element_id: elementCatalogue.id,
     type: elementCatalogue.type,
     valeur: elementCatalogue.valeur,
+    seances_existantes_conservees: totalUtilisations,
   });
 
   return res.json({
     message:
       elementCatalogue.type === "matiere"
-        ? `La matiere ${elementCatalogue.valeur} a ete supprimee.`
-        : `Le compte ${elementCatalogue.valeur} a ete supprime.`,
+        ? `La matiere ${elementCatalogue.valeur} a ete supprimee du catalogue. Les seances existantes restent conservees.`
+        : `Le compte ${elementCatalogue.valeur} a ete supprime du catalogue. Les seances existantes restent conservees.`,
   });
 }
 
@@ -923,11 +915,11 @@ async function supprimerToutesLesSeancesAdmin(req, res) {
 
   await journaliserActionAdmin(req, "admin_clear_seances", "success", {
     total_seances_supprimees: resume.totalSeances,
-    total_screenshots_supprimes: resume.totalPhotos,
+    total_fichiers_associes_supprimes: resume.totalPhotos,
   });
 
   return res.json({
-    message: "Toutes les seances et tous les screenshots ont ete supprimes.",
+    message: "Toutes les seances ont ete supprimees.",
   });
 }
 

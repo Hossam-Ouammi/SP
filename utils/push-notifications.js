@@ -548,6 +548,10 @@ function demarrerPlanificateurRappelsPush() {
       console.error("Erreur rappels push dus:", error);
     });
   }, PUSH_REMINDER_POLL_INTERVAL_MS);
+
+  if (typeof rappelInterval.unref === "function") {
+    rappelInterval.unref();
+  }
 }
 
 module.exports = {

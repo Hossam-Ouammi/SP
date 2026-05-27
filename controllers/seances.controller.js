@@ -53,6 +53,11 @@ function normaliserCleCompte(valeur) {
   return normaliserTexte(valeur).toLowerCase();
 }
 
+function valeurCatalogueInchangee(valeurDemandee, valeurExistante) {
+  return normaliserTexte(valeurDemandee).toLowerCase() ===
+    normaliserTexte(valeurExistante).toLowerCase();
+}
+
 function estIdentifiantValide(valeur) {
   return Number.isInteger(Number(valeur)) && Number(valeur) > 0;
 }
@@ -404,7 +409,7 @@ async function recupererCatalogueSeances() {
   };
 }
 
-async function validerDonneesSeance(donneesSeance, utilisateur) {
+async function validerDonneesSeance(donneesSeance, utilisateur, options = {}) {
   const erreurs = [];
   const dureeMinutes = Number(donneesSeance.duree_minutes);
   const heureValide = estHeureDebutSeanceValide(donneesSeance.heure_debut);
@@ -413,6 +418,15 @@ async function validerDonneesSeance(donneesSeance, utilisateur) {
   const nomParent = normaliserTexte(donneesSeance.parent);
   const description = normaliserTexte(donneesSeance.description);
   const catalogue = await recupererCatalogueSeances();
+  const seanceExistante = options.seanceExistante || null;
+  const matiereExisteAuCatalogue = catalogue.matieres.includes(donneesSeance.matiere);
+  const compteExisteAuCatalogue = catalogue.comptes.includes(donneesSeance.compte);
+  const matiereLegacyInchangee =
+    seanceExistante &&
+    valeurCatalogueInchangee(donneesSeance.matiere, seanceExistante.matiere);
+  const compteLegacyInchange =
+    seanceExistante &&
+    valeurCatalogueInchangee(donneesSeance.compte, seanceExistante.compte);
 
   if (!nomEtudiant) {
     erreurs.push("Le nom de l'étudiant est obligatoire.");
@@ -424,11 +438,11 @@ async function validerDonneesSeance(donneesSeance, utilisateur) {
     erreurs.push("Le nom du parent est trop long.");
   }
 
-  if (!catalogue.matieres.includes(donneesSeance.matiere)) {
+  if (!matiereExisteAuCatalogue && !matiereLegacyInchangee) {
     erreurs.push("La matière est invalide.");
   }
 
-  if (!catalogue.comptes.includes(donneesSeance.compte)) {
+  if (!compteExisteAuCatalogue && !compteLegacyInchange) {
     erreurs.push("Le compte est invalide.");
   }
 
@@ -670,7 +684,9 @@ async function modifierSeance(req, res) {
   }
 
   const donneesSeance = preparerDonneesSeance(req.body);
-  const erreurs = await validerDonneesSeance(donneesSeance, req.utilisateur);
+  const erreurs = await validerDonneesSeance(donneesSeance, req.utilisateur, {
+    seanceExistante,
+  });
 
   if (erreurs.length > 0) {
     return res.status(400).json({ message: erreurs.join(" ") });
@@ -822,7 +838,7 @@ async function supprimerUneSeance(req, res) {
         await fs.unlink(cheminComplet);
       } catch (error) {
         if (error.code !== "ENOENT") {
-          console.error("Suppression de screenshot impossible :", error);
+          console.error("Suppression d'un ancien fichier associe impossible :", error);
         }
       }
     })

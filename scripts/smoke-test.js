@@ -400,136 +400,102 @@ async function run() {
     );
     response = await publicReservation.request("POST", "/api/reservation-public/reserver", {
       date: "2026-06-10",
-      heure_debut: "11:00",
-      duree_minutes: 60,
-      etudiant: "Nora Test",
-      parent: "Parent Nora",
-      matiere: "Maths",
-    });
-    assert(response.status === 400, `reservation bloquee attendu=400 recu=${response.status}`);
-    response = await publicReservation.request("POST", "/api/reservation-public/reserver", {
-      date: "2026-06-10",
       heure_debut: "13:00",
       duree_minutes: 60,
       etudiant: "Nora Test",
       parent: "Parent Nora",
       matiere: "Maths",
     });
-    assert(response.status === 201, `reservation publique attendu=201 recu=${response.status}`);
-    assert(
-      response.json.profil?.connu === true,
-      "Le profil public devrait etre memorise apres la premiere reservation."
-    );
-    response = await publicReservation.request(
-      "GET",
-      "/api/reservation-public?week_start=2026-06-08"
-    );
-    assert(
-      response.json.planning.reservations.some(
-        (reservation) =>
-          reservation.date === "2026-06-10" &&
-          reservation.heure_debut === "13:00" &&
-          reservation.heure_fin === "14:00"
-      ),
-      "La reservation publique doit reapparaitre pour le meme appareil."
-    );
-    assert(
-      response.json.profil?.etudiant === "Nora Test",
-      "Le nom de l'etudiant devrait etre restitue depuis le cookie appareil."
-    );
-    const autreAppareil = new SessionClient();
-    response = await autreAppareil.request(
-      "GET",
-      "/api/reservation-public?week_start=2026-06-08"
-    );
-    assert(
-      response.json.planning.reservations.length === 0,
-      "Un autre appareil ne doit pas voir les reservations detaillees."
-    );
-    assert(
-      response.json.planning.blocages.some(
-        (blocage) =>
-          blocage.date === "2026-06-10" &&
-          blocage.heure_debut === "13:00" &&
-          blocage.heure_fin === "14:00"
-      ),
-      "La reservation du premier appareil doit etre hachuree pour les autres appareils."
-    );
+    assert(response.status === 410, `reservation desactivee attendu=410 recu=${response.status}`);
     response = await user.request("GET", "/api/seances");
     assert(
-      response.json.seances.some(
-        (seance) =>
-          seance.etudiant === "Nora Test" &&
-          seance.date === "2026-06-10" &&
-          seance.heure_debut === "12:00" &&
-          seance.heure_fin === "13:00"
+      !response.json.seances.some(
+        (seance) => seance.etudiant === "Nora Test" || seance.etudiant === "Winter France Test"
       ),
-      "La reservation publique doit etre convertie en heure du Maroc dans le calendrier central."
+      "La page publique ne doit plus creer de seance."
+    );
+    console.log("OK calendrier public");
+
+    response = await admin.request("GET", "/api/admin");
+    assert(response.status === 200, `admin catalogue attendu=200 recu=${response.status}`);
+    const matierePhysique = response.json.administration.catalogue.matieres.find(
+      (matiere) => matiere.valeur === "Physique chimie"
+    );
+    const compteYassine = response.json.administration.catalogue.comptes.find(
+      (compte) => compte.valeur === "Yassine"
+    );
+    assert(matierePhysique, "La matiere Physique chimie devrait exister.");
+    assert(compteYassine, "Le compte Yassine devrait exister.");
+
+    response = await admin.request(
+      "DELETE",
+      `/api/admin/catalogue-items/${matierePhysique.id}`,
+      {
+        mot_de_passe_actuel: "Admin!Test1234",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `delete matiere utilisee attendu=200 recu=${response.status}`);
+    response = await admin.request(
+      "DELETE",
+      `/api/admin/catalogue-items/${compteYassine.id}`,
+      {
+        mot_de_passe_actuel: "Admin!Test1234",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `delete compte utilise attendu=200 recu=${response.status}`);
+
+    response = await user.request("GET", "/api/seances/options");
+    const matieresApresSuppression = response.json.options.matieres.map((matiere) =>
+      typeof matiere === "string" ? matiere : matiere.valeur
+    );
+    const comptesApresSuppression = response.json.options.comptes.map((compte) =>
+      typeof compte === "string" ? compte : compte.valeur
+    );
+    assert(
+      !matieresApresSuppression.includes("Physique chimie"),
+      "La matiere supprimee ne devrait plus etre proposee pour les nouvelles seances."
+    );
+    assert(
+      !comptesApresSuppression.includes("Yassine"),
+      "Le compte supprime ne devrait plus etre propose pour les nouvelles seances."
     );
 
-    response = await publicReservation.request("POST", "/api/reservation-public/reserver", {
-      date: "2026-12-15",
-      heure_debut: "15:00",
-      duree_minutes: 60,
-      etudiant: "Winter France Test",
-      parent: "",
-      matiere: "Maths",
-    });
-    assert(response.status === 201, `reservation hiver attendu=201 recu=${response.status}`);
     response = await user.request("GET", "/api/seances");
-    assert(
-      response.json.seances.some(
-        (seance) =>
-          seance.etudiant === "Winter France Test" &&
-          seance.date === "2026-12-15" &&
-          seance.heure_debut === "15:00" &&
-          seance.heure_fin === "16:00"
-      ),
-      "En hiver, 15:00 France doit rester 15:00 Maroc dans le calendrier central."
+    const seanceLegacyCatalogue = response.json.seances.find(
+      (seance) => seance.etudiant === "Yanis"
     );
-
-    const reservationConcurrenteA = new SessionClient();
-    const reservationConcurrenteB = new SessionClient();
-    const [premiereReservationConcurrente, secondeReservationConcurrente] = await Promise.all([
-      reservationConcurrenteA.request("POST", "/api/reservation-public/reserver", {
-        date: "2026-06-12",
-        heure_debut: "15:00",
-        duree_minutes: 60,
-        etudiant: "Race Test",
+    assert(
+      seanceLegacyCatalogue &&
+        seanceLegacyCatalogue.matiere === "Physique chimie" &&
+        seanceLegacyCatalogue.compte === "Yassine",
+      "La suppression catalogue ne doit pas modifier les anciennes seances."
+    );
+    response = await user.request(
+      "PUT",
+      `/api/seances/${seanceLegacyCatalogue.id}`,
+      {
+        etudiant: "Yanis",
         parent: "",
-        matiere: "Maths",
-      }),
-      reservationConcurrenteB.request("POST", "/api/reservation-public/reserver", {
-        date: "2026-06-12",
-        heure_debut: "15:00",
+        matiere: "Physique chimie",
+        compte: "Yassine",
+        est_essai: true,
+        date: "2026-04-11",
+        heure_debut: "11:00",
         duree_minutes: 60,
-        etudiant: "Race Test",
-        parent: "",
-        matiere: "Maths",
-      }),
-    ]);
-    const statutsReservationsConcurrentes = [
-      premiereReservationConcurrente.status,
-      secondeReservationConcurrente.status,
-    ].sort();
+        statut_seance: "faite",
+        description: "Essai gratuit modifie",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 200, `edition legacy catalogue attendu=200 recu=${response.status}`);
     assert(
-      statutsReservationsConcurrentes[0] === 201 &&
-        statutsReservationsConcurrentes[1] === 400,
-      `reservations concurrentes attendu=201/400 recu=${statutsReservationsConcurrentes.join("/")}`
+      response.json.seance.matiere === "Physique chimie" &&
+        response.json.seance.compte === "Yassine",
+      "Une ancienne seance doit garder sa matiere et son compte supprimes du catalogue."
     );
-    response = await user.request("GET", "/api/seances");
-    const reservationsRace = response.json.seances.filter(
-      (seance) =>
-        seance.etudiant === "Race Test" &&
-        seance.date === "2026-06-12" &&
-        seance.heure_debut === "14:00" &&
-        seance.heure_fin === "15:00"
-    );
-    assert(
-      reservationsRace.length === 1,
-      `une seule reservation concurrente doit etre creee, recu=${reservationsRace.length}`
-    );
-    console.log("OK reservation publique");
+    console.log("OK suppression catalogue conserve seances");
 
     response = await user.request("GET", "/api/monetisation?mois=2026-04");
     assert(response.status === 200, `monetisation attendu=200 recu=${response.status}`);

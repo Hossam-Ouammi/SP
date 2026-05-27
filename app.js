@@ -2,7 +2,6 @@ const express = require("express");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
 const session = require("express-session");
-const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
@@ -20,7 +19,7 @@ const {
   apiRouter: publicReservationApiRoutes,
 } = require("./routes/public-reservation.routes");
 const { connecterUtilisateurDepuisFormulaire } = require("./controllers/auth.controller");
-const { initialiserBaseDeDonnees } = require("./models/db");
+const { fermerBaseDeDonnees, initialiserBaseDeDonnees } = require("./models/db");
 const { recupererSecretSession } = require("./models/session-secret");
 const { SQLiteSessionStore } = require("./models/session.store");
 const {
@@ -43,6 +42,8 @@ const { demarrerPlanificateurBackupSeances } = require("./utils/seances-backup-e
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || process.env.IP || "0.0.0.0";
+let serveurHttp = null;
+let arretEnCours = false;
 const trustProxy =
   ["1", "true", "yes", "on"].includes(
     String(process.env.TRUST_PROXY || "").trim().toLowerCase()
@@ -220,21 +221,6 @@ app.use((error, req, res, next) => {
     return next(error);
   }
 
-  if (error instanceof multer.MulterError) {
-    const messages = {
-      LIMIT_FILE_SIZE: "Chaque screenshot doit faire moins de 5 Mo.",
-      LIMIT_FILE_COUNT: "Vous pouvez ajouter jusqu'à 8 screenshots.",
-      LIMIT_UNEXPECTED_FILE:
-        error.field === "screenshots" || error.field === "photos"
-          ? "Vous pouvez ajouter jusqu'à 8 screenshots."
-          : "Le champ d'envoi des screenshots est invalide.",
-    };
-
-    return res.status(400).json({
-      message: messages[error.code] || "Erreur lors de l'envoi des screenshots.",
-    });
-  }
-
   return res.status(error.status || 500).json({
     message: error.message || "Une erreur serveur est survenue.",
   });
@@ -246,7 +232,7 @@ async function demarrerServeur() {
     demarrerPlanificateurRappelsPush();
     demarrerPlanificateurBackupSeances();
 
-    app.listen(PORT, HOST, () => {
+    serveurHttp = app.listen(PORT, HOST, () => {
       console.log(`Serveur lancé sur http://${HOST}:${PORT}`);
     });
   } catch (error) {
@@ -254,5 +240,53 @@ async function demarrerServeur() {
     process.exit(1);
   }
 }
+
+async function arreterServeur(signal) {
+  if (arretEnCours) {
+    return;
+  }
+
+  arretEnCours = true;
+  console.log(`Arret du serveur demande (${signal}).`);
+
+  const forcerArret = setTimeout(() => {
+    console.error("Arret force apres depassement du delai.");
+    process.exit(1);
+  }, 10000);
+
+  if (typeof forcerArret.unref === "function") {
+    forcerArret.unref();
+  }
+
+  try {
+    if (serveurHttp) {
+      await new Promise((resolve, reject) => {
+        serveurHttp.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      });
+    }
+
+    await fermerBaseDeDonnees().catch(() => {});
+    clearTimeout(forcerArret);
+    process.exit(0);
+  } catch (error) {
+    console.error("Arret propre impossible :", error);
+    process.exit(1);
+  }
+}
+
+process.once("SIGINT", () => {
+  arreterServeur("SIGINT");
+});
+
+process.once("SIGTERM", () => {
+  arreterServeur("SIGTERM");
+});
 
 demarrerServeur();

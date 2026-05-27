@@ -1005,7 +1005,7 @@
                       <div>
                         <h3 class="user-form-title">Supprimer toutes les seances</h3>
                         <p class="section-note">
-                          Efface toutes les seances et tous les screenshots.
+                          Efface toutes les seances.
                         </p>
                       </div>
 
@@ -1755,8 +1755,8 @@
             <section class="form-section">
               <div class="form-section-header">
                 <div>
-                  <h4>Notes et captures</h4>
-                  <p>Conservez ici les remarques et screenshots utiles.</p>
+                  <h4>Description</h4>
+                  <p>Conservez ici les remarques utiles.</p>
                 </div>
               </div>
 
@@ -1769,13 +1769,6 @@
                     rows="4"
                     placeholder="Notes, remarques, points a revoir..."
                   ></textarea>
-                </label>
-
-                <label class="field field-full upload-field">
-                  <span>Screenshots</span>
-                  <input id="seance-screenshots" name="screenshots" type="file" accept="image/*" multiple />
-                  <small>Images uniquement. Maximum 8 fichiers.</small>
-                  <div id="selected-files" class="file-list"></div>
                 </label>
               </div>
             </section>
@@ -1893,46 +1886,7 @@
               </div>
             </article>
 
-            <article class="detail-card">
-              <div class="detail-photo-header">
-                <h4>Screenshots</h4>
-                <span id="detail-photo-count">0</span>
-              </div>
-              <div id="detail-photos" class="photo-grid"></div>
-            </article>
           </section>
-        </div>
-      </div>
-    </div>
-
-    <div id="screenshot-preview-modal" class="modal hidden" aria-hidden="true">
-      <div class="modal-backdrop" data-close-modal="screenshot-preview-modal"></div>
-      <div class="modal-panel preview-modal-panel">
-        <div class="modal-header">
-          <h3 id="preview-title">Screenshot</h3>
-          <button
-            class="icon-button"
-            type="button"
-            data-close-modal="screenshot-preview-modal"
-          >
-            x
-          </button>
-        </div>
-
-        <div class="preview-modal-content">
-          <img id="preview-image" src="" alt="" />
-        </div>
-
-        <div class="preview-modal-actions">
-          <span id="preview-filename" class="preview-filename">-</span>
-          <a
-            id="preview-download"
-            class="button primary"
-            href="#"
-            download
-          >
-            Telecharger
-          </a>
         </div>
       </div>
     </div>

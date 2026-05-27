@@ -45,10 +45,6 @@ function determinerActionTempsReel(req, scope, reponseJson = null) {
     }
   }
 
-  if (scope === "screenshots" && methode === "POST") {
-    return "screenshots_added";
-  }
-
   if (scope === "catalogue") {
     return methode === "DELETE" ? "catalogue_deleted" : "catalogue_updated";
   }

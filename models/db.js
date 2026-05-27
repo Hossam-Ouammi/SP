@@ -4,10 +4,7 @@ const crypto = require("crypto");
 const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
 const { recupererSecretAudit } = require("./audit-secret");
-const {
-  assurerDossiersScreenshots,
-  migrerScreenshotVersStockagePrive,
-} = require("../utils/screenshot-storage");
+const { assurerDossiersScreenshots } = require("../utils/screenshot-storage");
 
 const databaseDirectory = path.join(__dirname, "..", "database");
 const databasePath = process.env.DATABASE_PATH || path.join(databaseDirectory, "database.db");
@@ -25,12 +22,17 @@ function obtenirTarifHoraireCompteParDefaut(compte) {
   return tarifsComptesParDefaut[cle] ?? 100;
 }
 
+function normaliserValeurCatalogueSupprimee(valeur) {
+  return String(valeur || "").trim().toLowerCase();
+}
+
 fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 assurerDossiersScreenshots();
 
 const db = new sqlite3.Database(databasePath);
 
 db.serialize(() => {
+  db.run("PRAGMA busy_timeout = 5000");
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA synchronous = NORMAL");
   db.run("PRAGMA foreign_keys = ON");
@@ -411,6 +413,19 @@ async function ajouterColonnesSeancesSystemeSiNecessaire() {
       updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP),
       revision = COALESCE(revision, 1)
   `);
+}
+
+async function ajouterColonnesReservationPubliqueSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(seances)");
+  const colonneExiste = colonnes.some(
+    (colonne) => colonne.name === "public_reservation_device_id"
+  );
+
+  if (!colonneExiste) {
+    await run(
+      "ALTER TABLE seances ADD COLUMN public_reservation_device_id INTEGER REFERENCES public_reservation_devices(id)"
+    );
+  }
 }
 
 async function ajouterColonnesIndisponibilitesSystemeSiNecessaire() {
@@ -835,6 +850,20 @@ async function synchroniserCatalogueDepuisSeances() {
   `);
 
   for (const matiere of matieres) {
+    const suppression = await get(
+      `
+        SELECT 1
+        FROM catalogue_options_supprimees
+        WHERE type = 'matiere' AND valeur_normalisee = ?
+        LIMIT 1
+      `,
+      [normaliserValeurCatalogueSupprimee(matiere.valeur)]
+    );
+
+    if (suppression) {
+      continue;
+    }
+
     await run(
       `
         INSERT OR IGNORE INTO catalogue_options (type, valeur)
@@ -845,6 +874,20 @@ async function synchroniserCatalogueDepuisSeances() {
   }
 
   for (const compte of comptes) {
+    const suppression = await get(
+      `
+        SELECT 1
+        FROM catalogue_options_supprimees
+        WHERE type = 'compte' AND valeur_normalisee = ?
+        LIMIT 1
+      `,
+      [normaliserValeurCatalogueSupprimee(compte.valeur)]
+    );
+
+    if (suppression) {
+      continue;
+    }
+
     await run(
       `
         INSERT OR IGNORE INTO catalogue_options (type, valeur, tarif_horaire)
@@ -1089,7 +1132,20 @@ async function initialiserBaseDeDonnees() {
       revision INTEGER DEFAULT 1,
       deleted_at TEXT,
       deleted_by INTEGER REFERENCES utilisateurs(id),
-      utilisateur_id INTEGER REFERENCES utilisateurs(id)
+      utilisateur_id INTEGER REFERENCES utilisateurs(id),
+      public_reservation_device_id INTEGER REFERENCES public_reservation_devices(id)
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS public_reservation_devices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_public TEXT NOT NULL UNIQUE,
+      etudiant_nom TEXT NOT NULL DEFAULT '',
+      parent_nom TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_used_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -1155,6 +1211,17 @@ async function initialiserBaseDeDonnees() {
       tarif_horaire INTEGER DEFAULT 100,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(type, valeur)
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS catalogue_options_supprimees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      valeur_normalisee TEXT NOT NULL,
+      valeur TEXT NOT NULL,
+      deleted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(type, valeur_normalisee)
     )
   `);
 
@@ -1234,7 +1301,23 @@ async function initialiserBaseDeDonnees() {
     CREATE INDEX IF NOT EXISTS idx_photos_seance_id ON photos(seance_id)
   `);
   await run(`
+    CREATE INDEX IF NOT EXISTS idx_catalogue_options_supprimees_type_valeur
+    ON catalogue_options_supprimees(type, valeur_normalisee)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_date_heure ON seances(date, heure_debut, heure_fin)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_seances_compte_date ON seances(compte, date, heure_debut, heure_fin)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_indisponibilites_date_heure ON indisponibilites(date, heure_debut, heure_fin)
+  `);
+  await run(`
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_public_reservation_devices_token ON public_reservation_devices(token_public)
   `);
   await run(`
     CREATE INDEX IF NOT EXISTS idx_trusted_devices_user ON trusted_devices(utilisateur_id)
@@ -1259,6 +1342,7 @@ async function initialiserBaseDeDonnees() {
   await ajouterColonneParentSiNecessaire();
   await ajouterColonneUtilisateurIdSiNecessaire();
   await ajouterColonnesSeancesSystemeSiNecessaire();
+  await ajouterColonnesReservationPubliqueSiNecessaire();
   await ajouterColonneJourCompletIndisponibilitesSiNecessaire();
   await ajouterColonnesIndisponibilitesSystemeSiNecessaire();
   await ajouterColonneCreatedAtCatalogueSiNecessaire();

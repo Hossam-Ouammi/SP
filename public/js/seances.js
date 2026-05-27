@@ -45,26 +45,6 @@ export async function changerStatutSeance(seanceId, statutSeance) {
   return resultat.seance;
 }
 
-export async function televerserPhotosDeSeance(seanceId, fichiers) {
-  const formulaire = new FormData();
-
-  for (const fichier of fichiers) {
-    formulaire.append("screenshots", fichier);
-  }
-
-  const resultat = await envoyerRequete(`/api/photos/seance/${seanceId}`, {
-    method: "POST",
-    body: formulaire,
-  });
-
-  return resultat.photos;
-}
-
-export async function recupererPhotosDeSeance(seanceId) {
-  const resultat = await envoyerRequete(`/api/photos/seance/${seanceId}`);
-  return resultat.photos;
-}
-
 export async function recupererIndisponibilites() {
   const resultat = await envoyerRequete("/api/indisponibilites");
   return resultat.indisponibilites;

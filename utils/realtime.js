@@ -14,11 +14,13 @@ function ecrireEvenement(client, eventName, data) {
   }
 }
 
-function ajouterClientTempsReel({ res, utilisateurId }) {
+function ajouterClientTempsReel({ res, utilisateurId, public: estPublic = false, scopes = [] }) {
   const client = {
     id: `${Date.now()}-${Math.round(Math.random() * 1e9)}`,
     res,
     utilisateurId: Number(utilisateurId) || null,
+    public: estPublic === true,
+    scopes: Array.isArray(scopes) ? scopes : [],
     heartbeat: null,
   };
 
@@ -48,6 +50,10 @@ function configurerHeartbeatClient(client, intervalMs = 25000) {
       retirerClientTempsReel(client);
     }
   }, intervalMs);
+
+  if (typeof client.heartbeat.unref === "function") {
+    client.heartbeat.unref();
+  }
 }
 
 function diffuserMiseAJourApplication(payload = {}) {
@@ -57,7 +63,19 @@ function diffuserMiseAJourApplication(payload = {}) {
   };
 
   for (const client of clientsTempsReel) {
-    if (!ecrireEvenement(client, "app-updated", message)) {
+    if (client.public && client.scopes.length > 0 && !client.scopes.includes(message.scope)) {
+      continue;
+    }
+
+    const messageClient = client.public
+      ? {
+          timestamp: message.timestamp,
+          scope: message.scope || "application",
+          action: message.action || "application_updated",
+        }
+      : message;
+
+    if (!ecrireEvenement(client, "app-updated", messageClient)) {
       retirerClientTempsReel(client);
     }
   }

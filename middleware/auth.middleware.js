@@ -44,11 +44,24 @@ function recupererCookiesRequete(req) {
       return accumulateur;
     }
 
-    const cle = decodeURIComponent(paire.slice(0, indexSeparateur).trim());
-    const valeur = decodeURIComponent(paire.slice(indexSeparateur + 1).trim());
+    const cle = decoderComposantCookie(paire.slice(0, indexSeparateur).trim());
+    const valeur = decoderComposantCookie(paire.slice(indexSeparateur + 1).trim());
+
+    if (!cle) {
+      return accumulateur;
+    }
+
     accumulateur[cle] = valeur;
     return accumulateur;
   }, {});
+}
+
+function decoderComposantCookie(valeur) {
+  try {
+    return decodeURIComponent(String(valeur || ""));
+  } catch (error) {
+    return "";
+  }
 }
 
 function recupererCookieRequete(req, nomCookie) {

@@ -290,6 +290,24 @@ function extraireDateIsoDepuisValeurCalendrier(valeur) {
   return correspondance ? correspondance[1] : "";
 }
 
+function formaterDateIsoLocale(dateObjet) {
+  if (!(dateObjet instanceof Date) || Number.isNaN(dateObjet.getTime())) {
+    return "";
+  }
+
+  const annee = dateObjet.getFullYear();
+  const mois = String(dateObjet.getMonth() + 1).padStart(2, "0");
+  const jour = String(dateObjet.getDate()).padStart(2, "0");
+  return `${annee}-${mois}-${jour}`;
+}
+
+function extraireDateIsoDepuisClicCalendrier(info) {
+  return (
+    formaterDateIsoLocale(info?.date) ||
+    extraireDateIsoDepuisValeurCalendrier(info?.dateStr)
+  );
+}
+
 function calculerDateSuivante(dateIso) {
   const dateObjet = new Date(`${dateIso}T12:00:00`);
 
@@ -658,7 +676,7 @@ export function initialiserCalendrier(
       synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
     },
     dateClick(info) {
-      onDateClick(extraireDateIsoDepuisValeurCalendrier(info.dateStr));
+      onDateClick(extraireDateIsoDepuisClicCalendrier(info));
     },
     eventClick(info) {
       const typeEvenement = info.event.extendedProps?.type;

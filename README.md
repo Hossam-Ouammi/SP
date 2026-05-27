@@ -1,13 +1,12 @@
 # Gestion collaborative de seances
 
-Application web pour gerer des seances de cours entre plusieurs comptes, avec calendrier partage, historique, screenshots prives, controle d'acces, monetisation et reservation publique.
+Application web pour gerer des seances de cours entre plusieurs comptes, avec calendrier partage, historique, controle d'acces, monetisation et calendrier public en lecture seule.
 
 ## Stack
 
 - Front-end : HTML, CSS, JavaScript vanilla
 - Back-end : Node.js + Express
 - Base de donnees : SQLite
-- Upload : Multer
 - Calendrier : FullCalendar
 - Production : PM2 + Caddy sur Oracle Cloud
 
@@ -18,12 +17,16 @@ Application web pour gerer des seances de cours entre plusieurs comptes, avec ca
 - Creneaux d'indisponibilite geres par Hossam
 - Calendrier mensuel, hebdomadaire et vue `Aujourd'hui`
 - Ajout, modification, suppression et changement de statut d'une seance
-- Gestion des screenshots prives hors dossier public
 - Historique detaille des actions
 - Statistiques par compte
 - Monetisation
 - Panneau d'administration pour Hossam
-- Page publique `/reservation` pour reserver un creneau
+- Page publique `/reservation` pour consulter les creneaux occupes en lecture seule
+
+## Documentation backend detaillee
+
+- Vue d'ensemble backend : `docs/backend/README.md`
+- Reference fichier par fichier : `docs/backend/REFERENCE.md`
 
 ## Comptes initiaux
 
@@ -79,6 +82,13 @@ Sur Oracle Linux, reconstruire `sqlite3` apres `npm install` pour eviter les bin
 
 ```bash
 npm run oracle:rebuild-sqlite
+```
+
+PM2 peut utiliser la configuration fournie :
+
+```bash
+pm2 start ecosystem.config.js
+pm2 save
 ```
 
 Exemple de Caddyfile :
@@ -146,12 +156,6 @@ BACKUP_SEANCES_EMAIL_DRY_RUN=true npm run backup:seances
 - `POST /api/indisponibilites`
 - `DELETE /api/indisponibilites/:id`
 
-### Screenshots
-
-- `GET /api/photos/seance/:seanceId`
-- `POST /api/photos/seance/:seanceId`
-- `GET /api/photos/:photoId/file`
-
 ### Administration
 
 - `GET /api/admin`
@@ -172,5 +176,5 @@ BACKUP_SEANCES_EMAIL_DRY_RUN=true npm run backup:seances
 - Les mots de passe sont hashes avant stockage.
 - L'API applique une protection CSRF sur les actions authentifiees non `GET`.
 - Les comptes en lecture seule peuvent consulter mais pas modifier les donnees.
-- La page publique memorise l'appareil du visiteur via cookie pour afficher uniquement ses propres reservations.
-- La page publique `/reservation` affiche les creneaux en heure de France, puis les enregistre dans le calendrier principal en heure du Maroc.
+- La page publique `/reservation` affiche les creneaux en heure de France et ne cree pas de reservation.
+- `POST /api/reservation-public/reserver` est volontairement desactive et renvoie `410 Gone`.

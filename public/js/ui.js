@@ -36,8 +36,6 @@ import {
   modifierSeance,
   supprimerSeance,
   changerStatutSeance,
-  televerserPhotosDeSeance,
-  recupererPhotosDeSeance,
   recupererIndisponibilites,
   creerIndisponibilite,
   supprimerIndisponibilite,
@@ -461,8 +459,6 @@ const elements = {
   statutCheckboxes: Array.from(document.querySelectorAll(".statut-checkbox")),
   essaiCheckboxes: Array.from(document.querySelectorAll(".essai-checkbox")),
   description: document.getElementById("description"),
-  screenshotsInput: document.getElementById("seance-screenshots"),
-  selectedFiles: document.getElementById("selected-files"),
   detailModal: document.getElementById("detail-modal"),
   detailTitle: document.getElementById("detail-title"),
   detailStatusBadge: document.getElementById("detail-status-badge"),
@@ -479,16 +475,9 @@ const elements = {
   detailCreatedAt: document.getElementById("detail-created-at"),
   detailUpdatedAt: document.getElementById("detail-updated-at"),
   detailDescription: document.getElementById("detail-description"),
-  detailPhotos: document.getElementById("detail-photos"),
-  detailPhotoCount: document.getElementById("detail-photo-count"),
   editSeanceButton: document.getElementById("edit-seance-button"),
   deleteSeanceButton: document.getElementById("delete-seance-button"),
   quickStatusButtons: Array.from(document.querySelectorAll(".quick-status-button")),
-  screenshotPreviewModal: document.getElementById("screenshot-preview-modal"),
-  previewTitle: document.getElementById("preview-title"),
-  previewImage: document.getElementById("preview-image"),
-  previewFilename: document.getElementById("preview-filename"),
-  previewDownload: document.getElementById("preview-download"),
   toastContainer: document.getElementById("toast-container"),
 };
 
@@ -849,6 +838,20 @@ function obtenirMatiereParDefaut() {
   return matieres[0] || "";
 }
 
+function ajouterValeurCatalogueLegacy(liste, valeur) {
+  const valeurNormalisee = String(valeur || "").trim();
+
+  if (!valeurNormalisee) {
+    return liste;
+  }
+
+  const existe = liste.some(
+    (element) => String(element || "").trim().toLowerCase() === valeurNormalisee.toLowerCase()
+  );
+
+  return existe ? liste : [...liste, valeurNormalisee];
+}
+
 function creerOptionCatalogueCheckbox({ nomChamp, classe, valeur }) {
   const etiquette = document.createElement("label");
   etiquette.className = "checkbox-option";
@@ -875,9 +878,13 @@ function rendreOptionsCatalogueSeance() {
   const compteSelectionne = recupererValeurSelectionnee(elements.compteCheckboxes);
   const matieres = obtenirMatieresDisponibles();
   const comptes = obtenirComptesDisponibles();
+  const seanceEnEdition =
+    elements.seanceForm?.dataset.mode === "modification" ? etat.seanceSelectionnee : null;
+  const matieresAffichees = ajouterValeurCatalogueLegacy(matieres, seanceEnEdition?.matiere);
+  const comptesAffiches = ajouterValeurCatalogueLegacy(comptes, seanceEnEdition?.compte);
 
   elements.matiereOptions.innerHTML = "";
-  matieres.forEach((matiere) => {
+  matieresAffichees.forEach((matiere) => {
     elements.matiereOptions.appendChild(
       creerOptionCatalogueCheckbox({
         nomChamp: "matiere",
@@ -888,7 +895,7 @@ function rendreOptionsCatalogueSeance() {
   });
 
   elements.compteOptions.innerHTML = "";
-  comptes.forEach((compte) => {
+  comptesAffiches.forEach((compte) => {
     elements.compteOptions.appendChild(
       creerOptionCatalogueCheckbox({
         nomChamp: "compte",
@@ -910,11 +917,15 @@ function rendreOptionsCatalogueSeance() {
 
   definirValeurSelectionnee(
     elements.matiereCheckboxes,
-    matieres.includes(matiereSelectionnee) ? matiereSelectionnee : obtenirMatiereParDefaut()
+    matieresAffichees.includes(matiereSelectionnee)
+      ? matiereSelectionnee
+      : seanceEnEdition?.matiere || obtenirMatiereParDefaut()
   );
   definirValeurSelectionnee(
     elements.compteCheckboxes,
-    comptes.includes(compteSelectionne) ? compteSelectionne : obtenirCompteParDefaut()
+    comptesAffiches.includes(compteSelectionne)
+      ? compteSelectionne
+      : seanceEnEdition?.compte || obtenirCompteParDefaut()
   );
 }
 
@@ -1016,7 +1027,6 @@ function attacherEcouteurs() {
     ouvrirFormulaireCreation();
   });
   elements.seanceForm?.addEventListener("submit", gererSoumissionSeance);
-  elements.screenshotsInput?.addEventListener("change", afficherFichiersSelectionnes);
   elements.heureDebutHourSelect?.addEventListener("change", mettreAJourHeureDebutSelectionnee);
   elements.heureDebutMinuteSelect?.addEventListener(
     "change",
@@ -2010,7 +2020,7 @@ async function gererSuppressionElementCatalogueAdministration({
 
   const libelleType = type === "matiere" ? "matiere" : "compte";
   const confirmation = window.confirm(
-    `Supprimer ${libelleType} ${elementCatalogue.valeur} ?`
+    `Supprimer ${libelleType} ${elementCatalogue.valeur} du catalogue ? Les seances existantes resteront conservees.`
   );
 
   if (!confirmation) {
@@ -2614,7 +2624,7 @@ async function gererSuppressionToutesLesSeances(event) {
   }
 
   const confirmation = window.confirm(
-    "Supprimer définitivement toutes les séances et tous les screenshots ?"
+    "Supprimer définitivement toutes les séances ?"
   );
 
   if (!confirmation) {
@@ -2636,10 +2646,6 @@ async function gererSuppressionToutesLesSeances(event) {
 
     if (!elements.seanceModal.classList.contains("hidden")) {
       fermerModal(elements.seanceModal);
-    }
-
-    if (!elements.screenshotPreviewModal.classList.contains("hidden")) {
-      fermerModal(elements.screenshotPreviewModal);
     }
 
     etat.seanceSelectionnee = null;
@@ -4219,7 +4225,6 @@ function construireMessageNotificationTempsReel(payload = {}) {
     seance_updated: `${acteur} a modifie une seance.`,
     seance_status_updated: `${acteur} a modifie le statut d'une seance.`,
     seance_deleted: `${acteur} a supprime une seance.`,
-    screenshots_added: `${acteur} a ajoute des screenshots.`,
     unavailability_added: `${acteur} a ajoute une indisponibilite.`,
     full_day_unavailability_added: `${acteur} a bloque une journee complete.`,
     unavailability_deleted: `${acteur} a supprime une indisponibilite.`,
@@ -4241,7 +4246,6 @@ function construireMessageNotificationTempsReel(payload = {}) {
 
   const messagesParScope = {
     seances: "Les séances ont été mises à jour.",
-    screenshots: "Des screenshots ont été ajoutés ou modifiés.",
     indisponibilites: "Les indisponibilités ont été mises à jour.",
     historique: "L'historique a été mis à jour.",
     catalogue: "Le catalogue a été mis à jour.",
@@ -5999,6 +6003,7 @@ function ouvrirFormulaireCreation(dateSelectionnee = "") {
   elements.seanceForm.reset();
   masquerErreur(elements.seanceFormError);
   elements.seanceForm.dataset.mode = "creation";
+  rendreOptionsCatalogueSeance();
   configurerOptionsStatut("creation");
   definirSousTitreModalSeance("");
   elements.seanceModalTitle.textContent = "Nouvelle séance";
@@ -6010,7 +6015,6 @@ function ouvrirFormulaireCreation(dateSelectionnee = "") {
   definirValeurSelectionnee(elements.essaiCheckboxes, "0");
   definirDureeSelectionnee(60);
   definirHeureDebutSelectionnee(recupererHeureDebutParDefaut());
-  viderFichiersSelectionnes();
 
   if (dateIsoSelectionnee) {
     elements.date.value = dateIsoSelectionnee;
@@ -6038,6 +6042,7 @@ function ouvrirFormulaireModification() {
 
   fermerModal(elements.detailModal);
   elements.seanceForm.dataset.mode = "modification";
+  rendreOptionsCatalogueSeance();
   configurerOptionsStatut("modification");
   definirSousTitreModalSeance("");
   remplirFormulaire(etat.seanceSelectionnee);
@@ -6063,6 +6068,7 @@ function ouvrirFormulaireReport() {
 
   fermerModal(elements.detailModal);
   elements.seanceForm.dataset.mode = "modification";
+  rendreOptionsCatalogueSeance();
   configurerOptionsStatut("modification");
   remplirFormulaire(etat.seanceSelectionnee);
   definirValeurSelectionnee(elements.statutCheckboxes, "reportee");
@@ -6096,7 +6102,6 @@ function remplirFormulaire(seance) {
   definirValeurSelectionnee(elements.essaiCheckboxes, seance.est_essai ? "1" : "0");
   elements.description.value = seance.description || "";
   masquerErreur(elements.seanceFormError);
-  viderFichiersSelectionnes();
   mettreAJourHeureFinCalculee();
 }
 
@@ -6110,7 +6115,6 @@ async function gererSoumissionSeance(event) {
   }
 
   const dureeMinutes = recupererDureeSelectionnee();
-  const screenshots = Array.from(elements.screenshotsInput.files);
   const donneesSeance = {
     etudiant: elements.etudiant.value.trim(),
     parent: elements.parent.value.trim(),
@@ -6183,11 +6187,6 @@ async function gererSoumissionSeance(event) {
     return;
   }
 
-  if (screenshots.length > 8) {
-    afficherErreur(elements.seanceFormError, "Vous pouvez ajouter jusqu'à 8 screenshots.");
-    return;
-  }
-
   const mode = elements.seanceForm.dataset.mode || "creation";
   const conflitIndisponibilite = trouverIndisponibiliteChevauchanteLocale({
     date: donneesSeance.date,
@@ -6248,17 +6247,6 @@ async function gererSoumissionSeance(event) {
       seance = await modifierSeance(elements.seanceId.value, donneesSeance);
     } else {
       seance = await ajouterSeance(donneesSeance);
-    }
-
-    if (screenshots.length > 0) {
-      try {
-        await televerserPhotosDeSeance(seance.id, screenshots);
-      } catch (erreurUpload) {
-        afficherToast(
-          `${mode === "creation" ? "Séance ajoutée" : "Séance mise à jour"}, mais l'ajout des screenshots a échoué : ${erreurUpload.message}`,
-          "warning"
-        );
-      }
     }
 
     fermerModal(elements.seanceModal);
@@ -6356,25 +6344,8 @@ async function ouvrirDetailSeance(seance) {
     libellesStatutSeance[seance.statut_seance]
   );
   mettreEnEtatActionsRapides();
-  elements.detailPhotoCount.textContent = "...";
-  elements.detailPhotos.innerHTML = '<div class="empty-state">Chargement des screenshots...</div>';
 
   ouvrirModal(elements.detailModal);
-
-  try {
-    const photos = await recupererPhotosDeSeance(seance.id);
-    afficherScreenshots(photos);
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      fermerModal(elements.detailModal);
-      await gererDeconnexion();
-      return;
-    }
-
-    elements.detailPhotoCount.textContent = "0";
-    elements.detailPhotos.innerHTML = "";
-    elements.detailPhotos.appendChild(creerEmptyState(erreur.message));
-  }
 }
 
 function mettreEnEtatActionsRapides() {
@@ -6469,69 +6440,6 @@ async function gererSuppressionSeance() {
 
     afficherToast(erreur.message, "error");
   }
-}
-
-function afficherScreenshots(photos) {
-  elements.detailPhotoCount.textContent = String(photos.length);
-
-  if (photos.length === 0) {
-    elements.detailPhotos.innerHTML =
-      '<div class="empty-state">Aucun screenshot pour cette séance.</div>';
-    return;
-  }
-
-  elements.detailPhotos.innerHTML = "";
-
-  photos.forEach((photo) => {
-    const carte = document.createElement("button");
-    carte.type = "button";
-    carte.className = "photo-card";
-    carte?.addEventListener("click", () => {
-      ouvrirVisionneuseScreenshot(photo);
-    });
-
-    const image = document.createElement("img");
-    image.src = photo.url;
-    image.alt = photo.nom_fichier;
-    image.loading = "lazy";
-
-    const legende = document.createElement("span");
-    legende.textContent = photo.nom_fichier;
-
-    carte.append(image, legende);
-    elements.detailPhotos.appendChild(carte);
-  });
-}
-
-function ouvrirVisionneuseScreenshot(photo) {
-  elements.previewTitle.textContent = "Screenshot";
-  elements.previewImage.src = photo.url;
-  elements.previewImage.alt = photo.nom_fichier;
-  elements.previewFilename.textContent = photo.nom_fichier;
-  elements.previewDownload.href = photo.download_url || photo.url;
-  elements.previewDownload.download = photo.nom_fichier;
-  ouvrirModal(elements.screenshotPreviewModal);
-}
-
-function afficherFichiersSelectionnes() {
-  const fichiers = Array.from(elements.screenshotsInput.files);
-  elements.selectedFiles.innerHTML = "";
-
-  if (fichiers.length === 0) {
-    return;
-  }
-
-  fichiers.forEach((fichier) => {
-    const balise = document.createElement("span");
-    balise.className = "file-pill";
-    balise.textContent = fichier.name;
-    elements.selectedFiles.appendChild(balise);
-  });
-}
-
-function viderFichiersSelectionnes() {
-  elements.screenshotsInput.value = "";
-  elements.selectedFiles.innerHTML = "";
 }
 
 function recupererDureeSelectionnee() {
@@ -6841,19 +6749,10 @@ function fermerModal(modal) {
     elements.seanceForm.reset();
     masquerErreur(elements.seanceFormError);
     definirSousTitreModalSeance("");
-    viderFichiersSelectionnes();
     elements.heureFinCalculee.value = "";
     elements.heureDebut.value = "";
     elements.heureDebutHourSelect.value = heuresDebutDisponibles[0];
     elements.heureDebutMinuteSelect.value = minutesDebutDisponibles[0];
-  }
-
-  if (modal === elements.screenshotPreviewModal) {
-    elements.previewImage.src = "";
-    elements.previewImage.alt = "";
-    elements.previewFilename.textContent = "-";
-    elements.previewDownload.href = "#";
-    elements.previewDownload.removeAttribute("download");
   }
 
   if (modal === elements.auditLogModal) {
@@ -6863,7 +6762,6 @@ function fermerModal(modal) {
   if (
     elements.seanceModal.classList.contains("hidden") &&
     elements.detailModal.classList.contains("hidden") &&
-    elements.screenshotPreviewModal.classList.contains("hidden") &&
     elements.historyDetailModal.classList.contains("hidden") &&
     (elements.auditLogModal ? elements.auditLogModal.classList.contains("hidden") : true)
   ) {

@@ -297,7 +297,7 @@ async function supprimerTousLesScreenshotsStockes() {
     await fsPromises.rm(storageUploadsDirectory, { recursive: true, force: true });
   } catch (error) {
     if (error.code !== "ENOENT") {
-      console.error("Suppression globale des screenshots impossible :", error);
+          console.error("Suppression globale des anciens fichiers associes impossible :", error);
     }
   } finally {
     assurerDossiersScreenshots();
