@@ -95,6 +95,7 @@ Variables exportees:
 - `BACKUP_SEANCES_TIMEZONE`: fuseau de calcul du backup.
 - `BACKUP_SEANCES_DAILY_HOUR` et `BACKUP_SEANCES_DAILY_MINUTE`: heure locale cible.
 - `BACKUP_SEANCES_OUTPUT_DIR`: dossier de sortie CSV.
+- `BACKUP_SEANCES_RETENTION_DAYS`: nombre de jours de conservation des CSV generes, `60` par defaut, `0` pour desactiver le nettoyage.
 - `BACKUP_SEANCES_EMAIL_DRY_RUN`: cree le CSV sans envoi.
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`: config mail.
 
@@ -627,6 +628,7 @@ Catalogue:
 
 - `ajouterElementCatalogueAdministration(req, res)`: ajoute une matiere ou un compte apres reverification du mot de passe et controle d'unicite.
 - `supprimerElementCatalogueAdministration(req, res)`: retire la matiere ou le compte du catalogue actif, journalise le nombre de seances existantes conservees et ne modifie pas les seances historiques.
+- `restaurerElementCatalogueAdministration(req, res)`: restaure une matiere ou un compte marque comme supprime et le rend de nouveau disponible pour les nouvelles seances.
 
 Comptes:
 
@@ -723,7 +725,7 @@ Migrations de contenu:
 - `synchroniserHistoriqueActionsSiNecessaire()`: copie les anciennes lignes `historique` vers `historique_actions` si la table moderne est vide.
 - `marquerComptesTemporairesCommeASecuriser()`: detecte les hashes correspondant a `123456` et force `doit_changer_mot_de_passe`.
 - `normaliserSeancesExistantes()`: harmonise noms de matieres, comptes, descriptions legacy, statut paiement et titre.
-- `initialiserCatalogueParDefaut()`: injecte les matieres/comptes par defaut.
+- `initialiserCatalogueParDefaut()`: injecte les matieres/comptes par defaut, sauf ceux marques comme volontairement supprimes.
 - `synchroniserCatalogueDepuisSeances()`: enrichit le catalogue a partir des valeurs deja presentes en base, sauf celles marquees comme supprimees dans `catalogue_options_supprimees`.
 - `initialiserUtilisateursInitiaux()`: cree Hossam et Abdo si la table est vide.
 - `normaliserNomsUtilisateurs()`: remplace `Ami` par `Abdo`.
@@ -732,7 +734,7 @@ Migrations de contenu:
 
 Fonction principale:
 
-- `initialiserBaseDeDonnees()`: cree toutes les tables, les index, applique les migrations dans un ordre tres precis, injecte les comptes initiaux, sync le catalogue et, si demande, charge les seances d'exemple.
+- `initialiserBaseDeDonnees()`: prend un verrou disque `sqlite-init`, cree toutes les tables, les index, applique les migrations dans un ordre tres precis, injecte les comptes initiaux, sync le catalogue et, si demande, charge les seances d'exemple.
 
 Tables creees ici:
 
@@ -832,10 +834,13 @@ Fonctions:
 - `listerCatalogueOptions()`
 - `trouverValeurCatalogue(type, valeur)`
 - `trouverValeurCatalogueParId(id)`
+- `listerValeursCatalogueSupprimeesParType(type)`
+- `trouverValeurCatalogueSupprimeeParId(id)`
 - `ajouterValeurCatalogue(type, valeur)`
 - `mettreAJourTarifHoraireCompteCatalogue(id, tarifHoraire)`
 - `compterUtilisationValeurCatalogue(type, valeur)`
 - `supprimerValeurCatalogueParId(id)`: supprime du catalogue actif apres avoir enregistre la valeur comme volontairement supprimee.
+- `restaurerValeurCatalogueSupprimeeParId(id)`: retire le marqueur de suppression et recree l'option active si elle n'existe pas deja.
 
 ### `models/historique.model.js`
 
@@ -924,8 +929,10 @@ Catalogue:
 - `trouverElementCatalogue(type, valeur)`
 - `ajouterElementCatalogue(type, valeur)`
 - `trouverElementCatalogueParId(elementId)`
+- `trouverElementCatalogueSupprimeParId(elementId)`
 - `compterUtilisationElementCatalogue(type, valeur)`
 - `supprimerElementCatalogue(elementId)`: retire uniquement l'element du catalogue actif; les seances deja creees gardent leur texte `matiere`/`compte`.
+- `restaurerElementCatalogue(elementId)`
 
 Suppression utilisateur:
 
@@ -1170,6 +1177,16 @@ Fonctions:
 - `determinerActionTempsReel(req, scope, reponseJson)`: infere une action semantique comme `seance_added`, `unavailability_deleted`, `history_updated`, etc.
 - `notifierMiseAJourApplication(controller, scope)`: wrapper de controleur qui capture `res.json`, puis diffuse SSE et push si la reponse finale est un succes HTTP.
 
+### `utils/job-lock.js`
+
+Role:
+Fournit un verrou disque simple pour les jobs manuels ou planifies. Cela evite les executions concurrentes qui peuvent surcharger SQLite ou Oracle Free Tier.
+
+Fonctions:
+
+- `normaliserNomVerrou(nom)`
+- `executerAvecVerrou(nom, callback, options)`: cree `database/locks/<nom>.lock`, ignore l'execution si un verrou recent existe, supprime les verrous perimes selon `staleMs`.
+
 ### `utils/push-notifications.js`
 
 Role:
@@ -1220,12 +1237,14 @@ Rappels "Aujourd'hui":
 ### `utils/seances-backup-email.js`
 
 Role:
-Genere les CSV de backup et envoie l'email.
+Genere les CSV de backup, envoie l'email et nettoie les anciens fichiers generes.
 
 Variables:
 
 - `backupTimer`
 - `backupEnCours`
+- `backupLockStaleMs`
+- `nomFichierBackupRegex`
 - `colonnesBackupSeances`: ordre et mapping des colonnes CSV
 
 Fonctions:
@@ -1235,10 +1254,11 @@ Fonctions:
 - `obtenirDateLocaleBackup(date)`
 - `obtenirNomFichierBackup(date)`
 - `genererFichierBackupSeances(options)`: charge toutes les seances, ecrit le fichier CSV.
+- `nettoyerAnciensBackupsSeances(options)`: supprime les CSV `seances-backup-YYYY-MM-DD.csv` plus vieux que la retention configuree.
 - `smtpEstConfigure()`
 - `creerTransportSmtp()`
 - `envoyerBackupSeancesParEmail(backup)`
-- `executerBackupSeancesEmail(options)`: combine generation et envoi.
+- `executerBackupSeancesEmail(options)`: combine verrou, generation, envoi et nettoyage.
 - `calculerProchaineExecution(dateReference)`: calcule la prochaine occurrence dans le fuseau de backup.
 - `planifierProchainBackupSeances()`: installe un `setTimeout` unique jusqu'au prochain horaire.
 - `demarrerPlanificateurBackupSeances()`
@@ -1252,7 +1272,7 @@ Lance manuellement une passe des rappels push.
 
 Fonction:
 
-- `main()`: initialise la base, execute `executerRappelsPushDus`, ferme la base et quitte avec code `0/1`.
+- `main()`: prend un verrou `push-due`, initialise la base, execute `executerRappelsPushDus`, ferme la base et quitte avec code `0/1`.
 
 ### `scripts/run-seances-backup.js`
 
@@ -1261,7 +1281,16 @@ Lance manuellement un backup CSV et affiche un petit JSON de resultat.
 
 Fonction:
 
-- `main()`: initialise la base, execute `executerBackupSeancesEmail`, loggue chemin/nombre de seances/email envoye, ferme la base.
+- `main()`: initialise la base, execute `executerBackupSeancesEmail`, loggue chemin/nombre de seances/email envoye/nettoyage, ferme la base.
+
+### `scripts/maintenance-sqlite.js`
+
+Role:
+Maintenance legere SQLite pour production.
+
+Fonction:
+
+- `main()`: prend un verrou `sqlite-maintenance`, lance `PRAGMA integrity_check`, `PRAGMA wal_checkpoint(TRUNCATE)` et `PRAGMA optimize`, puis affiche un JSON de resultat.
 
 ### `scripts/smoke-test.js`
 
@@ -1282,6 +1311,7 @@ Helpers:
 - `assert(condition, message)`
 - `cleanupPath(target)`
 - `waitForServer()`
+- `executerInitialisationBaseIsolee()`: relance l'initialisation DB dans un processus separe pour verifier les migrations/restarts.
 
 Classe:
 

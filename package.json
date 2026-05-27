@@ -9,7 +9,8 @@
     "test": "node scripts/smoke-test.js",
     "oracle:rebuild-sqlite": "npm rebuild sqlite3 --build-from-source",
     "push:due": "node scripts/run-push-jobs.js",
-    "backup:seances": "node scripts/run-seances-backup.js"
+    "backup:seances": "node scripts/run-seances-backup.js",
+    "maintenance:sqlite": "node scripts/maintenance-sqlite.js"
   },
   "keywords": [
     "express",

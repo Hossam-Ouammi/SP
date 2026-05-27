@@ -17,6 +17,7 @@ Application web pour gerer des seances de cours entre plusieurs comptes, avec ca
 - Creneaux d'indisponibilite geres par Hossam
 - Calendrier mensuel, hebdomadaire et vue `Aujourd'hui`
 - Ajout, modification, suppression et changement de statut d'une seance
+- Duplication d'une seance existante pour recreer rapidement un creneau similaire
 - Historique detaille des actions
 - Statistiques par compte
 - Monetisation
@@ -70,6 +71,7 @@ CENTRAL_CALENDAR_TIMEZONE_LABEL="heure du Maroc"
 # Backup quotidien des seances par email
 BACKUP_SEANCES_EMAIL_TO=ouammi.hossam.bsn@gmail.com
 BACKUP_SEANCES_TIMEZONE=Africa/Casablanca
+BACKUP_SEANCES_RETENTION_DAYS=60
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=465
 SMTP_SECURE=true
@@ -138,6 +140,7 @@ Les donnees d'exemple ne sont creees que si `SEED_DEMO_DATA=true`.
 
 - Tous les jours a `00:00` heure du Maroc, l'application genere un CSV dans `backups/seances/`.
 - Si SMTP est configure, ce CSV est envoye a `BACKUP_SEANCES_EMAIL_TO`.
+- Les anciens CSV generes par l'application sont nettoyes apres `BACKUP_SEANCES_RETENTION_DAYS` jours, `60` par defaut.
 - Pour tester manuellement :
 
 ```bash
@@ -149,6 +152,16 @@ npm run backup:seances
 ```bash
 BACKUP_SEANCES_EMAIL_DRY_RUN=true npm run backup:seances
 ```
+
+### Maintenance SQLite
+
+Pour verifier et optimiser legerement la base sans changer les donnees :
+
+```bash
+npm run maintenance:sqlite
+```
+
+Ce script execute `PRAGMA integrity_check`, tronque le WAL si possible et lance `PRAGMA optimize`.
 
 ### Indisponibilites
 
@@ -162,6 +175,8 @@ BACKUP_SEANCES_EMAIL_DRY_RUN=true npm run backup:seances
 - `POST /api/admin/users`
 - `DELETE /api/admin/users/:id`
 - `POST /api/admin/catalogue-items`
+- `DELETE /api/admin/catalogue-items/:id`
+- `POST /api/admin/catalogue-items/:id/restore`
 - `POST /api/admin/reset-password`
 - `PATCH /api/admin/access`
 - `PATCH /api/admin/read-only`

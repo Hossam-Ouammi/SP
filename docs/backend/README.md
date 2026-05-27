@@ -18,6 +18,7 @@ Le backend gere une application collaborative de gestion de seances de cours. Il
 - session serveur stockee en SQLite
 - reconnexion automatique par appareil de confiance
 - calendrier de seances partage
+- duplication d'une seance existante cote interface pour creer plus vite une nouvelle occurrence
 - creneaux d'indisponibilite geres par Hossam
 - confidentialite stricte des seances du compte `Hossam`
 - historique d'actions chaine par hash
@@ -66,7 +67,7 @@ L'ordre de demarrage est important:
 6. Les controles d'origine et CSRF protegent ensuite les requetes mutantes.
 7. Les routes API et la page publique sont montees.
 8. `demarrerServeur()` appelle `initialiserBaseDeDonnees()`.
-9. La base cree les tables manquantes et applique les migrations legacy.
+9. La base prend un verrou `sqlite-init`, cree les tables manquantes et applique les migrations legacy.
 10. Les planificateurs push et backup sont demarres.
 11. Le serveur ecoute enfin sur `PORT` et `HOST`.
 
@@ -173,6 +174,8 @@ Le backup quotidien:
 - exporte toutes les seances en CSV
 - cree un fichier `backups/seances/seances-backup-YYYY-MM-DD.csv`
 - envoie le fichier par email si SMTP est configure
+- nettoie les anciens CSV generes par l'application selon `BACKUP_SEANCES_RETENTION_DAYS` (`60` par defaut)
+- utilise un verrou disque pour eviter deux executions simultanees
 
 ## 7. Schema logique SQLite
 
@@ -233,6 +236,7 @@ Tables principales:
 - `GET /api/admin`
 - `POST /api/admin/catalogue-items`
 - `DELETE /api/admin/catalogue-items/:id`
+- `POST /api/admin/catalogue-items/:id/restore`
 - `POST /api/admin/users`
 - `DELETE /api/admin/users/:id`
 - `POST /api/admin/reset-password`
@@ -342,8 +346,9 @@ Si tu veux comprendre vite le backend, lis dans cet ordre:
 
 - `npm start`: lance le serveur
 - `npm test`: lance `scripts/smoke-test.js`
-- `npm run push:due`: execute une passe de rappels push
-- `npm run backup:seances`: force un backup CSV
+- `npm run push:due`: execute une passe de rappels push avec verrou anti-chevauchement
+- `npm run backup:seances`: force un backup CSV avec nettoyage de retention
+- `npm run maintenance:sqlite`: verifie l'integrite SQLite, tronque le WAL si possible et lance `PRAGMA optimize`
 
 Le smoke test verifie notamment:
 
@@ -364,7 +369,7 @@ Le backend expose encore les routes et la page, mais la reservation effective es
 
 ### Catalogue et anciennes seances
 
-La suppression d'une matiere ou d'un compte dans l'admin panel ne modifie pas les seances existantes. La valeur est retiree du catalogue actif et marquee dans `catalogue_options_supprimees`, ce qui empeche `models/db.js` de la recreer automatiquement depuis l'historique au prochain demarrage.
+La suppression d'une matiere ou d'un compte dans l'admin panel ne modifie pas les seances existantes. La valeur est retiree du catalogue actif et marquee dans `catalogue_options_supprimees`, ce qui empeche `models/db.js` de la recreer automatiquement depuis l'historique ou depuis les valeurs par defaut au prochain demarrage. Hossam peut ensuite restaurer une valeur supprimee depuis le meme panneau catalogue.
 
 ### Presence d'un modele `public-reservation-device`
 

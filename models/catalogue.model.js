@@ -49,15 +49,48 @@ async function listerValeursCatalogueParType(type) {
 }
 
 async function listerCatalogueOptions() {
-  const [matieres, comptes] = await Promise.all([
+  const [matieres, comptes, matieresSupprimees, comptesSupprimes] = await Promise.all([
     listerValeursCatalogueParType("matiere"),
     listerValeursCatalogueParType("compte"),
+    listerValeursCatalogueSupprimeesParType("matiere"),
+    listerValeursCatalogueSupprimeesParType("compte"),
   ]);
 
   return {
     matieres,
     comptes,
+    matieres_supprimees: matieresSupprimees,
+    comptes_supprimes: comptesSupprimes,
   };
+}
+
+async function listerValeursCatalogueSupprimeesParType(type) {
+  const typeNormalise = normaliserTypeCatalogue(type);
+
+  if (!typeNormalise) {
+    return [];
+  }
+
+  return all(
+    `
+      SELECT id, type, valeur, valeur_normalisee, deleted_at
+      FROM catalogue_options_supprimees
+      WHERE type = ?
+      ORDER BY deleted_at DESC, lower(valeur) ASC, id DESC
+    `,
+    [typeNormalise]
+  );
+}
+
+async function trouverValeurCatalogueSupprimeeParId(id) {
+  return get(
+    `
+      SELECT id, type, valeur, valeur_normalisee, deleted_at
+      FROM catalogue_options_supprimees
+      WHERE id = ?
+    `,
+    [id]
+  );
 }
 
 async function trouverValeurCatalogue(type, valeur) {
@@ -213,13 +246,65 @@ async function supprimerValeurCatalogueParId(id) {
   }
 }
 
+async function restaurerValeurCatalogueSupprimeeParId(id) {
+  const elementSupprime = await trouverValeurCatalogueSupprimeeParId(id);
+
+  if (!elementSupprime) {
+    return null;
+  }
+
+  const tarifHoraire = obtenirTarifHoraireCatalogueParDefaut(
+    elementSupprime.type,
+    elementSupprime.valeur
+  );
+
+  await run("BEGIN IMMEDIATE TRANSACTION");
+
+  try {
+    const valeurActive = await trouverValeurCatalogue(
+      elementSupprime.type,
+      elementSupprime.valeur
+    );
+
+    await run(
+      `
+        DELETE FROM catalogue_options_supprimees
+        WHERE id = ?
+      `,
+      [elementSupprime.id]
+    );
+
+    if (valeurActive) {
+      await run("COMMIT");
+      return valeurActive;
+    }
+
+    const resultat = await run(
+      `
+        INSERT INTO catalogue_options (type, valeur, tarif_horaire)
+        VALUES (?, ?, ?)
+      `,
+      [elementSupprime.type, elementSupprime.valeur, tarifHoraire]
+    );
+
+    await run("COMMIT");
+    return trouverValeurCatalogueParId(resultat.id);
+  } catch (error) {
+    await run("ROLLBACK").catch(() => {});
+    throw error;
+  }
+}
+
 module.exports = {
   listerValeursCatalogueParType,
   listerCatalogueOptions,
   trouverValeurCatalogue,
   trouverValeurCatalogueParId,
+  listerValeursCatalogueSupprimeesParType,
+  trouverValeurCatalogueSupprimeeParId,
   ajouterValeurCatalogue,
   mettreAJourTarifHoraireCompteCatalogue,
   compterUtilisationValeurCatalogue,
   supprimerValeurCatalogueParId,
+  restaurerValeurCatalogueSupprimeeParId,
 };

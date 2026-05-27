@@ -5,9 +5,11 @@ const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
 const { recupererSecretAudit } = require("./audit-secret");
 const { assurerDossiersScreenshots } = require("../utils/screenshot-storage");
+const { executerAvecVerrou } = require("../utils/job-lock");
 
 const databaseDirectory = path.join(__dirname, "..", "database");
 const databasePath = process.env.DATABASE_PATH || path.join(databaseDirectory, "database.db");
+const databaseLockDirectory = path.join(path.dirname(databasePath), "locks");
 const activerDonneesExemple = process.env.SEED_DEMO_DATA === "true" && process.env.NODE_ENV !== "production";
 const matieresParDefaut = ["Maths", "Physique chimie", "Python", "C++"];
 const comptesParDefaut = ["Abdo", "Yassine", "Hossam"];
@@ -26,10 +28,32 @@ function normaliserValeurCatalogueSupprimee(valeur) {
   return String(valeur || "").trim().toLowerCase();
 }
 
+async function valeurCatalogueEstSupprimee(type, valeur) {
+  const typeNormalise = String(type || "").trim().toLowerCase();
+  const valeurNormalisee = normaliserValeurCatalogueSupprimee(valeur);
+
+  if (!typeNormalise || !valeurNormalisee) {
+    return false;
+  }
+
+  const suppression = await get(
+    `
+      SELECT 1
+      FROM catalogue_options_supprimees
+      WHERE type = ? AND valeur_normalisee = ?
+      LIMIT 1
+    `,
+    [typeNormalise, valeurNormalisee]
+  );
+
+  return Boolean(suppression);
+}
+
 fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 assurerDossiersScreenshots();
 
 const db = new sqlite3.Database(databasePath);
+let initialisationBaseEnCours = null;
 
 db.serialize(() => {
   db.run("PRAGMA busy_timeout = 5000");
@@ -87,6 +111,10 @@ function fermerBaseDeDonnees() {
       }
     });
   });
+}
+
+function attendre(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function ajouterJours(dateReference, nombreDeJours) {
@@ -814,6 +842,10 @@ async function normaliserSeancesExistantes() {
 
 async function initialiserCatalogueParDefaut() {
   for (const matiere of matieresParDefaut) {
+    if (await valeurCatalogueEstSupprimee("matiere", matiere)) {
+      continue;
+    }
+
     await run(
       `
         INSERT OR IGNORE INTO catalogue_options (type, valeur)
@@ -824,6 +856,10 @@ async function initialiserCatalogueParDefaut() {
   }
 
   for (const compte of comptesParDefaut) {
+    if (await valeurCatalogueEstSupprimee("compte", compte)) {
+      continue;
+    }
+
     await run(
       `
         INSERT OR IGNORE INTO catalogue_options (type, valeur, tarif_horaire)
@@ -850,17 +886,7 @@ async function synchroniserCatalogueDepuisSeances() {
   `);
 
   for (const matiere of matieres) {
-    const suppression = await get(
-      `
-        SELECT 1
-        FROM catalogue_options_supprimees
-        WHERE type = 'matiere' AND valeur_normalisee = ?
-        LIMIT 1
-      `,
-      [normaliserValeurCatalogueSupprimee(matiere.valeur)]
-    );
-
-    if (suppression) {
+    if (await valeurCatalogueEstSupprimee("matiere", matiere.valeur)) {
       continue;
     }
 
@@ -874,17 +900,7 @@ async function synchroniserCatalogueDepuisSeances() {
   }
 
   for (const compte of comptes) {
-    const suppression = await get(
-      `
-        SELECT 1
-        FROM catalogue_options_supprimees
-        WHERE type = 'compte' AND valeur_normalisee = ?
-        LIMIT 1
-      `,
-      [normaliserValeurCatalogueSupprimee(compte.valeur)]
-    );
-
-    if (suppression) {
+    if (await valeurCatalogueEstSupprimee("compte", compte.valeur)) {
       continue;
     }
 
@@ -925,7 +941,7 @@ async function initialiserUtilisateursInitiaux() {
 
     await run(
       `
-        INSERT INTO utilisateurs (
+        INSERT OR IGNORE INTO utilisateurs (
           nom,
           email,
           mot_de_passe,
@@ -1098,7 +1114,7 @@ async function initialiserSeancesExemple() {
   }
 }
 
-async function initialiserBaseDeDonnees() {
+async function initialiserBaseDeDonneesInterne() {
   await run(`
     CREATE TABLE IF NOT EXISTS utilisateurs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1361,6 +1377,39 @@ async function initialiserBaseDeDonnees() {
     await initialiserSeancesExemple();
     await normaliserSeancesExistantes();
     await synchroniserCatalogueDepuisSeances();
+  }
+}
+
+async function initialiserBaseDeDonnees() {
+  if (initialisationBaseEnCours) {
+    return initialisationBaseEnCours;
+  }
+
+  initialisationBaseEnCours = (async () => {
+    for (let tentative = 0; tentative < 120; tentative += 1) {
+      const execution = await executerAvecVerrou(
+        "sqlite-init",
+        initialiserBaseDeDonneesInterne,
+        {
+          lockDirectory: databaseLockDirectory,
+          staleMs: 10 * 60 * 1000,
+        }
+      );
+
+      if (!execution.skipped) {
+        return;
+      }
+
+      await attendre(250);
+    }
+
+    throw new Error("Initialisation SQLite deja en cours depuis trop longtemps.");
+  })();
+
+  try {
+    await initialisationBaseEnCours;
+  } finally {
+    initialisationBaseEnCours = null;
   }
 }
 

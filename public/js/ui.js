@@ -8,6 +8,7 @@ import {
   recupererVueAdministration,
   ajouterElementCatalogueAdmin,
   supprimerElementCatalogueAdmin,
+  restaurerElementCatalogueAdmin,
   creerUtilisateurAdmin,
   supprimerUtilisateurAdmin,
   reinitialiserMotDePasseCompte,
@@ -476,6 +477,7 @@ const elements = {
   detailUpdatedAt: document.getElementById("detail-updated-at"),
   detailDescription: document.getElementById("detail-description"),
   editSeanceButton: document.getElementById("edit-seance-button"),
+  duplicateSeanceButton: document.getElementById("duplicate-seance-button"),
   deleteSeanceButton: document.getElementById("delete-seance-button"),
   quickStatusButtons: Array.from(document.querySelectorAll(".quick-status-button")),
   toastContainer: document.getElementById("toast-container"),
@@ -852,6 +854,20 @@ function ajouterValeurCatalogueLegacy(liste, valeur) {
   return existe ? liste : [...liste, valeurNormalisee];
 }
 
+function obtenirValeurCatalogueActiveOuDefaut(liste, valeur, valeurParDefaut) {
+  const valeurNormalisee = String(valeur || "").trim();
+
+  if (!valeurNormalisee) {
+    return valeurParDefaut;
+  }
+
+  const valeurActive = liste.find(
+    (element) => String(element || "").trim().toLowerCase() === valeurNormalisee.toLowerCase()
+  );
+
+  return valeurActive || valeurParDefaut;
+}
+
 function creerOptionCatalogueCheckbox({ nomChamp, classe, valeur }) {
   const etiquette = document.createElement("label");
   etiquette.className = "checkbox-option";
@@ -1033,6 +1049,7 @@ function attacherEcouteurs() {
     mettreAJourHeureDebutSelectionnee
   );
   elements.editSeanceButton?.addEventListener("click", ouvrirFormulaireModification);
+  elements.duplicateSeanceButton?.addEventListener("click", ouvrirFormulaireDuplication);
   elements.deleteSeanceButton?.addEventListener("click", gererSuppressionSeance);
   elements.adminBlockIpForm?.addEventListener("submit", gererBlocageIpAdmin);
 
@@ -2039,6 +2056,70 @@ async function gererSuppressionElementCatalogueAdministration({
     }
     await chargerAdministrationSiAutorise();
     afficherToast(resultat.message || "Element du catalogue supprime.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      elements.adminToolsPanel.classList.add("hidden");
+      afficherSectionApplication("dashboard");
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherErreur(erreurElement, erreur.message);
+  } finally {
+    bouton.disabled = false;
+  }
+}
+
+async function gererRestaurationElementCatalogueAdministration({
+  type,
+  elementCatalogue,
+  motDePasseInput,
+  erreurElement,
+  bouton,
+}) {
+  masquerErreur(erreurElement);
+
+  if (!utilisateurPeutVoirAdministration()) {
+    elements.adminToolsPanel.classList.add("hidden");
+    return;
+  }
+
+  const motDePasseActuel = String(motDePasseInput?.value || "");
+
+  if (!motDePasseActuel) {
+    afficherErreur(
+      erreurElement,
+      "Saisissez votre mot de passe actuel avant de restaurer cet element."
+    );
+    return;
+  }
+
+  const libelleType = type === "matiere" ? "matiere" : "compte";
+  const confirmation = window.confirm(
+    `Restaurer ${libelleType} ${elementCatalogue.valeur} dans le catalogue ?`
+  );
+
+  if (!confirmation) {
+    return;
+  }
+
+  bouton.disabled = true;
+
+  try {
+    const resultat = await restaurerElementCatalogueAdmin(
+      elementCatalogue.id,
+      motDePasseActuel
+    );
+    if (motDePasseInput) {
+      motDePasseInput.value = "";
+    }
+    await chargerAdministrationSiAutorise();
+    afficherToast(resultat.message || "Element du catalogue restaure.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -4610,6 +4691,18 @@ function obtenirCatalogueAdministration(type) {
     : [];
 }
 
+function obtenirCatalogueSupprimeAdministration(type) {
+  if (!etat.administration?.catalogue) {
+    return [];
+  }
+
+  const cle = type === "matieres" ? "matieres_supprimees" : "comptes_supprimes";
+
+  return Array.isArray(etat.administration.catalogue[cle])
+    ? etat.administration.catalogue[cle]
+    : [];
+}
+
 function obtenirCompteCatalogueAdministrationParId(compteId) {
   return (
     obtenirCatalogueAdministration("comptes").find(
@@ -4680,15 +4773,23 @@ function creerBadgeAdministration(texte, type) {
   return badge;
 }
 
-function afficherListeCatalogueAdministration(container, elementsCatalogue, messageVide) {
+function afficherListeCatalogueAdministration(
+  container,
+  elementsCatalogue,
+  messageVide,
+  elementsSupprimes = []
+) {
   container.innerHTML = "";
 
-  if (!Array.isArray(elementsCatalogue) || elementsCatalogue.length === 0) {
+  const elementsActifs = Array.isArray(elementsCatalogue) ? elementsCatalogue : [];
+  const elementsArchives = Array.isArray(elementsSupprimes) ? elementsSupprimes : [];
+
+  if (elementsActifs.length === 0 && elementsArchives.length === 0) {
     container.appendChild(creerEmptyState(messageVide, "admin-user-empty"));
     return;
   }
 
-  elementsCatalogue.forEach((elementCatalogue) => {
+  elementsActifs.forEach((elementCatalogue) => {
     const item = document.createElement("div");
     item.className = "admin-catalog-item";
 
@@ -4715,6 +4816,46 @@ function afficherListeCatalogueAdministration(container, elementsCatalogue, mess
       action.title = `Supprimer ${elementCatalogue.valeur}`;
       action?.addEventListener("click", async () => {
         await gererSuppressionElementCatalogueAdministration({
+          type,
+          elementCatalogue,
+          motDePasseInput,
+          erreurElement,
+          bouton: action,
+        });
+      });
+      item.appendChild(action);
+    }
+
+    container.appendChild(item);
+  });
+
+  elementsArchives.forEach((elementCatalogue) => {
+    const item = document.createElement("div");
+    item.className = "admin-catalog-item";
+
+    const label = document.createElement("span");
+    label.className = "admin-catalog-item-label";
+    label.textContent = `${elementCatalogue.valeur} (supprime)`;
+    item.appendChild(label);
+
+    if (container === elements.adminSubjectList || container === elements.adminAccountList) {
+      const type = container === elements.adminSubjectList ? "matiere" : "compte";
+      const motDePasseInput =
+        type === "matiere"
+          ? elements.adminAddSubjectCurrentPassword
+          : elements.adminAddAccountCurrentPassword;
+      const erreurElement =
+        type === "matiere"
+          ? elements.adminAddSubjectError
+          : elements.adminAddAccountError;
+
+      const action = document.createElement("button");
+      action.type = "button";
+      action.className = "button secondary";
+      action.textContent = "Restaurer";
+      action.title = `Restaurer ${elementCatalogue.valeur}`;
+      action?.addEventListener("click", async () => {
+        await gererRestaurationElementCatalogueAdministration({
           type,
           elementCatalogue,
           motDePasseInput,
@@ -5399,6 +5540,8 @@ function mettreAJourPanneauAdministration() {
   const sessions = Array.isArray(etat.administration?.sessions) ? etat.administration.sessions : [];
   const matieres = obtenirCatalogueAdministration("matieres");
   const comptesSeance = obtenirCatalogueAdministration("comptes");
+  const matieresSupprimees = obtenirCatalogueSupprimeAdministration("matieres");
+  const comptesSupprimes = obtenirCatalogueSupprimeAdministration("comptes");
   const comptesActifs = comptes.filter((compte) => Number(compte.acces_active) === 1);
   const comptesLectureSeule = comptes.filter(
     (compte) => Number(compte.mode_lecture_seule) === 1
@@ -5422,12 +5565,14 @@ function mettreAJourPanneauAdministration() {
   afficherListeCatalogueAdministration(
     elements.adminSubjectList,
     matieres,
-    "Aucune matière disponible."
+    "Aucune matière disponible.",
+    matieresSupprimees
   );
   afficherListeCatalogueAdministration(
     elements.adminAccountList,
     comptesSeance,
-    "Aucun compte disponible."
+    "Aucun compte disponible.",
+    comptesSupprimes
   );
 
   remplirSelectComptes(elements.adminResetUserId, comptes, "Aucun compte");
@@ -6008,6 +6153,7 @@ function ouvrirFormulaireCreation(dateSelectionnee = "") {
   definirSousTitreModalSeance("");
   elements.seanceModalTitle.textContent = "Nouvelle séance";
   elements.saveSeanceButton.textContent = "Enregistrer";
+  elements.saveSeanceButton.dataset.defaultLabel = "Enregistrer";
   elements.seanceId.value = "";
   definirValeurSelectionnee(elements.statutCheckboxes, "planifiee");
   definirValeurSelectionnee(elements.compteCheckboxes, obtenirCompteParDefaut());
@@ -6048,7 +6194,61 @@ function ouvrirFormulaireModification() {
   remplirFormulaire(etat.seanceSelectionnee);
   elements.seanceModalTitle.textContent = "Modifier la séance";
   elements.saveSeanceButton.textContent = "Sauvegarder";
+  elements.saveSeanceButton.dataset.defaultLabel = "Sauvegarder";
   ouvrirModal(elements.seanceModal);
+}
+
+function ouvrirFormulaireDuplication() {
+  if (!etat.seanceSelectionnee) {
+    return;
+  }
+
+  if (seanceEstMasqueePourConfidentialite(etat.seanceSelectionnee)) {
+    afficherToast(obtenirMessageSeanceConfidentielle(), "warning");
+    return;
+  }
+
+  if (!utilisateurPeutModifierDonnees()) {
+    afficherToast("Votre compte est en lecture seule.", "warning");
+    return;
+  }
+
+  const seanceSource = etat.seanceSelectionnee;
+  const matieres = obtenirMatieresDisponibles();
+  const comptes = obtenirComptesDisponibles();
+
+  fermerModal(elements.detailModal);
+  elements.seanceForm.reset();
+  masquerErreur(elements.seanceFormError);
+  elements.seanceForm.dataset.mode = "creation";
+  rendreOptionsCatalogueSeance();
+  configurerOptionsStatut("creation");
+  definirSousTitreModalSeance(
+    `Copie de ${seanceSource.libelle || seanceSource.etudiant}. Choisissez la date avant d'enregistrer.`
+  );
+  elements.seanceModalTitle.textContent = "Dupliquer la seance";
+  elements.saveSeanceButton.textContent = "Creer la copie";
+  elements.saveSeanceButton.dataset.defaultLabel = "Creer la copie";
+  elements.seanceId.value = "";
+  elements.etudiant.value = seanceSource.etudiant || "";
+  elements.parent.value = seanceSource.parent || "";
+  definirValeurSelectionnee(
+    elements.matiereCheckboxes,
+    obtenirValeurCatalogueActiveOuDefaut(matieres, seanceSource.matiere, obtenirMatiereParDefaut())
+  );
+  definirValeurSelectionnee(
+    elements.compteCheckboxes,
+    obtenirValeurCatalogueActiveOuDefaut(comptes, seanceSource.compte, obtenirCompteParDefaut())
+  );
+  definirValeurSelectionnee(elements.statutCheckboxes, "planifiee");
+  definirValeurSelectionnee(elements.essaiCheckboxes, seanceSource.est_essai ? "1" : "0");
+  definirDureeSelectionnee(seanceSource.duree_minutes || 60);
+  elements.date.value = "";
+  definirHeureDebutSelectionnee(seanceSource.heure_debut || recupererHeureDebutParDefaut());
+  elements.description.value = seanceSource.description || "";
+  mettreAJourHeureFinCalculee();
+  ouvrirModal(elements.seanceModal);
+  elements.date.focus();
 }
 
 function ouvrirFormulaireReport() {
@@ -6081,6 +6281,7 @@ function ouvrirFormulaireReport() {
   definirHeureDebutSelectionnee("");
   elements.seanceModalTitle.textContent = "Reporter la séance";
   elements.saveSeanceButton.textContent = "Enregistrer";
+  elements.saveSeanceButton.dataset.defaultLabel = "Enregistrer";
   ouvrirModal(elements.seanceModal);
   elements.date.focus();
 }
@@ -6237,6 +6438,9 @@ async function gererSoumissionSeance(event) {
   }
 
   elements.saveSeanceButton.disabled = true;
+  const libelleBoutonFinal =
+    elements.saveSeanceButton.dataset.defaultLabel ||
+    (mode === "creation" ? "Enregistrer" : "Sauvegarder");
   elements.saveSeanceButton.textContent =
     mode === "creation" ? "Création..." : "Sauvegarde...";
 
@@ -6267,8 +6471,7 @@ async function gererSoumissionSeance(event) {
     afficherErreur(elements.seanceFormError, erreur.message);
   } finally {
     elements.saveSeanceButton.disabled = false;
-    elements.saveSeanceButton.textContent =
-      mode === "creation" ? "Enregistrer" : "Sauvegarder";
+    elements.saveSeanceButton.textContent = libelleBoutonFinal;
   }
 }
 
@@ -6357,6 +6560,7 @@ function mettreEnEtatActionsRapides() {
     !utilisateurPeutModifierDonnees() || seanceEstMasqueePourConfidentialite(etat.seanceSelectionnee);
 
   elements.editSeanceButton.disabled = actionsBloquees;
+  elements.duplicateSeanceButton.disabled = actionsBloquees;
   elements.deleteSeanceButton.disabled = actionsBloquees;
 
   elements.quickStatusButtons.forEach((bouton) => {

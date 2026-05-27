@@ -32,6 +32,10 @@ module.exports = {
   BACKUP_SEANCES_OUTPUT_DIR:
     process.env.BACKUP_SEANCES_OUTPUT_DIR ||
     path.join(__dirname, "..", "backups", "seances"),
+  BACKUP_SEANCES_RETENTION_DAYS: Math.max(
+    Math.floor(lireNombreEnv("BACKUP_SEANCES_RETENTION_DAYS", 60)),
+    0
+  ),
   BACKUP_SEANCES_EMAIL_DRY_RUN: lireBooleenEnv("BACKUP_SEANCES_EMAIL_DRY_RUN", false),
   SMTP_HOST: process.env.SMTP_HOST || "",
   SMTP_PORT: lireNombreEnv("SMTP_PORT", 465),

@@ -29,9 +29,11 @@ const {
   recupererCatalogueAdministration,
   trouverElementCatalogue,
   trouverElementCatalogueParId,
+  trouverElementCatalogueSupprimeParId,
   ajouterElementCatalogue,
   compterUtilisationElementCatalogue,
   supprimerElementCatalogue,
+  restaurerElementCatalogue,
   supprimerUtilisateurAdministration: supprimerUtilisateurAdministrationModele,
 } = require("../models/admin.model");
 const {
@@ -239,6 +241,50 @@ async function supprimerElementCatalogueAdministration(req, res) {
       elementCatalogue.type === "matiere"
         ? `La matiere ${elementCatalogue.valeur} a ete supprimee du catalogue. Les seances existantes restent conservees.`
         : `Le compte ${elementCatalogue.valeur} a ete supprime du catalogue. Les seances existantes restent conservees.`,
+  });
+}
+
+async function restaurerElementCatalogueAdministration(req, res) {
+  const elementId = Number(req.params.id);
+  const { mot_de_passe_actuel: motDePasseActuel } = req.body;
+
+  if (!Number.isInteger(elementId) || elementId <= 0 || !motDePasseActuel) {
+    return res.status(400).json({
+      message: "Element cible et mot de passe actuel obligatoires.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(req, res, verification, "admin_restore_catalog_item", {
+      element_id: elementId,
+    });
+  }
+
+  const elementSupprime = await trouverElementCatalogueSupprimeParId(elementId);
+
+  if (!elementSupprime) {
+    return res.status(404).json({
+      message: "Element supprime du catalogue introuvable.",
+    });
+  }
+
+  const elementCatalogue = await restaurerElementCatalogue(elementSupprime.id);
+
+  await journaliserActionAdmin(req, "admin_restore_catalog_item", "success", {
+    element_id: elementSupprime.id,
+    type: elementSupprime.type,
+    valeur: elementSupprime.valeur,
+    restored_element_id: elementCatalogue?.id || null,
+  });
+
+  return res.json({
+    message:
+      elementSupprime.type === "matiere"
+        ? `La matiere ${elementSupprime.valeur} a ete restauree dans le catalogue.`
+        : `Le compte ${elementSupprime.valeur} a ete restaure dans le catalogue.`,
+    element: elementCatalogue,
   });
 }
 
@@ -1170,6 +1216,7 @@ module.exports = {
   recupererVueAdministration,
   ajouterElementCatalogueAdministration,
   supprimerElementCatalogueAdministration,
+  restaurerElementCatalogueAdministration,
   creerUtilisateurAdministration,
   supprimerUtilisateurAdministration,
   reinitialiserMotDePasseCompte,

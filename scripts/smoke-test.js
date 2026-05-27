@@ -129,6 +129,56 @@ async function waitForServer() {
   throw new Error("Le serveur de test n'a pas demarre a temps.");
 }
 
+async function executerInitialisationBaseIsolee() {
+  const script = `
+const { initialiserBaseDeDonnees, fermerBaseDeDonnees } = require("./models/db");
+
+(async () => {
+  try {
+    await initialiserBaseDeDonnees();
+    await fermerBaseDeDonnees().catch(() => {});
+    process.exit(0);
+  } catch (error) {
+    console.error(error);
+    await fermerBaseDeDonnees().catch(() => {});
+    process.exit(1);
+  }
+})();
+`;
+
+  await new Promise((resolve, reject) => {
+    const processus = spawn("node", ["-e", script], {
+      cwd: root,
+      env: {
+        ...process.env,
+        DATABASE_PATH: databasePath,
+        NODE_ENV: "development",
+        SEED_DEMO_DATA: "",
+      },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let erreur = "";
+
+    processus.stderr.on("data", (chunk) => {
+      erreur += chunk.toString();
+    });
+
+    processus.on("error", reject);
+    processus.on("exit", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(
+        new Error(
+          `Initialisation isolee de la base echouee (${code}) : ${erreur.trim()}`
+        )
+      );
+    });
+  });
+}
+
 async function run() {
   cleanupPath(databasePath);
   cleanupPath(`${databasePath}-wal`);
@@ -462,6 +512,23 @@ async function run() {
       "Le compte supprime ne devrait plus etre propose pour les nouvelles seances."
     );
 
+    await executerInitialisationBaseIsolee();
+    response = await user.request("GET", "/api/seances/options");
+    const matieresApresReinitialisation = response.json.options.matieres.map((matiere) =>
+      typeof matiere === "string" ? matiere : matiere.valeur
+    );
+    const comptesApresReinitialisation = response.json.options.comptes.map((compte) =>
+      typeof compte === "string" ? compte : compte.valeur
+    );
+    assert(
+      !matieresApresReinitialisation.includes("Physique chimie"),
+      "La matiere supprimee ne doit pas revenir apres reinitialisation."
+    );
+    assert(
+      !comptesApresReinitialisation.includes("Yassine"),
+      "Le compte supprime ne doit pas revenir apres reinitialisation."
+    );
+
     response = await user.request("GET", "/api/seances");
     const seanceLegacyCatalogue = response.json.seances.find(
       (seance) => seance.etudiant === "Yanis"
@@ -494,6 +561,52 @@ async function run() {
       response.json.seance.matiere === "Physique chimie" &&
         response.json.seance.compte === "Yassine",
       "Une ancienne seance doit garder sa matiere et son compte supprimes du catalogue."
+    );
+
+    response = await admin.request("GET", "/api/admin");
+    const matierePhysiqueSupprimee =
+      response.json.administration.catalogue.matieres_supprimees.find(
+        (matiere) => matiere.valeur === "Physique chimie"
+      );
+    const compteYassineSupprime =
+      response.json.administration.catalogue.comptes_supprimes.find(
+        (compte) => compte.valeur === "Yassine"
+      );
+    assert(matierePhysiqueSupprimee, "La matiere supprimee devrait etre restaurable.");
+    assert(compteYassineSupprime, "Le compte supprime devrait etre restaurable.");
+
+    response = await admin.request(
+      "POST",
+      `/api/admin/catalogue-items/${matierePhysiqueSupprimee.id}/restore`,
+      {
+        mot_de_passe_actuel: "Admin!Test1234",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `restore matiere attendu=200 recu=${response.status}`);
+    response = await admin.request(
+      "POST",
+      `/api/admin/catalogue-items/${compteYassineSupprime.id}/restore`,
+      {
+        mot_de_passe_actuel: "Admin!Test1234",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `restore compte attendu=200 recu=${response.status}`);
+    response = await user.request("GET", "/api/seances/options");
+    const matieresApresRestauration = response.json.options.matieres.map((matiere) =>
+      typeof matiere === "string" ? matiere : matiere.valeur
+    );
+    const comptesApresRestauration = response.json.options.comptes.map((compte) =>
+      typeof compte === "string" ? compte : compte.valeur
+    );
+    assert(
+      matieresApresRestauration.includes("Physique chimie"),
+      "La matiere restauree devrait revenir dans les options."
+    );
+    assert(
+      comptesApresRestauration.includes("Yassine"),
+      "Le compte restaure devrait revenir dans les options."
     );
     console.log("OK suppression catalogue conserve seances");
 

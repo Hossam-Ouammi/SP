@@ -10,6 +10,7 @@ const {
   BACKUP_SEANCES_DAILY_HOUR,
   BACKUP_SEANCES_DAILY_MINUTE,
   BACKUP_SEANCES_OUTPUT_DIR,
+  BACKUP_SEANCES_RETENTION_DAYS,
   BACKUP_SEANCES_EMAIL_DRY_RUN,
   SMTP_HOST,
   SMTP_PORT,
@@ -17,6 +18,7 @@ const {
   SMTP_USER,
   SMTP_PASS,
 } = require("../config/backup.config");
+const { executerAvecVerrou } = require("./job-lock");
 const { listerToutesLesSeances } = require("../models/seance.model");
 const {
   convertirDateHeureZonneeEnInstant,
@@ -25,6 +27,8 @@ const {
 
 let backupTimer = null;
 let backupEnCours = false;
+const backupLockStaleMs = 60 * 60 * 1000;
+const nomFichierBackupRegex = /^seances-backup-\d{4}-\d{2}-\d{2}\.csv$/;
 
 const colonnesBackupSeances = [
   ["id", "id"],
@@ -106,6 +110,65 @@ async function genererFichierBackupSeances(options = {}) {
   };
 }
 
+async function nettoyerAnciensBackupsSeances(options = {}) {
+  const dossier = options.outputDir || BACKUP_SEANCES_OUTPUT_DIR;
+  const retentionDays = Number(
+    options.retentionDays ?? BACKUP_SEANCES_RETENTION_DAYS
+  );
+
+  if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
+    return {
+      fichiersSupprimes: 0,
+      retentionDays: 0,
+    };
+  }
+
+  const seuilMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  let entrees = [];
+
+  try {
+    entrees = await fs.readdir(dossier, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return {
+        fichiersSupprimes: 0,
+        retentionDays,
+      };
+    }
+
+    throw error;
+  }
+
+  let fichiersSupprimes = 0;
+
+  for (const entree of entrees) {
+    if (!entree.isFile() || !nomFichierBackupRegex.test(entree.name)) {
+      continue;
+    }
+
+    const chemin = path.join(dossier, entree.name);
+    const statistiques = await fs.stat(chemin).catch((error) => {
+      if (error.code === "ENOENT") {
+        return null;
+      }
+
+      throw error;
+    });
+
+    if (!statistiques || statistiques.mtimeMs >= seuilMs) {
+      continue;
+    }
+
+    await fs.unlink(chemin);
+    fichiersSupprimes += 1;
+  }
+
+  return {
+    fichiersSupprimes,
+    retentionDays,
+  };
+}
+
 function smtpEstConfigure() {
   return Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
 }
@@ -159,9 +222,10 @@ async function envoyerBackupSeancesParEmail(backup) {
   };
 }
 
-async function executerBackupSeancesEmail(options = {}) {
+async function executerBackupSeancesEmailSansVerrou(options = {}) {
   const backup = await genererFichierBackupSeances(options);
   const email = await envoyerBackupSeancesParEmail(backup);
+  const nettoyage = await nettoyerAnciensBackupsSeances(options);
 
   if (!email.envoye) {
     console.warn(
@@ -173,9 +237,45 @@ async function executerBackupSeancesEmail(options = {}) {
     );
   }
 
+  if (nettoyage.fichiersSupprimes > 0) {
+    console.log(
+      `${nettoyage.fichiersSupprimes} ancien(s) backup(s) seances supprime(s).`
+    );
+  }
+
   return {
     backup,
     email,
+    nettoyage,
+  };
+}
+
+async function executerBackupSeancesEmail(options = {}) {
+  const execution = await executerAvecVerrou(
+    "backup-seances",
+    () => executerBackupSeancesEmailSansVerrou(options),
+    { staleMs: backupLockStaleMs }
+  );
+
+  if (execution.skipped) {
+    console.warn("Backup seances deja en cours, execution ignoree.");
+    return {
+      skipped: true,
+      backup: null,
+      email: {
+        envoye: false,
+        raison: "execution-deja-en-cours",
+      },
+      nettoyage: {
+        fichiersSupprimes: 0,
+        retentionDays: BACKUP_SEANCES_RETENTION_DAYS,
+      },
+    };
+  }
+
+  return {
+    ...execution.result,
+    skipped: false,
   };
 }
 
@@ -251,6 +351,7 @@ function demarrerPlanificateurBackupSeances() {
 module.exports = {
   convertirSeancesEnCsv,
   genererFichierBackupSeances,
+  nettoyerAnciensBackupsSeances,
   envoyerBackupSeancesParEmail,
   executerBackupSeancesEmail,
   calculerProchaineExecution,
