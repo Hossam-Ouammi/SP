@@ -366,11 +366,11 @@ function genererContenuEnteteJour(info) {
 function obtenirOptionsResponsiveCalendrier() {
   if (estCalendrierMobile()) {
     return {
-      initialView: "dayGridMonth",
+      initialView: "timeGridWeek",
       headerToolbar: {
         left: "prev,next",
         center: "title",
-        right: "dayGridMonth,timeGridWeek",
+        right: "timeGridWeek,dayGridMonth",
       },
       buttonText: {
         month: "Mois",
@@ -386,11 +386,11 @@ function obtenirOptionsResponsiveCalendrier() {
 
   if (estCalendrierCompact()) {
     return {
-      initialView: "dayGridMonth",
+      initialView: "timeGridWeek",
       headerToolbar: {
         left: "prev,next",
         center: "title",
-        right: "dayGridMonth,timeGridWeek",
+        right: "timeGridWeek,dayGridMonth",
       },
       buttonText: {
         month: "Mois",
@@ -404,11 +404,11 @@ function obtenirOptionsResponsiveCalendrier() {
   }
 
   return {
-    initialView: "dayGridMonth",
+    initialView: "timeGridWeek",
     headerToolbar: {
       left: "prev,next today",
       center: "title",
-      right: "dayGridMonth,timeGridWeek",
+      right: "timeGridWeek,dayGridMonth",
     },
     buttonText: {
       today: "Aujourd'hui",
@@ -669,8 +669,6 @@ export function initialiserCalendrier(
         if (vueActive !== "timeGridWeek" && vueActive !== "dayGridMonth") {
           calendrier.changeView("timeGridWeek");
         }
-      } else if (vueActive === "timeGridWeek" && !estCalendrierCompact()) {
-        calendrier.changeView("dayGridMonth");
       }
 
       synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
