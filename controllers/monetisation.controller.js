@@ -1,14 +1,15 @@
 const puppeteer = require("puppeteer");
-const { listerSeancesPourMonetisation } = require("../models/seance.model");
-const { listerCatalogueOptions } = require("../models/catalogue.model");
+const {
+  listerSeancesPourMonetisationScopees,
+  listerToutesLesSeancesPourMonetisation,
+} = require("../models/seance.model");
+const {
+  construireFiltreLectureSeances,
+  scopePeutGererIntervenant,
+} = require("../models/access-scope.model");
 const { convertirDateHeureZonneeEnInstant } = require("../utils/timezone");
 const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
 
-const TARIFS_HORAIRES_PAR_DEFAUT = {
-  abdo: 90,
-  yassine: 130,
-  hossam: 150,
-};
 const REGEX_MOIS_ISO = /^\d{4}-(0[1-9]|1[0-2])$/;
 const REGEX_ANNEE_ISO = /^\d{4}$/;
 const PDF_GENERATION_TIMEOUT_MS = Math.max(
@@ -97,12 +98,15 @@ function estSeanceFacturableMonetisation(seance) {
 
 function calculerMontantSeance(seance, tarifUnitaire) {
   const dureeMinutes = calculerDureeMinutes(seance);
+  const tarifSnapshot = Number(seance?.tarif_horaire_applique);
+  const tarifEffectif =
+    Number.isFinite(tarifSnapshot) && tarifSnapshot >= 0 ? tarifSnapshot : tarifUnitaire;
 
-  if (!dureeMinutes || !tarifUnitaire) {
+  if (!dureeMinutes || !tarifEffectif) {
     return 0;
   }
 
-  return (tarifUnitaire * dureeMinutes) / 60;
+  return (tarifEffectif * dureeMinutes) / 60;
 }
 
 function calculerMonetisationPourCompte(seances, nomCompte, tarifUnitaire) {
@@ -235,23 +239,138 @@ function lireFormatReleveMonetisation(valeur) {
   };
 }
 
-function obtenirTarifHoraireParDefautCompte(nomCompte) {
-  return TARIFS_HORAIRES_PAR_DEFAUT[normaliserCleCompte(nomCompte)] || 100;
-}
+function libelleIntervenantMonetisation(seance) {
+  const idPublic = String(seance?.intervenant_public_id || "").trim();
+  const nom = String(seance?.intervenant_nom || "").trim();
 
-function utilisateurPeutVoirCompteHossam(utilisateur) {
-  return normaliserCleCompte(utilisateur?.email) === "hossam@test.com";
-}
-
-function peutAfficherCompteDansMonetisation(utilisateur, nomCompte) {
-  if (normaliserCleCompte(nomCompte) !== "hossam") {
-    return true;
+  if (idPublic) {
+    return nom ? `${idPublic} — ${nom}` : idPublic;
   }
 
-  return utilisateurPeutVoirCompteHossam(utilisateur);
+  if (nom) {
+    return nom;
+  }
+
+  return "Intervenant Ã  rÃ©concilier";
 }
 
-function construireContexteMonetisation(utilisateur, seances, catalogue) {
+function construireCatalogueIntervenantsMonetisation(seances = []) {
+  const comptes = new Map();
+
+  for (const seance of seances) {
+    const label = libelleIntervenantMonetisation(seance);
+    const cle = normaliserCleCompte(label);
+
+    if (!cle || comptes.has(cle)) {
+      continue;
+    }
+
+    const tarifSnapshot = Number(seance?.tarif_horaire_applique);
+    const tarifActuel = Number(seance?.intervenant_tarif_horaire);
+    comptes.set(cle, {
+      valeur: label,
+      tarif_horaire:
+        Number.isFinite(tarifSnapshot) && tarifSnapshot >= 0
+          ? tarifSnapshot
+          : Number.isFinite(tarifActuel) && tarifActuel >= 0
+            ? tarifActuel
+            : 0,
+    });
+  }
+
+  return { comptes: Array.from(comptes.values()), matieres: [] };
+}
+
+function normaliserSeancesPourMonetisationIntervenant(seances = []) {
+  return seances.map((seance) => ({
+    ...seance,
+    // `compte` est conservÃ© dans le DTO legacy pour ne pas casser l'UI, mais
+    // dÃ©signe dÃ©sormais l'intervenant et non une ancienne Ã©tiquette globale.
+    compte: libelleIntervenantMonetisation(seance),
+  }));
+}
+
+function lireDateIso(valeur) {
+  const texte = String(valeur || "").trim();
+
+  if (!texte) {
+    return { valeur: null, invalide: false };
+  }
+
+  const valide = /^\d{4}-\d{2}-\d{2}$/.test(texte) && !Number.isNaN(new Date(`${texte}T12:00:00`).getTime());
+  return { valeur: valide ? texte : null, invalide: !valide };
+}
+
+function filtrerSeancesParPlageDates(seances, du = null, au = null) {
+  return seances.filter((seance) => {
+    const date = String(seance?.date || "");
+    return (!du || date >= du) && (!au || date <= au);
+  });
+}
+
+function verifierContexteAnalyseGlobaleSuperAdmin(req) {
+  if (
+    req.scope?.estSuperAdmin !== true ||
+    req.scope?.modeAnalyseGlobaleSuperAdmin !== true
+  ) {
+    throw creerErreurHttp(403, "Une analyse globale SuperAdmin est requise.");
+  }
+}
+
+function lireFiltreIntervenantAnalyseGlobale(req) {
+  const valeur = req.query?.intervenant_id ?? req.query?.professeur_id;
+
+  if (valeur === undefined || valeur === null || String(valeur).trim() === "") {
+    return null;
+  }
+
+  const intervenantId = Number(valeur);
+
+  if (!Number.isInteger(intervenantId) || intervenantId <= 0) {
+    throw creerErreurHttp(400, "L'identifiant d'intervenant est invalide.");
+  }
+
+  return intervenantId;
+}
+
+async function resoudreScopeMonetisation(req) {
+  if (req.modeMonetisationGlobaleSuperAdmin === true) {
+    verifierContexteAnalyseGlobaleSuperAdmin(req);
+    return {
+      globaleSuperAdmin: true,
+      intervenantId: lireFiltreIntervenantAnalyseGlobale(req),
+    };
+  }
+
+  const scopeLecture = construireFiltreLectureSeances(req.scope);
+  const intervenantDemande = Number(req.query?.intervenant_id ?? req.query?.professeur_id);
+
+  if (!Number.isInteger(intervenantDemande) || intervenantDemande <= 0) {
+    return scopeLecture;
+  }
+
+  if (req.scope?.estHandler) {
+    const handlerId = Number(req.scope.utilisateurId);
+    const autorise = await scopePeutGererIntervenant(req.scope, {
+      handlerId,
+      intervenantId: intervenantDemande,
+    });
+
+    if (!autorise) {
+      throw creerErreurHttp(404, "Intervenant introuvable.");
+    }
+
+    return { handlerIds: [handlerId], intervenantId: intervenantDemande };
+  }
+
+  if (Number(req.scope?.utilisateurId) !== intervenantDemande) {
+    throw creerErreurHttp(404, "Intervenant introuvable.");
+  }
+
+  return scopeLecture;
+}
+
+function construireContexteMonetisation(seances, catalogue) {
   const comptesCatalogue = Array.isArray(catalogue?.comptes) ? catalogue.comptes : [];
   const comptesCatalogueParNom = new Map(
     comptesCatalogue.map((compte) => [
@@ -259,9 +378,7 @@ function construireContexteMonetisation(utilisateur, seances, catalogue) {
       compte,
     ])
   );
-  const seancesVisibles = seances.filter((seance) =>
-    peutAfficherCompteDansMonetisation(utilisateur, seance?.compte)
-  );
+  const seancesVisibles = seances;
   const comptesVisibles = [];
   const comptesVisiblesParCle = new Set();
 
@@ -271,8 +388,7 @@ function construireContexteMonetisation(utilisateur, seances, catalogue) {
 
     if (
       !cleCompte ||
-      comptesVisiblesParCle.has(cleCompte) ||
-      !peutAfficherCompteDansMonetisation(utilisateur, nomNormalise)
+      comptesVisiblesParCle.has(cleCompte)
     ) {
       return;
     }
@@ -303,7 +419,7 @@ function obtenirTarifUnitaireCompte(compteVisible, comptesCatalogueParNom) {
   const compteCatalogue = comptesCatalogueParNom.get(compteVisible.cle);
   return Number.isFinite(Number(compteCatalogue?.tarif_horaire))
     ? Number(compteCatalogue.tarif_horaire)
-    : obtenirTarifHoraireParDefautCompte(compteVisible.nom);
+    : 0;
 }
 
 function listerMoisDisponibles(seances) {
@@ -1050,6 +1166,8 @@ async function recupererMonetisation(req, res) {
     const filtreMois = lireFiltreMoisMonetisation(req.query?.mois);
     const modePeriode = lireModePeriodeMonetisation(req.query?.mode);
     const filtreAnnee = lireFiltreAnneeMonetisation(req.query?.annee);
+    const filtreDu = lireDateIso(req.query?.du);
+    const filtreAu = lireDateIso(req.query?.au);
 
     if (filtreMois.invalide) {
       return res.status(400).json({
@@ -1069,14 +1187,39 @@ async function recupererMonetisation(req, res) {
       });
     }
 
-    const [seances, catalogue] = await Promise.all([
-      listerSeancesPourMonetisation(),
-      listerCatalogueOptions(),
-    ]);
-    const { comptesCatalogueParNom, seancesVisibles, comptesVisibles } = construireContexteMonetisation(
-      req.utilisateur,
-      seances,
-      catalogue
+    if (filtreDu.invalide || filtreAu.invalide) {
+      return res.status(400).json({ message: "Les dates Du et Au doivent Ãªtre au format YYYY-MM-DD." });
+    }
+
+    const auParDefaut = filtreDu.valeur && !filtreAu.valeur
+      ? new Date().toISOString().slice(0, 10)
+      : filtreAu.valeur;
+    const dateAujourdhui = new Date().toISOString().slice(0, 10);
+
+    if (auParDefaut && auParDefaut > dateAujourdhui) {
+      return res.status(400).json({ message: "La date Au ne peut pas Ãªtre future." });
+    }
+
+    if (filtreDu.valeur && auParDefaut && filtreDu.valeur > auParDefaut) {
+      return res.status(400).json({ message: "La date Du doit Ãªtre antÃ©rieure ou Ã©gale Ã  la date Au." });
+    }
+
+    const scopeMonetisation = await resoudreScopeMonetisation(req);
+    const seancesBrutes = scopeMonetisation.globaleSuperAdmin
+      ? await listerToutesLesSeancesPourMonetisation()
+      : await listerSeancesPourMonetisationScopees(scopeMonetisation);
+    const seances = normaliserSeancesPourMonetisationIntervenant(seancesBrutes).filter(
+      (seance) =>
+        !scopeMonetisation.intervenantId ||
+        Number(seance?.intervenant_id) === Number(scopeMonetisation.intervenantId)
+    );
+    const catalogue = construireCatalogueIntervenantsMonetisation(seances);
+    const contexte = construireContexteMonetisation(seances, catalogue);
+    const { comptesCatalogueParNom, comptesVisibles } = contexte;
+    const seancesVisibles = filtrerSeancesParPlageDates(
+      contexte.seancesVisibles,
+      filtreDu.valeur,
+      auParDefaut
     );
     const moisDisponibles = listerMoisDisponibles(seancesVisibles);
     const anneesDisponiblesInitiales = listerAnneesDisponibles(seancesVisibles);
@@ -1127,7 +1270,7 @@ async function recupererMonetisation(req, res) {
       nombreTotalFacturable += stats.seances_facturables;
     });
 
-    return res.json({
+    const reponse = {
       monetisation: {
         montant_total: montantTotal,
         nombre_total_facturable: nombreTotalFacturable,
@@ -1143,10 +1286,26 @@ async function recupererMonetisation(req, res) {
           nombre_seances: seancesFiltrees.length,
           nombre_seances_facturables: nombreSeancesFacturables,
           nombre_seances_essai_faites: nombreSeancesEssaiFaites,
+          du: filtreDu.valeur,
+          au: auParDefaut,
+          intervenant_id: scopeMonetisation.intervenantId || null,
         },
       },
-    });
+    };
+
+    if (scopeMonetisation.globaleSuperAdmin) {
+      reponse.portee = {
+        type: "super_admin_globale",
+        intervenant_id: scopeMonetisation.intervenantId || null,
+      };
+    }
+
+    return res.json(reponse);
   } catch (error) {
+    const status = Number(error.status || 500);
+    if (status < 500) {
+      return res.status(status).json({ message: error.message });
+    }
     console.error("Erreur monétisation:", error);
     return res.status(500).json({ message: "Erreur lors du calcul de la monétisation." });
   }
@@ -1197,15 +1356,18 @@ async function telechargerReleveMonetisation(req, res) {
       });
     }
 
-    const [seances, catalogue] = await Promise.all([
-      listerSeancesPourMonetisation(),
-      listerCatalogueOptions(),
-    ]);
-    const { comptesCatalogueParNom, seancesVisibles, comptesVisibles } = construireContexteMonetisation(
-      req.utilisateur,
-      seances,
-      catalogue
+    const scopeMonetisation = await resoudreScopeMonetisation(req);
+    const seancesBrutes = scopeMonetisation.globaleSuperAdmin
+      ? await listerToutesLesSeancesPourMonetisation()
+      : await listerSeancesPourMonetisationScopees(scopeMonetisation);
+    const seances = normaliserSeancesPourMonetisationIntervenant(seancesBrutes).filter(
+      (seance) =>
+        !scopeMonetisation.intervenantId ||
+        Number(seance?.intervenant_id) === Number(scopeMonetisation.intervenantId)
     );
+    const catalogue = construireCatalogueIntervenantsMonetisation(seances);
+    const { comptesCatalogueParNom, seancesVisibles, comptesVisibles } =
+      construireContexteMonetisation(seances, catalogue);
     const comptesVisiblesParCle = new Map(
       comptesVisibles.map((compteVisible) => [compteVisible.cle, compteVisible])
     );
@@ -1325,7 +1487,19 @@ async function telechargerReleveMonetisation(req, res) {
   }
 }
 
+async function recupererMonetisationGlobaleAdministration(req, res) {
+  req.modeMonetisationGlobaleSuperAdmin = true;
+  return recupererMonetisation(req, res);
+}
+
+async function telechargerReleveMonetisationGlobaleAdministration(req, res) {
+  req.modeMonetisationGlobaleSuperAdmin = true;
+  return telechargerReleveMonetisation(req, res);
+}
+
 module.exports = {
   recupererMonetisation,
   telechargerReleveMonetisation,
+  recupererMonetisationGlobaleAdministration,
+  telechargerReleveMonetisationGlobaleAdministration,
 };

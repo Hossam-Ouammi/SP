@@ -1,5 +1,11 @@
 # Contexte IA — Gestion collaborative de séances
 
+> **Archive pré-évolution multi-utilisateur.** Ce document décrit des règles
+> historiques liées à des comptes nominatifs et ne doit pas guider une
+> modification courante. Commencer par [le guide de déploiement
+> multi-utilisateur](DEPLOIEMENT-MULTI-UTILISATEUR.md), [le changelog](CHANGELOG-MULTI-UTILISATEUR.md)
+> et les routes/models actuels.
+
 ## Objectif et périmètre
 
 Application web monoposte/petite équipe, en français, qui centralise le planning de cours. Elle est conçue pour un administrateur métier, **Hossam**, et des collaborateurs. C'est une PWA Express + SQLite : aucune API tierce, aucune architecture SPA/framework côté client.
@@ -64,7 +70,7 @@ Toutes les routes mutantes authentifiées requièrent le cookie de session, une 
 | Administration | `/api/admin/*` | comptes, catalogue, droits, tarifs, sessions, appareils, audit auth, IP, maintenance, effacements; mot de passe Hossam requis pour opérations sensibles |
 | Temps réel | `/api/realtime` | SSE authentifié; le client recharge les données sur un événement |
 | Push | `/api/push/config|subscribe|unsubscribe|test` | VAPID, abonnement par navigateur, notifications d'événement et rappels planifiés |
-| Public | `/reservation`, `/api/reservation-public`, `/events` | planning seulement, conversion de fuseau; `POST /reserver` renvoie volontairement 410 |
+| Public | `/reservation`, `/api/reservation-public`, `/events` | planning seulement, projection centrale + offset fixe; `POST /reserver` renvoie volontairement 410 |
 
 ## Fichiers backend, responsabilité par fichier
 
@@ -73,7 +79,7 @@ Toutes les routes mutantes authentifiées requièrent le cookie de session, une 
 - `config/security.config.js` : nom/durée des cookies de session et appareil reconnu.
 - `config/backup.config.js` : activation, horaire/fuseau, rétention et SMTP des backups.
 - `config/push.config.js` : paramètres de cadence/rappel push.
-- `config/public-reservation.config.js` : fuseaux central/public, plage visible et durée nominale.
+- `config/public-reservation.config.js` : référence temporelle centrale et durée nominale du créneau public. Le réglage public par Handler est un offset fixe, pas un fuseau IANA.
 - `middleware/security.middleware.js` : CSP/headers, no-cache API, validation Origin/Referer, émission et validation CSRF, normalisation IP.
 - `middleware/ip-blocklist.middleware.js` : refuse tôt une IP présente dans `blocked_ips`.
 - `middleware/auth.middleware.js` : cookie/session, auto-login selector+validator, chargement utilisateur, gardes authentification/compte sécurisé/admin/Hossam/écriture/monétisation/indisponibilités.
@@ -88,7 +94,7 @@ Toutes les routes mutantes authentifiées requièrent le cookie de session, une 
 - `monetisation.controller.js` : normalisation de période/comptes, calcul des lignes et totaux, rendu d'un relevé HTML et conversion PDF via Puppeteer.
 - `admin.controller.js` : contrôles sensibles protégés par reverification bcrypt du mot de passe admin; comptes, catalogue, droits, tarifs, sessions, IP, appareils, nettoyage et SQLite maintenance.
 - `photos.controller.js` : lecture protégée des pièces jointes **legacy** uniquement; aucun upload actif.
-- `public-reservation.controller.js` : projection sans données privées du calendrier, conversion timezone et SSE public; création publique désactivée.
+- `public-reservation.controller.js` : calcule d'abord la disponibilité centrale sans données privées, puis projette uniquement le résultat par offset fixe de l'horloge centrale choisi par le Handler; SSE public, création publique désactivée.
 - `push.controller.js` : expose clé VAPID, persiste/désactive abonnement, envoie test.
 - `realtime.controller.js` : ouvre le SSE authentifié.
 
@@ -114,7 +120,7 @@ Tables : `utilisateurs`, `seances`, `indisponibilites`, `propositions_seances`, 
 - `utils/realtime.js` maintient les clients SSE et diffuse une mise à jour; `realtime-route.js` enveloppe les mutations pour diffuser SSE puis push.
 - `utils/push-notifications.js` configure VAPID, envoie en concurrence limitée, retire les endpoints morts et calcule résumés minuit/rappels du jour tout en respectant droits et confidentialité.
 - `utils/seances-backup-email.js` exporte les séances en CSV, nettoie la rétention et envoie via SMTP; `job-lock.js` empêche deux jobs/processus de s'exécuter simultanément.
-- `utils/timezone.js` effectue les conversions explicites des fuseaux pour la vue publique; `security.js` fournit helpers cryptographiques; `screenshot-storage.js` gère des dossiers legacy/audit.
+- `utils/timezone.js` gère l'horloge centrale; `utils/public-calendar-timezone.js` applique l'offset public fixe central → public, sans conversion IANA; `security.js` fournit helpers cryptographiques; `screenshot-storage.js` gère des dossiers legacy/audit.
 - `scripts/smoke-test.js` est le test E2E HTTP isolé; `run-push-jobs.js`, `run-seances-backup.js`, `maintenance-sqlite.js` sont les exécutions manuelles/cron. `e2e-browser-audit.js` et `scripts/legacy/*` ne sont pas du runtime.
 
 ## Front-end
@@ -126,7 +132,7 @@ Tables : `utilisateurs`, `seances`, `indisponibilites`, `propositions_seances`, 
 - `calendrier.js` encapsule FullCalendar : plugins, rendu, couleurs/masquage, mobile, plage horaire dynamique et clics/sélections remontés à `ui.js`.
 - `ui.js` est le contrôleur d'interface monolithique. Son objet `etat` contient toutes les collections et sélections. Il hydrate les données, rend listes/cartes/modales, valide rapidement les conflits côté navigateur, pilote formulaires CRUD et propositions, navigation, statistiques/monétisation/admin/push et reconnecte le SSE. Le serveur reste l'autorité.
 - `push.js` enregistre/actualise le service worker, gère permission, abonnement VAPID et cas Android.
-- `public-reservation.js` rend les seuls blocs occupés avec FullCalendar, représente l'heure du fuseau public sur une grille UTC, rafraîchit par polling + SSE; il ne crée aucune réservation.
+- `public-reservation.js` rend les seuls blocs de disponibilité déjà projetés par le serveur sur une grille UTC, rafraîchit par polling + SSE; il ne crée aucune réservation.
 - `service-worker.js` ne met pas les pages en cache : il gère activation immédiate et affichage/clic des push. `manifest.webmanifest` et `icons/` portent la PWA.
 
 ## Sécurité, exploitation et limites
@@ -137,7 +143,7 @@ Mesures en place : bcrypt, sessions serveur HttpOnly/SameSite strict, rotation d
 
 ## Commandes et configuration
 
-`npm start`, `npm run dev`, `npm test`, `npm run push:due`, `npm run backup:seances`, `npm run maintenance:sqlite`. Déploiement prévu : PM2 + Caddy, Node idéalement sur `127.0.0.1`, `TRUST_PROXY=true` derrière proxy TLS. Paramètres importants : `PORT`, `HOST`, `SESSION_SECRET`, `AUDIT_SECRET`, VAPID, fuseaux `CENTRAL_CALENDAR_TIMEZONE`/`PUBLIC_RESERVATION_TIMEZONE`, SMTP et backup.
+`npm start`, `npm run dev`, `npm test`, `npm run push:due`, `npm run backup:seances`, `npm run maintenance:sqlite`. Déploiement prévu : PM2 + Caddy, Node idéalement sur `127.0.0.1`, `TRUST_PROXY=true` derrière proxy TLS. Paramètres importants : `PORT`, `HOST`, `SESSION_SECRET`, `AUDIT_SECRET`, VAPID, la référence `CENTRAL_CALENDAR_TIMEZONE`, SMTP et backup. Le réglage public reste un offset fixe par Handler (`GMT`, `GMT+1`, `GMT+2`), sans DST IANA.
 
 ## Instruction de travail pour une IA
 

@@ -1,5 +1,41 @@
 const { all, get, run } = require("./db");
 
+function normaliserIdentifiant(valeur) {
+  const id = Number(valeur);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function normaliserListeIdentifiants(valeurs = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(valeurs) ? valeurs : [valeurs])
+        .map(normaliserIdentifiant)
+        .filter(Boolean)
+    )
+  );
+}
+
+function construireFiltrePropositionsScopees(scope = {}) {
+  const handlerIds = normaliserListeIdentifiants(scope.handlerIds);
+  const intervenantId = normaliserIdentifiant(scope.intervenantId);
+
+  if (handlerIds.length === 0) {
+    return { clause: "1 = 0", parametres: [] };
+  }
+
+  const clauses = [
+    `propositions_seances.handler_id IN (${handlerIds.map(() => "?").join(", ")})`,
+  ];
+  const parametres = [...handlerIds];
+
+  if (intervenantId) {
+    clauses.push("propositions_seances.intervenant_id = ?");
+    parametres.push(intervenantId);
+  }
+
+  return { clause: clauses.join(" AND "), parametres };
+}
+
 const requetePropositionComplete = `
   SELECT
     propositions_seances.*,
@@ -53,6 +89,31 @@ async function listerPropositionsSeances({ statut = "en_attente", limite = 100 }
   );
 }
 
+async function listerPropositionsSeancesScopees(
+  scope = {},
+  { statut = "en_attente", limite = 100 } = {}
+) {
+  const limiteNormalisee = Math.min(Math.max(Number(limite) || 100, 1), 300);
+  const filtre = construireFiltrePropositionsScopees(scope);
+  const clauses = [filtre.clause];
+  const parametres = [...filtre.parametres];
+
+  if (statut) {
+    clauses.push("propositions_seances.statut = ?");
+    parametres.push(statut);
+  }
+
+  return all(
+    `
+      ${requetePropositionComplete}
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY propositions_seances.id DESC
+      LIMIT ?
+    `,
+    [...parametres, limiteNormalisee]
+  );
+}
+
 async function trouverPropositionSeanceParId(id) {
   return get(
     `
@@ -60,6 +121,25 @@ async function trouverPropositionSeanceParId(id) {
       WHERE propositions_seances.id = ?
     `,
     [id]
+  );
+}
+
+async function trouverPropositionSeanceParIdScopee(id, scope = {}) {
+  const propositionId = normaliserIdentifiant(id);
+
+  if (!propositionId) {
+    return null;
+  }
+
+  const filtre = construireFiltrePropositionsScopees(scope);
+
+  return get(
+    `
+      ${requetePropositionComplete}
+      WHERE propositions_seances.id = ?
+        AND ${filtre.clause}
+    `,
+    [propositionId, ...filtre.parametres]
   );
 }
 
@@ -100,9 +180,11 @@ async function creerPropositionSeance(donnees) {
         indisponibilite_heure_fin_originale,
         indisponibilite_jour_complet_original,
         proposee_par,
-        seance_source_id
+        seance_source_id,
+        handler_id,
+        intervenant_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       donnees.titre,
@@ -126,6 +208,8 @@ async function creerPropositionSeance(donnees) {
       donnees.indisponibilite_jour_complet_original ? 1 : 0,
       donnees.proposee_par,
       donnees.seance_source_id || null,
+      normaliserIdentifiant(donnees.handler_id),
+      normaliserIdentifiant(donnees.intervenant_id),
     ]
   );
 
@@ -159,6 +243,8 @@ async function mettreAJourPropositionSeance(id, donnees) {
           ?,
           indisponibilite_jour_complet_original
         ),
+        handler_id = COALESCE(?, handler_id),
+        intervenant_id = COALESCE(?, intervenant_id),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ? AND statut = 'en_attente'
     `,
@@ -186,6 +272,8 @@ async function mettreAJourPropositionSeance(id, donnees) {
         : donnees.indisponibilite_jour_complet_original
           ? 1
           : 0,
+      normaliserIdentifiant(donnees.handler_id),
+      normaliserIdentifiant(donnees.intervenant_id),
       id,
     ]
   );
@@ -252,8 +340,11 @@ async function detacherSeancesPropositions(seances = []) {
 }
 
 module.exports = {
+  construireFiltrePropositionsScopees,
   listerPropositionsSeances,
+  listerPropositionsSeancesScopees,
   trouverPropositionSeanceParId,
+  trouverPropositionSeanceParIdScopee,
   trouverPropositionAccepteeParSeanceId,
   creerPropositionSeance,
   mettreAJourPropositionSeance,

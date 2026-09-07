@@ -10,17 +10,28 @@ export async function connecterUtilisateur(username, motDePasse, rememberDevice 
     }),
   });
 
-  return resultat.utilisateur;
+  return {
+    ...resultat.utilisateur,
+    scope: resultat.scope || null,
+  };
 }
 
 export async function changerMotDePasse(motDePasseActuel, nouveauMotDePasse) {
-  return envoyerRequete("/api/auth/password", {
+  const resultat = await envoyerRequete("/api/auth/password", {
     method: "PATCH",
     body: JSON.stringify({
       mot_de_passe_actuel: motDePasseActuel,
       nouveau_mot_de_passe: nouveauMotDePasse,
     }),
   });
+
+  return {
+    ...resultat,
+    utilisateur: {
+      ...resultat.utilisateur,
+      scope: resultat.scope || null,
+    },
+  };
 }
 
 export async function deconnecterUtilisateur() {
@@ -33,7 +44,10 @@ export async function deconnecterUtilisateur() {
 export async function recupererUtilisateurCourant() {
   try {
     const resultat = await envoyerRequete("/api/auth/me");
-    return resultat.utilisateur;
+    return {
+      ...resultat.utilisateur,
+      scope: resultat.scope || null,
+    };
   } catch (erreur) {
     if (erreur.status === 401) {
       viderTokenCsrf();

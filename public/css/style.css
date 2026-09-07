@@ -114,6 +114,40 @@ button {
   padding: 28px;
 }
 
+.login-lifecycle-actions {
+  display: grid;
+  gap: 4px;
+  margin-top: 18px;
+}
+
+.button.link-button {
+  min-height: auto;
+  padding: 7px 0;
+  justify-content: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  text-align: left;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.button.link-button:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+
+.login-secondary-form {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.login-secondary-form h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
 .login-header {
   margin-bottom: 24px;
 }
@@ -2489,6 +2523,51 @@ button {
   gap: 10px;
 }
 
+.team-member-card {
+  align-items: start;
+}
+
+.team-member-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 10px;
+  width: min(100%, 620px);
+}
+
+.team-member-form .team-field {
+  gap: 5px;
+  font-size: 0.8rem;
+}
+
+.team-member-form input[type="color"] {
+  min-height: 42px;
+  padding: 4px;
+}
+
+.team-permissions {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.team-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  margin-top: 0;
+}
+
+.availability-rules-card {
+  display: grid;
+  gap: 18px;
+}
+
+.availability-rule-form .form-grid {
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+}
+
+.availability-item {
+  align-items: center;
+}
+
 .admin-session-item-current {
   border-color: #bfdbfe;
   background: #f8fbff;
@@ -3962,6 +4041,15 @@ button {
   #detail-modal .detail-layout,
   #unavailability-detail-modal .detail-layout {
     gap: 14px;
+  }
+
+  .team-member-form,
+  .team-permissions {
+    grid-template-columns: 1fr;
+  }
+
+  .availability-rule-form .form-grid {
+    grid-template-columns: 1fr;
   }
 
   #detail-modal .detail-card,
@@ -6031,5 +6119,194 @@ button {
     border-top: 1px solid var(--border);
     background: transparent;
     backdrop-filter: none;
+  }
+}
+
+/* Etats neutres du calendrier public tokenise : aucune couleur d'equipe,
+   aucun indice sur le nombre ou l'identite des intervenants. */
+.reservation-public-legend-swatch-available {
+  border-color: #86efac;
+  background: #dcfce7;
+}
+
+#reservation-public-calendar.fc .reservation-public-available-event,
+.reservation-public-calendar .fc .reservation-public-available-event {
+  border: 1px solid #86efac !important;
+  background: #dcfce7 !important;
+  color: #166534 !important;
+}
+
+#reservation-public-calendar.fc .reservation-public-available-event .fc-event-main,
+#reservation-public-calendar.fc .reservation-public-available-event .fc-event-title,
+.reservation-public-calendar .fc .reservation-public-available-event .fc-event-main,
+.reservation-public-calendar .fc .reservation-public-available-event .fc-event-title {
+  color: #166534 !important;
+  font-size: 0.68rem !important;
+  font-weight: 700;
+}
+
+/* Vue privée Handler/Professeur : les pastilles sont une lecture de données
+   déjà scoppées par l'API. Aucun détail n'est réutilisé côté calendrier public. */
+.availability-overview {
+  margin: 0 0 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.availability-overview-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.availability-overview-title {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.availability-overview-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.availability-overview-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 12px;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.availability-overview-legend-item,
+.availability-overview-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.availability-overview-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border: 1px solid color-mix(in srgb, var(--availability-color) 62%, #1e293b);
+  border-radius: 50%;
+  background: var(--availability-color, #64748b);
+}
+
+.availability-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 10px;
+  margin-top: 14px;
+}
+
+.availability-overview-row {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  gap: 8px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.availability-overview-time {
+  min-width: 38px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.availability-overview-unavailable {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.workspace-public-calendar {
+  display: grid;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 780px) {
+  .availability-overview-heading {
+    display: block;
+  }
+
+  .availability-overview-note {
+    margin-top: 4px;
+  }
+
+  .availability-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 430px) {
+  .availability-overview {
+    padding: 12px;
+  }
+
+  .availability-overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-analytics-filter {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.admin-global-analytics-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.admin-global-analytics-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.admin-global-analytics-row strong {
+  min-width: 0;
+}
+
+.admin-global-analytics-row span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .admin-analytics-filter {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-global-analytics-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-global-analytics-row span {
+    text-align: left;
   }
 }

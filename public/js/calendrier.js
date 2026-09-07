@@ -38,79 +38,36 @@ function estHeureValide(heure) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(heure);
 }
 
+function estHeureFinValide(heure) {
+  return estHeureValide(heure) || heure === "24:00";
+}
+
 function estIndisponibiliteJourComplet(indisponibilite) {
   return Number(indisponibilite?.jour_complet) === 1;
 }
 
-function normaliserCompte(compte) {
-  return typeof compte === "string" ? compte.trim().toLowerCase() : "";
+function couleurIntervenantValide(couleur) {
+  return /^#[0-9a-f]{6}$/i.test(String(couleur || ""));
 }
 
-function creerClasseCompte(compte) {
-  const compteNormalise = normaliserCompte(compte);
-
-  if (!compteNormalise) {
-    return "";
+function obtenirPaletteIntervenant(seance) {
+  const couleur = String(seance?.intervenant_couleur_calendrier || "").trim();
+  if (!couleurIntervenantValide(couleur)) {
+    return null;
   }
 
-  return `compte-${compteNormalise.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
+  return {
+    backgroundColor: couleur,
+    borderColor: couleur,
+    textColor: "#ffffff",
+  };
 }
 
-function obtenirPaletteCompte(seance) {
-  const compteNormalise = normaliserCompte(seance.compte);
-  const statut = seance.statut_seance;
-
-  if (compteNormalise === "yassine") {
-    return {
-      planifiee: {
-        backgroundColor: "#deecff",
-        borderColor: "#78a7e8",
-        textColor: "#173f7a",
-      },
-      faite: {
-        backgroundColor: "#def5e8",
-        borderColor: "#84c6a0",
-        textColor: "#1f5a3a",
-      },
-      annulee: {
-        backgroundColor: "#fae2e5",
-        borderColor: "#de95a2",
-        textColor: "#92344c",
-      },
-      reportee: {
-        backgroundColor: "#ffefd7",
-        borderColor: "#e3b56a",
-        textColor: "#8a4d0f",
-      },
-    }[statut];
-  }
-
-  if (compteNormalise === "abdo") {
-    return {
-      planifiee: {
-        backgroundColor: "#edf2f7",
-        borderColor: "#94a3b8",
-        textColor: "#334155",
-      },
-      faite: {
-        backgroundColor: "#e9f3ee",
-        borderColor: "#9db8ab",
-        textColor: "#325446",
-      },
-      annulee: {
-        backgroundColor: "#f5eaec",
-        borderColor: "#c9aab0",
-        textColor: "#7f4854",
-      },
-      reportee: {
-        backgroundColor: "#f7efe2",
-        borderColor: "#d2b48c",
-        textColor: "#7a5a2a",
-      },
-    }[statut];
-  }
-
-  return null;
+function creerClasseIntervenant(seance) {
+  const intervenantId = Number(seance?.intervenant_id);
+  return Number.isInteger(intervenantId) && intervenantId > 0
+    ? `intervenant-${intervenantId}`
+    : "";
 }
 
 function recupererPluginsCalendrier() {
@@ -130,11 +87,86 @@ function estCalendrierCompact() {
 }
 
 const CALENDRIER_PAS_CRENEAU_MINUTES = 30;
-const CALENDRIER_SLOT_MIN_TIME = "08:00:00";
-const CALENDRIER_SLOT_MAX_TIME = "23:30:00";
-const CALENDRIER_ACTUALISATION_MAINTENANT_MS = 60 * 1000;
+const MINUTES_PAR_JOUR = 24 * 60;
+const PLAGE_HORAIRE_CALENDRIER_PAR_DEFAUT = Object.freeze({
+  calendar_start_time: "08:00",
+  calendar_end_time: "23:30",
+});
 
-function convertirHeureOptionEnMinutes(heure) {
+function extrairePartiesHorlogeCalendrier(dateObjet, fuseauHoraire = "") {
+  const date = dateObjet instanceof Date ? dateObjet : new Date();
+  const fuseau = String(fuseauHoraire || "").trim();
+
+  if (fuseau) {
+    try {
+      const parties = new Intl.DateTimeFormat("en-CA", {
+        timeZone: fuseau,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(date);
+      const valeurs = parties.reduce((resultat, partie) => {
+        if (partie.type !== "literal") {
+          resultat[partie.type] = Number(partie.value);
+        }
+        return resultat;
+      }, {});
+
+      if (
+        Number.isFinite(valeurs.year) &&
+        Number.isFinite(valeurs.month) &&
+        Number.isFinite(valeurs.day) &&
+        Number.isFinite(valeurs.hour) &&
+        Number.isFinite(valeurs.minute) &&
+        Number.isFinite(valeurs.second)
+      ) {
+        return {
+          year: valeurs.year,
+          month: valeurs.month,
+          day: valeurs.day,
+          hour: valeurs.hour === 24 ? 0 : valeurs.hour,
+          minute: valeurs.minute,
+          second: valeurs.second,
+        };
+      }
+    } catch (_erreur) {
+      // Le serveur valide les fuseaux IANA. Le repli local conserve le
+      // calendrier utilisable si le navigateur ne connaît pas ce fuseau.
+    }
+  }
+
+  return {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate(),
+    hour: date.getHours(),
+    minute: date.getMinutes(),
+    second: date.getSeconds(),
+  };
+}
+
+// FullCalendar chargé côté privé n'embarque pas de plugin de fuseaux nommés.
+// On lui fournit donc une date locale dont l'horloge correspond à la référence
+// centrale : les événements sans offset restent des heures civiles inchangées,
+// tandis que le bouton « Aujourd'hui » et l'indicateur de l'instant suivent ce
+// fuseau. Le fuseau du calendrier public ne doit jamais être passé ici.
+function construireMaintenantCalendrier(fuseauHoraire = "", dateObjet = new Date()) {
+  const parties = extrairePartiesHorlogeCalendrier(dateObjet, fuseauHoraire);
+  return new Date(
+    parties.year,
+    parties.month - 1,
+    parties.day,
+    parties.hour,
+    parties.minute,
+    parties.second
+  );
+}
+
+function convertirHeureOptionEnMinutes(heure, { finDeJour = false } = {}) {
   const correspondance = String(heure || "")
     .trim()
     .match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
@@ -145,8 +177,27 @@ function convertirHeureOptionEnMinutes(heure) {
 
   const heures = Number(correspondance[1]);
   const minutes = Number(correspondance[2]);
+  const secondes = Number(correspondance[3] || 0);
 
-  if (!Number.isFinite(heures) || !Number.isFinite(minutes)) {
+  if (
+    !Number.isFinite(heures) ||
+    !Number.isFinite(minutes) ||
+    !Number.isFinite(secondes) ||
+    minutes < 0 ||
+    minutes > 59 ||
+    secondes !== 0
+  ) {
+    return null;
+  }
+
+  if (
+    finDeJour &&
+    ((heures === 0 && minutes === 0) || (heures === 24 && minutes === 0))
+  ) {
+    return MINUTES_PAR_JOUR;
+  }
+
+  if (heures < 0 || heures > 23) {
     return null;
   }
 
@@ -154,86 +205,55 @@ function convertirHeureOptionEnMinutes(heure) {
 }
 
 function convertirMinutesEnHeureOption(totalMinutes) {
-  const minutesNormalisees = Math.max(0, Math.min(24 * 60, Number(totalMinutes) || 0));
+  const minutesNormalisees = Math.max(0, Math.min(MINUTES_PAR_JOUR, Number(totalMinutes) || 0));
   const heures = String(Math.floor(minutesNormalisees / 60)).padStart(2, "0");
   const minutes = String(minutesNormalisees % 60).padStart(2, "0");
   return `${heures}:${minutes}:00`;
 }
 
-function calculerFenetreHoraireVisible({
-  slotMinTime,
-  slotMaxTime,
-  maintenantMinutes,
-  pasMinutes = CALENDRIER_PAS_CRENEAU_MINUTES,
-}) {
-  const minBase = convertirHeureOptionEnMinutes(slotMinTime);
-  const maxBase = convertirHeureOptionEnMinutes(slotMaxTime);
+function creerPlageHoraireCalendrier(calendarStartTime, calendarEndTime) {
+  const startMinutes = convertirHeureOptionEnMinutes(calendarStartTime);
+  const endMinutes = convertirHeureOptionEnMinutes(calendarEndTime, {
+    finDeJour: true,
+  });
 
   if (
-    !Number.isFinite(minBase) ||
-    !Number.isFinite(maxBase) ||
-    !Number.isFinite(maintenantMinutes)
+    !Number.isFinite(startMinutes) ||
+    !Number.isFinite(endMinutes) ||
+    startMinutes % CALENDRIER_PAS_CRENEAU_MINUTES !== 0 ||
+    endMinutes % CALENDRIER_PAS_CRENEAU_MINUTES !== 0 ||
+    endMinutes <= startMinutes
   ) {
-    return {
-      slotMinTime,
-      slotMaxTime,
-    };
+    return null;
   }
 
-  const minVisible = minBase;
-  const maxVisible =
-    maintenantMinutes >= maxBase
-      ? Math.min(24 * 60, Math.ceil((maintenantMinutes + 1) / pasMinutes) * pasMinutes)
-      : maxBase;
-
   return {
-    slotMinTime: convertirMinutesEnHeureOption(minVisible),
-    slotMaxTime: convertirMinutesEnHeureOption(maxVisible),
+    calendar_start_time: convertirMinutesEnHeureOption(startMinutes).slice(0, 5),
+    calendar_end_time:
+      endMinutes === MINUTES_PAR_JOUR
+        ? "00:00"
+        : convertirMinutesEnHeureOption(endMinutes).slice(0, 5),
+    startMinutes,
+    endMinutes,
+    slotMinTime: convertirMinutesEnHeureOption(startMinutes),
+    slotMaxTime: convertirMinutesEnHeureOption(endMinutes),
   };
 }
 
-function obtenirMinutesMaintenantNavigateur(dateObjet = new Date()) {
-  return dateObjet.getHours() * 60 + dateObjet.getMinutes();
-}
-
-function appliquerFenetreHoraireVisible(calendrier) {
-  if (!calendrier) {
-    return;
-  }
-
-  const fenetre = calculerFenetreHoraireVisible({
-    slotMinTime: CALENDRIER_SLOT_MIN_TIME,
-    slotMaxTime: CALENDRIER_SLOT_MAX_TIME,
-    maintenantMinutes: obtenirMinutesMaintenantNavigateur(),
-  });
-
-  if (calendrier.getOption("slotMinTime") !== fenetre.slotMinTime) {
-    calendrier.setOption("slotMinTime", fenetre.slotMinTime);
-  }
-
-  if (calendrier.getOption("slotMaxTime") !== fenetre.slotMaxTime) {
-    calendrier.setOption("slotMaxTime", fenetre.slotMaxTime);
-  }
-}
-
-function demarrerActualisationMaintenant(calendrier) {
-  if (!calendrier || calendrier.__maintenantTimer) {
-    return;
-  }
-
-  const rafraichir = () => appliquerFenetreHoraireVisible(calendrier);
-
-  rafraichir();
-  calendrier.__maintenantTimer = window.setInterval(
-    rafraichir,
-    CALENDRIER_ACTUALISATION_MAINTENANT_MS
+function normaliserPlageHoraireCalendrier(plageHoraire = {}) {
+  const source = plageHoraire && typeof plageHoraire === "object" ? plageHoraire : {};
+  const plage = creerPlageHoraireCalendrier(
+    source.calendar_start_time ?? PLAGE_HORAIRE_CALENDRIER_PAR_DEFAUT.calendar_start_time,
+    source.calendar_end_time ?? PLAGE_HORAIRE_CALENDRIER_PAR_DEFAUT.calendar_end_time
   );
 
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") {
-      rafraichir();
-    }
-  });
+  return (
+    plage ||
+    creerPlageHoraireCalendrier(
+      PLAGE_HORAIRE_CALENDRIER_PAR_DEFAUT.calendar_start_time,
+      PLAGE_HORAIRE_CALENDRIER_PAR_DEFAUT.calendar_end_time
+    )
+  );
 }
 
 function creerElementCalendrier(tagName, className, texte) {
@@ -273,10 +293,7 @@ function extrairePrenomEtudiant(nomComplet) {
 }
 
 function seanceEstMasqueePourConfidentialite(seance) {
-  return (
-    Boolean(seance?.est_masquee_pour_confidentialite) ||
-    Boolean(seance?.est_compte_hossam_prive)
-  );
+  return Boolean(seance?.est_masquee_pour_confidentialite);
 }
 
 function extraireDateIsoDepuisValeurCalendrier(valeur) {
@@ -368,6 +385,14 @@ function calculerDateSuivante(dateIso) {
 
   dateObjet.setDate(dateObjet.getDate() + 1);
   return dateObjet.toISOString().slice(0, 10);
+}
+
+function construireDateHeureFinCalendrier(dateIso, heureFin) {
+  if (heureFin === "24:00") {
+    return `${calculerDateSuivante(dateIso)}T00:00`;
+  }
+
+  return `${dateIso}T${heureFin}`;
 }
 
 function genererContenuEnteteJour(info) {
@@ -490,7 +515,7 @@ function transformerSeanceEnEvenement(seance) {
   if (
     !estDateIsoValide(seance.date) ||
     !estHeureValide(seance.heure_debut) ||
-    !estHeureValide(seance.heure_fin)
+    !estHeureFinValide(seance.heure_fin)
   ) {
     console.warn("Séance ignorée dans le calendrier car date/heure invalide :", seance.id);
     return null;
@@ -501,7 +526,7 @@ function transformerSeanceEnEvenement(seance) {
       id: String(seance.id),
       title: "",
       start: `${seance.date}T${seance.heure_debut}`,
-      end: `${seance.date}T${seance.heure_fin}`,
+      end: construireDateHeureFinCalendrier(seance.date, seance.heure_fin),
       display: estCalendrierMobile() ? "block" : "auto",
       backgroundColor: "#64748b",
       borderColor: "#475569",
@@ -524,22 +549,22 @@ function transformerSeanceEnEvenement(seance) {
     };
   }
 
-  const paletteCompte = obtenirPaletteCompte(seance);
-  const palette = paletteCompte || palettesStatut[seance.statut_seance] || palettesStatut.planifiee;
+  const paletteIntervenant = obtenirPaletteIntervenant(seance);
+  const palette =
+    paletteIntervenant || palettesStatut[seance.statut_seance] || palettesStatut.planifiee;
   const titreEvenement = extrairePrenomEtudiant(seance.etudiant) || seance.libelle || "Séance";
-  const compteNormalise = normaliserCompte(seance.compte);
-  const classeCompte = creerClasseCompte(compteNormalise);
-  const classesEvenement = [palette.className];
+  const classeIntervenant = creerClasseIntervenant(seance);
+  const classesEvenement = [palette.className].filter(Boolean);
 
-  if (classeCompte) {
-    classesEvenement.push(classeCompte);
+  if (classeIntervenant) {
+    classesEvenement.push(classeIntervenant);
   }
 
   return {
     id: String(seance.id),
     title: titreEvenement,
     start: `${seance.date}T${seance.heure_debut}`,
-    end: `${seance.date}T${seance.heure_fin}`,
+    end: construireDateHeureFinCalendrier(seance.date, seance.heure_fin),
     display: estCalendrierMobile() ? "block" : "auto",
     backgroundColor: palette.backgroundColor,
     borderColor: palette.borderColor,
@@ -557,7 +582,7 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
   if (
     !estDateIsoValide(indisponibilite.date) ||
     !estHeureValide(indisponibilite.heure_debut) ||
-    !estHeureValide(indisponibilite.heure_fin)
+    !estHeureFinValide(indisponibilite.heure_fin)
   ) {
     console.warn(
       "Indisponibilite ignoree dans le calendrier car date/heure invalide :",
@@ -588,7 +613,10 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
     id: `indisponibilite-${indisponibilite.id}`,
     title: "",
     start: `${indisponibilite.date}T${indisponibilite.heure_debut}`,
-    end: `${indisponibilite.date}T${indisponibilite.heure_fin}`,
+    end: construireDateHeureFinCalendrier(
+      indisponibilite.date,
+      indisponibilite.heure_fin
+    ),
     display: estCalendrierMobile() ? "block" : "auto",
     backgroundColor: "rgba(148, 163, 184, 0.16)",
     borderColor: "rgba(148, 163, 184, 0.44)",
@@ -606,7 +634,7 @@ function transformerPropositionEnEvenement(proposition) {
   if (
     !estDateIsoValide(proposition.date) ||
     !estHeureValide(proposition.heure_debut) ||
-    !estHeureValide(proposition.heure_fin)
+    !estHeureFinValide(proposition.heure_fin)
   ) {
     console.warn(
       "Proposition ignoree dans le calendrier car date/heure invalide :",
@@ -624,7 +652,7 @@ function transformerPropositionEnEvenement(proposition) {
     id: `proposition-${proposition.id}`,
     title: `Prop. ${titreEvenement}`,
     start: `${proposition.date}T${proposition.heure_debut}`,
-    end: `${proposition.date}T${proposition.heure_fin}`,
+    end: construireDateHeureFinCalendrier(proposition.date, proposition.heure_fin),
     display: estCalendrierMobile() ? "block" : "auto",
     backgroundColor: "rgba(22, 163, 74, 0.42)",
     borderColor: "rgba(21, 128, 61, 0.72)",
@@ -735,7 +763,9 @@ export function initialiserCalendrier(
     onIndisponibiliteClick,
     onPropositionClick,
     selectionMobileRapide = false,
-  }
+    plageHoraire = {},
+    timezoneCentrale = "",
+  } = {}
 ) {
   const plugins = recupererPluginsCalendrier();
 
@@ -747,11 +777,7 @@ export function initialiserCalendrier(
   }
 
   const optionsResponsive = obtenirOptionsResponsiveCalendrier();
-  const fenetreInitiale = calculerFenetreHoraireVisible({
-    slotMinTime: CALENDRIER_SLOT_MIN_TIME,
-    slotMaxTime: CALENDRIER_SLOT_MAX_TIME,
-    maintenantMinutes: obtenirMinutesMaintenantNavigateur(),
-  });
+  const plageHoraireInitiale = normaliserPlageHoraireCalendrier(plageHoraire);
 
   const calendrier = new FullCalendar.Calendar(element, {
     plugins,
@@ -774,10 +800,11 @@ export function initialiserCalendrier(
     eventOrder: "typeOrder,start,-duration,title",
     fixedWeekCount: Boolean(optionsResponsive.fixedWeekCount),
     allDaySlot: false,
+    now: construireMaintenantCalendrier(timezoneCentrale),
     nowIndicator: true,
-    slotMinTime: fenetreInitiale.slotMinTime,
-    slotMaxTime: fenetreInitiale.slotMaxTime,
-    scrollTime: fenetreInitiale.slotMinTime,
+    slotMinTime: plageHoraireInitiale.slotMinTime,
+    slotMaxTime: plageHoraireInitiale.slotMaxTime,
+    scrollTime: plageHoraireInitiale.slotMinTime,
     dayMaxEvents: optionsResponsive.dayMaxEvents,
     headerToolbar: optionsResponsive.headerToolbar,
     buttonText: optionsResponsive.buttonText,
@@ -837,9 +864,49 @@ export function initialiserCalendrier(
   });
 
   calendrier.render();
-  demarrerActualisationMaintenant(calendrier);
+  calendrier.__plageHoraire = plageHoraireInitiale;
   synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
   return calendrier;
+}
+
+/**
+ * Applies the Handler's configured calendar window to an already rendered
+ * FullCalendar instance. `00:00` as an end time represents the end of the
+ * civil day and is therefore sent to FullCalendar as `24:00:00`.
+ */
+export function mettreAJourPlageHoraireCalendrier(calendrier, plageHoraire = {}) {
+  const plageNormalisee = normaliserPlageHoraireCalendrier(plageHoraire);
+
+  if (!calendrier || typeof calendrier.setOption !== "function") {
+    return plageNormalisee;
+  }
+
+  const appliquerOptions = () => {
+    calendrier.setOption("slotMinTime", plageNormalisee.slotMinTime);
+    calendrier.setOption("slotMaxTime", plageNormalisee.slotMaxTime);
+    calendrier.setOption("scrollTime", plageNormalisee.slotMinTime);
+  };
+
+  if (typeof calendrier.batchRendering === "function") {
+    calendrier.batchRendering(appliquerOptions);
+  } else {
+    appliquerOptions();
+  }
+
+  calendrier.__plageHoraire = plageNormalisee;
+  calendrier.scrollToTime?.(plageNormalisee.slotMinTime);
+  return plageNormalisee;
+}
+
+export function mettreAJourHorlogeCalendrier(calendrier, timezoneCentrale = "") {
+  if (!calendrier || typeof calendrier.setOption !== "function") {
+    return null;
+  }
+
+  const maintenant = construireMaintenantCalendrier(timezoneCentrale);
+  calendrier.setOption("now", maintenant);
+  calendrier.__timezoneCalendrier = String(timezoneCentrale || "").trim();
+  return maintenant;
 }
 
 export function mettreAJourEvenements(

@@ -4,6 +4,8 @@ const { all, get, run, executerTransactionImmediate } = require("./db");
 const { recupererSecretAudit } = require("./audit-secret");
 
 const secretHistorique = recupererSecretAudit();
+const SIGNATURE_VERSION_LEGACY = 1;
+const SIGNATURE_VERSION_SCOPE = 2;
 
 function trierObjetRecursivement(valeur) {
   if (Array.isArray(valeur)) {
@@ -26,25 +28,72 @@ function serialiserDetails(details) {
   return JSON.stringify(trierObjetRecursivement(details || {}));
 }
 
+function normaliserVersionSignature(entree) {
+  const valeur = entree?.signature_version;
+
+  // Rows written before the append-only migration do not carry a version.
+  // They are the exact historical v1 payload and must remain verifiable.
+  if (valeur === null || valeur === undefined || valeur === "") {
+    return SIGNATURE_VERSION_LEGACY;
+  }
+
+  const version = Number(valeur);
+  return [SIGNATURE_VERSION_LEGACY, SIGNATURE_VERSION_SCOPE].includes(version)
+    ? version
+    : null;
+}
+
+function construireChargeUtileSignatureV1(entree) {
+  return {
+    action_label: entree.action_label,
+    action_type: entree.action_type,
+    acteur_id: entree.acteur_id,
+    acteur_nom: entree.acteur_nom,
+    created_at: entree.created_at,
+    details_json: entree.details_json,
+    previous_hash: entree.previous_hash,
+    seance_id: entree.seance_id,
+    seance_libelle: entree.seance_libelle,
+  };
+}
+
+function valeurScopeSignee(valeur) {
+  return valeur === undefined ? null : valeur;
+}
+
 function calculerHashEntree(entree) {
-  const chargeUtile = JSON.stringify(
-    trierObjetRecursivement({
-      action_label: entree.action_label,
-      action_type: entree.action_type,
-      acteur_id: entree.acteur_id,
-      acteur_nom: entree.acteur_nom,
-      created_at: entree.created_at,
-      details_json: entree.details_json,
-      previous_hash: entree.previous_hash,
-      seance_id: entree.seance_id,
-      seance_libelle: entree.seance_libelle,
-    })
-  );
+  const version = normaliserVersionSignature(entree);
+
+  if (!version) {
+    return null;
+  }
+
+  const chargeUtileV1 = construireChargeUtileSignatureV1(entree);
+  const chargeUtile =
+    version === SIGNATURE_VERSION_SCOPE
+      ? {
+          ...chargeUtileV1,
+          handler_id: valeurScopeSignee(entree.handler_id),
+          intervenant_id: valeurScopeSignee(entree.intervenant_id),
+          signature_version: SIGNATURE_VERSION_SCOPE,
+        }
+      : chargeUtileV1;
+  const chargeUtileSerialisee = JSON.stringify(trierObjetRecursivement(chargeUtile));
 
   return crypto
     .createHmac("sha256", secretHistorique)
-    .update(chargeUtile)
+    .update(chargeUtileSerialisee)
     .digest("hex");
+}
+
+function calculerHashEntreeObligatoire(entree) {
+  const hash = calculerHashEntree(entree);
+
+  if (!hash) {
+    throw new Error("Version de signature HMAC historique non prise en charge.");
+  }
+
+  return hash;
 }
 
 function lireDetailsJson(detailsJson) {
@@ -61,16 +110,78 @@ function transformerEntreeHistorique(entree, integriteValide) {
   return {
     id: entree.id,
     seance_id: entree.seance_id,
+    handler_id: entree.handler_id || null,
+    intervenant_id: entree.intervenant_id || null,
     seance_libelle: entree.seance_libelle,
     action_type: entree.action_type,
     action_label: entree.action_label,
     acteur_id: entree.acteur_id,
     acteur_nom: entree.acteur_nom,
     created_at: entree.created_at,
+    signature_version: normaliserVersionSignature(entree),
     integrite_valide: integriteValide,
     details: lireDetailsJson(entree.details_json),
   };
 }
+
+function normaliserListeIds(valeurs) {
+  return Array.from(
+    new Set(
+      (Array.isArray(valeurs) ? valeurs : [])
+        .map((valeur) => Number(valeur))
+        .filter((valeur) => Number.isInteger(valeur) && valeur > 0)
+    )
+  );
+}
+
+function construireFiltreHistoriqueScope(scope = {}) {
+  // A dual-role account remains in its operational scope until it reaches an
+  // explicitly protected administrative route.
+  if (scope?.estSuperAdmin && scope?.modeAdministration === true) {
+    return { clause: "1 = 1", parametres: [] };
+  }
+
+  const handlerOwnIds = normaliserListeIds(scope?.handlerOwnIds);
+  const handlerProfesseurIds = normaliserListeIds(scope?.handlerProfesseurIds);
+  const intervenantId = Number(scope?.utilisateurId);
+  const clauses = [];
+  const parametres = [];
+
+  if (handlerOwnIds.length > 0) {
+    clauses.push(`historique_actions.handler_id IN (${handlerOwnIds.map(() => "?").join(", ")})`);
+    parametres.push(...handlerOwnIds);
+  }
+
+  if (handlerProfesseurIds.length > 0 && Number.isInteger(intervenantId) && intervenantId > 0) {
+    clauses.push(
+      `(historique_actions.handler_id IN (${handlerProfesseurIds
+        .map(() => "?")
+        .join(", ")}) AND historique_actions.intervenant_id = ?)`
+    );
+    parametres.push(...handlerProfesseurIds, intervenantId);
+  }
+
+  return clauses.length > 0
+    ? { clause: `(${clauses.join(" OR ")})`, parametres }
+    : { clause: "1 = 0", parametres: [] };
+}
+
+const selectionHistoriqueActions = `
+  id,
+  seance_id,
+  handler_id,
+  intervenant_id,
+  seance_libelle,
+  action_type,
+  action_label,
+  acteur_id,
+  acteur_nom,
+  details_json,
+  previous_hash,
+  entry_hash,
+  signature_version,
+  created_at
+`;
 
 function estHeureHistoriqueValide(heure, options = {}) {
   if (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(heure || ""))) {
@@ -174,18 +285,7 @@ async function detacherSeancesHistorique(seances = []) {
   ).catch(() => ({ changes: 0 }));
   const entrees = await all(
     `
-      SELECT
-        id,
-        seance_id,
-        seance_libelle,
-        action_type,
-        action_label,
-        acteur_id,
-        acteur_nom,
-        details_json,
-        previous_hash,
-        entry_hash,
-        created_at
+      SELECT ${selectionHistoriqueActions}
       FROM historique_actions
       ORDER BY id ASC
     `
@@ -212,7 +312,7 @@ async function detacherSeancesHistorique(seances = []) {
       details_json: detailsJson,
       previous_hash: previousHash,
     };
-    const entryHash = calculerHashEntree(entreeRechainee);
+    const entryHash = calculerHashEntreeObligatoire(entreeRechainee);
     const entreeModifiee =
       Number(entree.seance_id || 0) !== Number(seanceId || 0) ||
       String(entree.details_json || "") !== String(detailsJson || "") ||
@@ -243,18 +343,7 @@ async function detacherSeancesHistorique(seances = []) {
 async function rechainerHistoriqueActions(mutateur = null) {
   const entrees = await all(
     `
-      SELECT
-        id,
-        seance_id,
-        seance_libelle,
-        action_type,
-        action_label,
-        acteur_id,
-        acteur_nom,
-        details_json,
-        previous_hash,
-        entry_hash,
-        created_at
+      SELECT ${selectionHistoriqueActions}
       FROM historique_actions
       ORDER BY id ASC
     `
@@ -270,9 +359,11 @@ async function rechainerHistoriqueActions(mutateur = null) {
       ...entreeMutee,
       previous_hash: previousHash,
     };
-    const entryHash = calculerHashEntree(entreeRechainee);
+    const entryHash = calculerHashEntreeObligatoire(entreeRechainee);
     const entreeModifiee =
       Number(entree.seance_id || 0) !== Number(entreeRechainee.seance_id || 0) ||
+      String(entree.handler_id ?? "") !== String(entreeRechainee.handler_id ?? "") ||
+      String(entree.intervenant_id ?? "") !== String(entreeRechainee.intervenant_id ?? "") ||
       Number(entree.acteur_id || 0) !== Number(entreeRechainee.acteur_id || 0) ||
       String(entree.details_json || "") !== String(entreeRechainee.details_json || "") ||
       String(entree.previous_hash || "") !== previousHash ||
@@ -284,6 +375,8 @@ async function rechainerHistoriqueActions(mutateur = null) {
           UPDATE historique_actions
           SET
             seance_id = ?,
+            handler_id = ?,
+            intervenant_id = ?,
             acteur_id = ?,
             details_json = ?,
             previous_hash = ?,
@@ -292,6 +385,8 @@ async function rechainerHistoriqueActions(mutateur = null) {
         `,
         [
           entreeRechainee.seance_id,
+          entreeRechainee.handler_id,
+          entreeRechainee.intervenant_id,
           entreeRechainee.acteur_id,
           entreeRechainee.details_json,
           previousHash,
@@ -323,10 +418,20 @@ async function detacherUtilisateurHistorique(utilisateurId) {
     [id]
   ).catch(() => ({ changes: 0 }));
   const historiqueActionsChanges = await rechainerHistoriqueActions((entree) => {
-    if (Number(entree.acteur_id) === id) {
+    if (
+      Number(entree.acteur_id) === id ||
+      Number(entree.handler_id) === id ||
+      Number(entree.intervenant_id) === id
+    ) {
       return {
         ...entree,
-        acteur_id: null,
+        acteur_id: Number(entree.acteur_id) === id ? null : entree.acteur_id,
+        // These two fields have ON DELETE SET NULL foreign keys.  v2 signs
+        // them, so neutralise and rechain them *before* deleting the account
+        // instead of letting SQLite invalidate an otherwise valid hash.
+        handler_id: Number(entree.handler_id) === id ? null : entree.handler_id,
+        intervenant_id:
+          Number(entree.intervenant_id) === id ? null : entree.intervenant_id,
       };
     }
 
@@ -354,6 +459,8 @@ async function recupererDernierHashHistorique() {
 
 async function creerEntreeHistorique({
   seanceId,
+  handlerId,
+  intervenantId,
   seanceLibelle,
   actionType,
   actionLabel,
@@ -361,70 +468,77 @@ async function creerEntreeHistorique({
   acteurNom,
   details,
 }) {
-  const detailsJson = serialiserDetails(details);
-  const previousHash = await recupererDernierHashHistorique();
-  const createdAt = new Date().toISOString();
-  const entree = {
-    seance_id: seanceId || null,
-    seance_libelle: seanceLibelle || "Seance inconnue",
-    action_type: actionType,
-    action_label: actionLabel,
-    acteur_id: acteurId || null,
-    acteur_nom: acteurNom || "Utilisateur inconnu",
-    details_json: detailsJson,
-    previous_hash: previousHash,
-    created_at: createdAt,
-  };
-  const entryHash = calculerHashEntree(entree);
+  // The tail read, v2 HMAC calculation and insert are a single SQLite
+  // `BEGIN IMMEDIATE` unit. This prevents two simultaneous requests from
+  // signing against the same previous hash.
+  return executerTransactionImmediate(async () => {
+    const detailsJson = serialiserDetails(details);
+    const previousHash = await recupererDernierHashHistorique();
+    const createdAt = new Date().toISOString();
+    const entree = {
+      seance_id: seanceId || null,
+      handler_id:
+        Number.isInteger(Number(handlerId)) && Number(handlerId) > 0 ? Number(handlerId) : null,
+      intervenant_id:
+        Number.isInteger(Number(intervenantId)) && Number(intervenantId) > 0
+          ? Number(intervenantId)
+          : null,
+      seance_libelle: seanceLibelle || "Seance inconnue",
+      action_type: actionType,
+      action_label: actionLabel,
+      acteur_id: acteurId || null,
+      acteur_nom: acteurNom || "Utilisateur inconnu",
+      details_json: detailsJson,
+      previous_hash: previousHash,
+      signature_version: SIGNATURE_VERSION_SCOPE,
+      created_at: createdAt,
+    };
+    const entryHash = calculerHashEntreeObligatoire(entree);
 
-  const resultat = await run(
-    `
-      INSERT INTO historique_actions (
-        seance_id,
-        seance_libelle,
-        action_type,
-        action_label,
-        acteur_id,
-        acteur_nom,
-        details_json,
-        previous_hash,
-        entry_hash,
-        created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      entree.seance_id,
-      entree.seance_libelle,
-      entree.action_type,
-      entree.action_label,
-      entree.acteur_id,
-      entree.acteur_nom,
-      entree.details_json,
-      entree.previous_hash,
-      entryHash,
-      entree.created_at,
-    ]
-  );
+    const resultat = await run(
+      `
+        INSERT INTO historique_actions (
+          seance_id,
+          handler_id,
+          intervenant_id,
+          seance_libelle,
+          action_type,
+          action_label,
+          acteur_id,
+          acteur_nom,
+          details_json,
+          previous_hash,
+          entry_hash,
+          signature_version,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        entree.seance_id,
+        entree.handler_id,
+        entree.intervenant_id,
+        entree.seance_libelle,
+        entree.action_type,
+        entree.action_label,
+        entree.acteur_id,
+        entree.acteur_nom,
+        entree.details_json,
+        entree.previous_hash,
+        entryHash,
+        entree.signature_version,
+        entree.created_at,
+      ]
+    );
 
-  return trouverEntreeHistoriqueParId(resultat.id);
+    return trouverEntreeHistoriqueParId(resultat.id);
+  });
 }
 
 async function listerEntreesHistoriqueBrutes(limit = 200) {
   return all(
     `
-      SELECT
-        id,
-        seance_id,
-        seance_libelle,
-        action_type,
-        action_label,
-        acteur_id,
-        acteur_nom,
-        details_json,
-        previous_hash,
-        entry_hash,
-        created_at
+      SELECT ${selectionHistoriqueActions}
       FROM historique_actions
       ORDER BY id DESC
       LIMIT ?
@@ -436,18 +550,7 @@ async function listerEntreesHistoriqueBrutes(limit = 200) {
 async function trouverEntreeHistoriqueParId(id) {
   return get(
     `
-      SELECT
-        id,
-        seance_id,
-        seance_libelle,
-        action_type,
-        action_label,
-        acteur_id,
-        acteur_nom,
-        details_json,
-        previous_hash,
-        entry_hash,
-        created_at
+      SELECT ${selectionHistoriqueActions}
       FROM historique_actions
       WHERE id = ?
     `,
@@ -470,18 +573,7 @@ async function construireCarteIntegriteHistorique(entreesLimitee = null) {
 
     entrees = await all(
       `
-        SELECT
-          id,
-          seance_id,
-          seance_libelle,
-          action_type,
-          action_label,
-          acteur_id,
-          acteur_nom,
-          details_json,
-          previous_hash,
-          entry_hash,
-          created_at
+        SELECT ${selectionHistoriqueActions}
         FROM historique_actions
         WHERE id <= ?
         ORDER BY id ASC
@@ -491,18 +583,7 @@ async function construireCarteIntegriteHistorique(entreesLimitee = null) {
   } else {
     entrees = await all(
       `
-        SELECT
-          id,
-          seance_id,
-          seance_libelle,
-          action_type,
-          action_label,
-          acteur_id,
-          acteur_nom,
-          details_json,
-          previous_hash,
-          entry_hash,
-          created_at
+        SELECT ${selectionHistoriqueActions}
         FROM historique_actions
         ORDER BY id ASC
       `
@@ -537,8 +618,57 @@ async function listerEntreesHistorique(limit = 200) {
   );
 }
 
+function normaliserLimiteHistorique(limit, valeurParDefaut = 200) {
+  const limite = Number(limit);
+
+  if (!Number.isInteger(limite) || limite <= 0) {
+    return valeurParDefaut;
+  }
+
+  return Math.min(limite, 500);
+}
+
+async function listerEntreesHistoriqueScopees(scope, limit = 200) {
+  const filtre = construireFiltreHistoriqueScope(scope);
+  const entrees = await all(
+    `
+      SELECT ${selectionHistoriqueActions}
+      FROM historique_actions
+      WHERE ${filtre.clause}
+      ORDER BY id DESC
+      LIMIT ?
+    `,
+    [...filtre.parametres, normaliserLimiteHistorique(limit)]
+  );
+  const carteIntegrite = await construireCarteIntegriteHistorique(entrees);
+
+  return entrees.map((entree) =>
+    transformerEntreeHistorique(entree, carteIntegrite.get(entree.id) === true)
+  );
+}
+
 async function recupererEntreeHistoriqueDetail(id) {
   const entree = await trouverEntreeHistoriqueParId(id);
+
+  if (!entree) {
+    return null;
+  }
+
+  const carteIntegrite = await construireCarteIntegriteHistorique([entree]);
+  return transformerEntreeHistorique(entree, carteIntegrite.get(entree.id) === true);
+}
+
+async function recupererEntreeHistoriqueDetailScopee(id, scope) {
+  const filtre = construireFiltreHistoriqueScope(scope);
+  const entree = await get(
+    `
+      SELECT ${selectionHistoriqueActions}
+      FROM historique_actions
+      WHERE id = ?
+        AND ${filtre.clause}
+    `,
+    [id, ...filtre.parametres]
+  );
 
   if (!entree) {
     return null;
@@ -560,18 +690,7 @@ async function supprimerEntreeHistoriqueParId(id) {
 
   const entreesSuivantes = await all(
     `
-      SELECT
-        id,
-        seance_id,
-        seance_libelle,
-        action_type,
-        action_label,
-        acteur_id,
-        acteur_nom,
-        details_json,
-        previous_hash,
-        entry_hash,
-        created_at
+      SELECT ${selectionHistoriqueActions}
       FROM historique_actions
       WHERE id > ?
       ORDER BY id ASC
@@ -592,7 +711,7 @@ async function supprimerEntreeHistoriqueParId(id) {
         ...entree,
         previous_hash: hashPrecedent,
       };
-      const nouvelHash = calculerHashEntree(entreeRechainee);
+      const nouvelHash = calculerHashEntreeObligatoire(entreeRechainee);
 
       await run(
         `
@@ -618,6 +737,8 @@ module.exports = {
   detacherSeancesHistorique,
   detacherUtilisateurHistorique,
   listerEntreesHistorique,
+  listerEntreesHistoriqueScopees,
   recupererEntreeHistoriqueDetail,
+  recupererEntreeHistoriqueDetailScopee,
   supprimerEntreeHistoriqueParId,
 };

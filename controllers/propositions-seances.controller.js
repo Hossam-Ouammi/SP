@@ -1,6 +1,8 @@
 const {
   listerPropositionsSeances,
+  listerPropositionsSeancesScopees,
   trouverPropositionSeanceParId,
+  trouverPropositionSeanceParIdScopee,
   creerPropositionSeance,
   mettreAJourPropositionSeance,
   marquerPropositionSeanceAcceptee,
@@ -11,17 +13,20 @@ const {
   listerIndisponibilitesChevauchantes,
   supprimerIndisponibilite,
   trouverIndisponibiliteChevauchante,
+  trouverIndisponibiliteIntervenantChevauchante,
 } = require("../models/indisponibilite.model");
-const { trouverSeanceParId } = require("../models/seance.model");
+const { trouverSeanceParId, trouverSeanceParIdScopee } = require("../models/seance.model");
+const { construireFiltreLectureSeances } = require("../models/access-scope.model");
 const { executerTransactionImmediate } = require("../models/db");
 const {
   preparerDonneesSeance,
   validerDonneesSeance,
-  transformerSeancePourClientSelonUtilisateur,
-  utilisateurPeutVoirCompteHossam,
+  transformerSeancePourClient,
   verifierAbsenceConflitSeance,
   creerSeanceDepuisDonneesValidees,
   modifierSeanceDepuisDonneesValidees,
+  resoudreAffectationSeance,
+  ajouterTarifSnapshotIntervenant,
   statutsCreationValides,
 } = require("./seances.controller");
 
@@ -33,6 +38,10 @@ function creerErreurHttp(status, message) {
 
 function estIdentifiantValide(valeur) {
   return Number.isInteger(Number(valeur)) && Number(valeur) > 0;
+}
+
+function construireScopeLecturePropositions(req) {
+  return construireFiltreLectureSeances(req.scope);
 }
 
 function normaliserIdentifiantOptionnel(valeur, libelle) {
@@ -47,11 +56,7 @@ function normaliserIdentifiantOptionnel(valeur, libelle) {
   return Number(valeur);
 }
 
-function seanceEstCompteHossam(seance) {
-  return String(seance?.compte || "").trim().toLowerCase() === "hossam";
-}
-
-async function recupererSeanceSourceProposition(corps, utilisateur) {
+async function recupererSeanceSourceProposition(corps, req) {
   const seanceSourceId = normaliserIdentifiantOptionnel(
     corps?.seance_source_id ?? corps?.seanceSourceId,
     "Identifiant de séance source"
@@ -61,17 +66,13 @@ async function recupererSeanceSourceProposition(corps, utilisateur) {
     return null;
   }
 
-  const seanceSource = await trouverSeanceParId(seanceSourceId);
+  const seanceSource = await trouverSeanceParIdScopee(
+    seanceSourceId,
+    construireScopeLecturePropositions(req)
+  );
 
   if (!seanceSource) {
     throw creerErreurHttp(404, "Seance source introuvable.");
-  }
-
-  if (!utilisateurPeutVoirCompteHossam(utilisateur) && seanceEstCompteHossam(seanceSource)) {
-    throw creerErreurHttp(
-      403,
-      "Seul l'administrateur peut proposer le déplacement d'une séance du compte Hossam."
-    );
   }
 
   return seanceSource;
@@ -105,8 +106,9 @@ function verifierPropositionEnAttente(proposition) {
 }
 
 function preparerDonneesDepuisProposition(proposition, corps = {}) {
-  return preparerDonneesSeance({
-    etudiant: corps.etudiant ?? proposition.etudiant,
+  return {
+    ...preparerDonneesSeance({
+      etudiant: corps.etudiant ?? proposition.etudiant,
     parent: corps.parent ?? proposition.parent,
     matiere: corps.matiere ?? proposition.matiere,
     compte: corps.compte ?? proposition.compte,
@@ -114,9 +116,13 @@ function preparerDonneesDepuisProposition(proposition, corps = {}) {
     date: corps.date ?? proposition.date,
     heure_debut: corps.heure_debut ?? proposition.heure_debut,
     duree_minutes: corps.duree_minutes ?? proposition.duree_minutes,
-    statut_seance: corps.statut_seance ?? proposition.statut_seance,
-    description: corps.description ?? proposition.description,
-  });
+      statut_seance: corps.statut_seance ?? proposition.statut_seance,
+      description: corps.description ?? proposition.description,
+    }),
+    handler_id: corps.handler_id ?? corps.handlerId ?? proposition.handler_id,
+    intervenant_id:
+      corps.intervenant_id ?? corps.intervenantId ?? corps.professeur_id ?? proposition.intervenant_id,
+  };
 }
 
 function transformerPropositionPourClient(proposition) {
@@ -142,11 +148,21 @@ async function validerPropositionCommeCreation(donneesSeance, utilisateur, optio
 }
 
 async function recupererConflitIndisponibiliteObligatoire(donneesSeance) {
-  const conflit = await trouverIndisponibiliteChevauchante({
-    date: donneesSeance.date,
-    heureDebut: donneesSeance.heure_debut,
-    heureFin: donneesSeance.heure_fin,
-  });
+  const conflit =
+    estIdentifiantValide(donneesSeance?.handler_id) &&
+    estIdentifiantValide(donneesSeance?.intervenant_id)
+      ? await trouverIndisponibiliteIntervenantChevauchante({
+          handlerId: donneesSeance.handler_id,
+          intervenantId: donneesSeance.intervenant_id,
+          date: donneesSeance.date,
+          heureDebut: donneesSeance.heure_debut,
+          heureFin: donneesSeance.heure_fin,
+        })
+      : await trouverIndisponibiliteChevauchante({
+          date: donneesSeance.date,
+          heureDebut: donneesSeance.heure_debut,
+          heureFin: donneesSeance.heure_fin,
+        });
 
   if (!conflit) {
     throw creerErreurHttp(
@@ -199,6 +215,8 @@ async function decouperIndisponibilitesAutourSeance(donneesSeance) {
     date: donneesSeance.date,
     heureDebut: donneesSeance.heure_debut,
     heureFin: donneesSeance.heure_fin,
+    handlerId: donneesSeance.handler_id,
+    intervenantId: donneesSeance.intervenant_id,
   });
 
   for (const indisponibilite of indisponibilites) {
@@ -214,21 +232,36 @@ async function decouperIndisponibilitesAutourSeance(donneesSeance) {
         jourComplet: 0,
         raison: "",
         creePar: indisponibilite.cree_par || null,
+        handlerId: indisponibilite.handler_id,
+        intervenantId: indisponibilite.intervenant_id,
       });
     }
   }
 }
 
 async function recupererPropositionsSeances(req, res) {
-  const propositions = await listerPropositionsSeances({ statut: "en_attente" });
+  const propositions = await listerPropositionsSeancesScopees(
+    construireScopeLecturePropositions(req),
+    { statut: "en_attente" }
+  );
   return res.json({
     propositions: propositions.map(transformerPropositionPourClient),
   });
 }
 
 async function ajouterPropositionSeance(req, res) {
-  const donneesSeance = preparerDonneesSeance(req.body || {});
-  const seanceSource = await recupererSeanceSourceProposition(req.body || {}, req.utilisateur);
+  let donneesSeance = preparerDonneesSeance(req.body || {});
+  const seanceSource = await recupererSeanceSourceProposition(req.body || {}, req);
+  const affectation = await resoudreAffectationSeance({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donneesSeance: req.body || {},
+    seanceExistante: seanceSource,
+  });
+  donneesSeance = await ajouterTarifSnapshotIntervenant({
+    ...donneesSeance,
+    ...affectation,
+  });
   const erreurs = await validerPropositionCommeCreation(donneesSeance, req.utilisateur, {
     seanceExistante: seanceSource,
   });
@@ -251,10 +284,17 @@ async function ajouterPropositionSeance(req, res) {
     indisponibilite_jour_complet_original: conflitIndisponibilite.jour_complet,
     proposee_par: req.utilisateur.id,
     seance_source_id: seanceSource?.id || null,
+    handler_id: affectation.handler_id,
+    intervenant_id: affectation.intervenant_id,
   });
 
+  res.locals.realtimeScope = {
+    handlerId: affectation.handler_id,
+    intervenantId: affectation.intervenant_id,
+  };
+
   return res.status(201).json({
-    message: "Proposition envoyee a Hossam.",
+    message: "Proposition envoy\u00e9e au Handler.",
     proposition: transformerPropositionPourClient(proposition),
   });
 }
@@ -264,19 +304,33 @@ async function modifierPropositionSeance(req, res) {
     return res.status(400).json({ message: "Identifiant de proposition invalide." });
   }
 
-  const propositionExistante = await trouverPropositionSeanceParId(req.params.id);
+  const propositionExistante = await trouverPropositionSeanceParIdScopee(
+    req.params.id,
+    construireScopeLecturePropositions(req)
+  );
   verifierPropositionEnAttente(propositionExistante);
   const seanceSourceId = normaliserIdentifiantOptionnel(
     propositionExistante.seance_source_id,
     "Identifiant de séance source"
   );
-  const seanceSource = seanceSourceId ? await trouverSeanceParId(seanceSourceId) : null;
+  const seanceSource = seanceSourceId
+    ? await trouverSeanceParIdScopee(seanceSourceId, construireScopeLecturePropositions(req))
+    : null;
 
   if (seanceSourceId && !seanceSource) {
     return res.status(404).json({ message: "Seance source introuvable." });
   }
 
-  const donneesSeance = preparerDonneesDepuisProposition(propositionExistante, req.body || {});
+  const affectation = await resoudreAffectationSeance({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donneesSeance: req.body || {},
+    seanceExistante: seanceSource,
+  });
+  const donneesSeance = await ajouterTarifSnapshotIntervenant({
+    ...preparerDonneesDepuisProposition(propositionExistante, req.body || {}),
+    ...affectation,
+  });
   const erreurs = await validerPropositionCommeCreation(donneesSeance, req.utilisateur, {
     seanceExistante: seanceSource,
   });
@@ -297,7 +351,14 @@ async function modifierPropositionSeance(req, res) {
     indisponibilite_heure_debut_originale: conflitIndisponibilite.heure_debut,
     indisponibilite_heure_fin_originale: conflitIndisponibilite.heure_fin,
     indisponibilite_jour_complet_original: conflitIndisponibilite.jour_complet,
+    handler_id: affectation.handler_id,
+    intervenant_id: affectation.intervenant_id,
   });
+
+  res.locals.realtimeScope = {
+    handlerId: affectation.handler_id,
+    intervenantId: affectation.intervenant_id,
+  };
 
   return res.json({
     message: "Proposition modifiée.",
@@ -310,20 +371,27 @@ async function accepterPropositionSeance(req, res) {
     return res.status(400).json({ message: "Identifiant de proposition invalide." });
   }
 
-  const proposition = await trouverPropositionSeanceParId(req.params.id);
+  const proposition = await trouverPropositionSeanceParIdScopee(
+    req.params.id,
+    construireScopeLecturePropositions(req)
+  );
   verifierPropositionEnAttente(proposition);
 
   const seanceSourceId = normaliserIdentifiantOptionnel(
     proposition.seance_source_id,
     "Identifiant de séance source"
   );
-  const seanceSource = seanceSourceId ? await trouverSeanceParId(seanceSourceId) : null;
+  const seanceSource = seanceSourceId
+    ? await trouverSeanceParIdScopee(seanceSourceId, construireScopeLecturePropositions(req))
+    : null;
 
   if (seanceSourceId && !seanceSource) {
     return res.status(404).json({ message: "Seance source introuvable." });
   }
 
-  const donneesSeance = preparerDonneesDepuisProposition(proposition);
+  const donneesSeance = await ajouterTarifSnapshotIntervenant(
+    preparerDonneesDepuisProposition(proposition)
+  );
   const erreurs = await validerPropositionCommeCreation(donneesSeance, req.utilisateur, {
     seanceExistante: seanceSource,
   });
@@ -360,9 +428,14 @@ async function accepterPropositionSeance(req, res) {
         ? "Proposition acceptée et séance déplacée."
         : "Proposition acceptée et séance créée.",
       proposition: transformerPropositionPourClient(propositionAcceptee),
-      seance: transformerSeancePourClientSelonUtilisateur(seance, req.utilisateur),
+      seance: transformerSeancePourClient(seance),
     };
   });
+
+  res.locals.realtimeScope = {
+    handlerId: proposition.handler_id,
+    intervenantId: proposition.intervenant_id,
+  };
 
   return res.json(resultat);
 }
@@ -372,12 +445,20 @@ async function refuserPropositionSeance(req, res) {
     return res.status(400).json({ message: "Identifiant de proposition invalide." });
   }
 
-  const proposition = await trouverPropositionSeanceParId(req.params.id);
+  const proposition = await trouverPropositionSeanceParIdScopee(
+    req.params.id,
+    construireScopeLecturePropositions(req)
+  );
   verifierPropositionEnAttente(proposition);
 
   const propositionRefusee = await marquerPropositionSeanceRefusee(req.params.id, {
     acteurId: req.utilisateur.id,
   });
+
+  res.locals.realtimeScope = {
+    handlerId: proposition.handler_id,
+    intervenantId: proposition.intervenant_id,
+  };
 
   return res.json({
     message: "Proposition refusée.",

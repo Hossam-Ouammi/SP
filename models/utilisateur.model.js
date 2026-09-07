@@ -1,13 +1,7 @@
 const { get, run } = require("./db");
 
 function normaliserEmailUtilisateur(email) {
-  const emailNormalise = String(email || "").trim().toLowerCase();
-
-  if (emailNormalise === "ami@test.com") {
-    return "abdo@test.com";
-  }
-
-  return emailNormalise;
+  return String(email || "").trim().toLowerCase();
 }
 
 async function trouverUtilisateurParEmail(email) {
@@ -18,6 +12,12 @@ async function trouverUtilisateurParEmail(email) {
         id,
         nom,
         email,
+        public_id,
+        statut_compte,
+        timezone,
+        couleur_calendrier,
+        preferences_json,
+        calendrier_public_actif,
         mot_de_passe,
         est_admin,
         acces_active,
@@ -46,6 +46,12 @@ async function trouverUtilisateurParNom(nom) {
         id,
         nom,
         email,
+        public_id,
+        statut_compte,
+        timezone,
+        couleur_calendrier,
+        preferences_json,
+        calendrier_public_actif,
         est_admin,
         acces_active,
         mode_lecture_seule,
@@ -76,6 +82,12 @@ async function trouverUtilisateurParNomOuEmail(identifiant) {
         id,
         nom,
         email,
+        public_id,
+        statut_compte,
+        timezone,
+        couleur_calendrier,
+        preferences_json,
+        calendrier_public_actif,
         mot_de_passe,
         est_admin,
         acces_active,
@@ -93,9 +105,11 @@ async function trouverUtilisateurParNomOuEmail(identifiant) {
         dernier_login_ip,
         tarif_horaire
       FROM utilisateurs
-      WHERE lower(nom) = lower(?) OR lower(email) = lower(?)
+      WHERE lower(nom) = lower(?)
+        OR lower(email) = lower(?)
+        OR lower(public_id) = lower(?)
     `,
-    [identifiantNormalise, emailNormalise]
+    [identifiantNormalise, emailNormalise, identifiantNormalise]
   );
 }
 
@@ -106,6 +120,12 @@ async function trouverUtilisateurParId(id) {
         id,
         nom,
         email,
+        public_id,
+        statut_compte,
+        timezone,
+        couleur_calendrier,
+        preferences_json,
+        calendrier_public_actif,
         est_admin,
         acces_active,
         mode_lecture_seule,
@@ -133,6 +153,12 @@ async function trouverUtilisateurAvecMotDePasseParId(id) {
         id,
         nom,
         email,
+        public_id,
+        statut_compte,
+        timezone,
+        couleur_calendrier,
+        preferences_json,
+        calendrier_public_actif,
         mot_de_passe,
         est_admin,
         acces_active,
@@ -281,6 +307,12 @@ async function listerCompteUtilisateurs() {
         id,
         nom,
         email,
+        public_id,
+        statut_compte,
+        timezone,
+        couleur_calendrier,
+        preferences_json,
+        calendrier_public_actif,
         est_admin,
         acces_active,
         mode_lecture_seule,

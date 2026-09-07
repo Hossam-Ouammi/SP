@@ -1,10 +1,10 @@
 const fs = require("fs/promises");
 
 const {
-  listerToutesLesSeances,
-  trouverSeanceParId,
-  trouverSeanceCompteChevauchante,
+  listerSeancesScopees,
+  trouverSeanceParIdScopee,
   trouverSeanceChevauchante,
+  trouverSeanceIntervenantChevauchante,
   creerSeance,
   mettreAJourSeance,
   mettreAJourStatutSeance,
@@ -18,7 +18,14 @@ const {
   listerIndisponibilitesTouchantPlage,
   supprimerIndisponibilite,
   trouverIndisponibiliteChevauchante,
+  trouverIndisponibiliteIntervenantChevauchante,
 } = require("../models/indisponibilite.model");
+const {
+  construireFiltreLectureSeances,
+  listerIntervenantsAutorisesHandler,
+  scopePeutGererIntervenant,
+} = require("../models/access-scope.model");
+const { trouverUtilisateurParId } = require("../models/utilisateur.model");
 const { recupererPhotosParSeance } = require("../models/photo.model");
 const {
   creerEntreeHistorique,
@@ -29,8 +36,16 @@ const {
   trouverPropositionAccepteeParSeanceId,
 } = require("../models/proposition-seance.model");
 const { resoudreCheminScreenshot } = require("../utils/screenshot-storage");
-const { convertirDateHeureZonneeEnInstant } = require("../utils/timezone");
+const {
+  convertirDateHeureZonneeEnInstant,
+  estDateHeureZonneeCivileExistante,
+} = require("../utils/timezone");
 const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
+const { trouverReglagesEspace } = require("../models/workspace-settings.model");
+const {
+  intervalleEstDansPlageCalendrier,
+  normaliserPlageDepuisReglages,
+} = require("../utils/calendar-hours");
 
 const statutsSeanceValides = ["planifiee", "faite", "annulee", "reportee"];
 const statutsCreationValides = ["planifiee", "faite"];
@@ -55,15 +70,9 @@ const libellesStatutHistorique = {
   annulee: "Annulée",
   reportee: "Reportée",
 };
-const comptePriveHossam = "hossam";
-const libelleSeanceConfidentielle = "Indisponible";
 
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
-}
-
-function normaliserCleCompte(valeur) {
-  return normaliserTexte(valeur).toLowerCase();
 }
 
 function valeurCatalogueInchangee(valeurDemandee, valeurExistante) {
@@ -73,6 +82,94 @@ function valeurCatalogueInchangee(valeurDemandee, valeurExistante) {
 
 function estIdentifiantValide(valeur) {
   return Number.isInteger(Number(valeur)) && Number(valeur) > 0;
+}
+
+function normaliserIdentifiant(valeur) {
+  return estIdentifiantValide(valeur) ? Number(valeur) : null;
+}
+
+function creerErreurRessourceInaccessible() {
+  return creerErreurHttp(404, "S\u00e9ance introuvable.");
+}
+
+function construireScopeLectureSeances(req) {
+  return construireFiltreLectureSeances(req.scope);
+}
+
+/**
+ * Le choix de l'intervenant ne vient jamais du client seul. Un Handler ne
+ * peut choisir que lui-m\u00eame ou un professeur actuellement rattach\u00e9 \u00e0 son
+ * espace ; un professeur est forc\u00e9 sur lui-m\u00eame. Le super-admin conserve
+ * ce m\u00eame garde-fou dans son espace Handler.
+ */
+async function resoudreAffectationSeance({ scope, acteur, donneesSeance, seanceExistante = null }) {
+  const utilisateurId = normaliserIdentifiant(acteur?.id);
+
+  if (!utilisateurId || !scope?.utilisateurId) {
+    throw creerErreurHttp(403, "Aucun espace Handler actif n'est associ\u00e9 \u00e0 ce compte.");
+  }
+
+  const handlerDemande = normaliserIdentifiant(
+    donneesSeance?.handler_id ?? donneesSeance?.handlerId
+  );
+  const intervenantDemande = normaliserIdentifiant(
+    donneesSeance?.intervenant_id ?? donneesSeance?.professeur_id ?? donneesSeance?.intervenantId
+  );
+
+  if (scope.estHandler) {
+    const handlerId = utilisateurId;
+
+    if (handlerDemande && handlerDemande !== handlerId) {
+      throw creerErreurRessourceInaccessible();
+    }
+
+    const intervenantId =
+      intervenantDemande || normaliserIdentifiant(seanceExistante?.intervenant_id) || utilisateurId;
+
+    if (!(await scopePeutGererIntervenant(scope, { handlerId, intervenantId }))) {
+      throw creerErreurRessourceInaccessible();
+    }
+
+    return { handler_id: handlerId, intervenant_id: intervenantId };
+  }
+
+  const handlerIds = Array.isArray(scope.handlerProfesseurIds)
+    ? scope.handlerProfesseurIds.map(normaliserIdentifiant).filter(Boolean)
+    : [];
+  const handlerId = normaliserIdentifiant(seanceExistante?.handler_id) || handlerIds[0] || null;
+
+  if (!scope.estProfesseur || !handlerId || !handlerIds.includes(handlerId)) {
+    throw creerErreurHttp(403, "Aucun espace Professeur actif n'est associ\u00e9 \u00e0 ce compte.");
+  }
+
+  if (handlerDemande && handlerDemande !== handlerId) {
+    throw creerErreurRessourceInaccessible();
+  }
+
+  const intervenantId =
+    intervenantDemande || normaliserIdentifiant(seanceExistante?.intervenant_id) || utilisateurId;
+
+  if (intervenantId !== utilisateurId) {
+    throw creerErreurRessourceInaccessible();
+  }
+
+  return { handler_id: handlerId, intervenant_id: intervenantId };
+}
+
+async function ajouterTarifSnapshotIntervenant(donneesSeance) {
+  const intervenantId = normaliserIdentifiant(donneesSeance?.intervenant_id);
+
+  if (!intervenantId) {
+    return donneesSeance;
+  }
+
+  const intervenant = await trouverUtilisateurParId(intervenantId);
+  const tarifHoraire = Number(intervenant?.tarif_horaire);
+
+  return {
+    ...donneesSeance,
+    tarif_horaire_applique: Number.isFinite(tarifHoraire) && tarifHoraire >= 0 ? tarifHoraire : 0,
+  };
 }
 
 function convertirHeureEnMinutes(heure) {
@@ -118,7 +215,7 @@ function calculerHeureFin(heureDebut, dureeMinutes) {
 
   const minutesFin = convertirHeureEnMinutes(heureDebut) + Number(dureeMinutes);
 
-  if (minutesFin >= 24 * 60) {
+  if (minutesFin > 24 * 60) {
     return "";
   }
 
@@ -154,63 +251,73 @@ function estIndisponibiliteJourComplet(indisponibilite) {
   return Number(indisponibilite?.jour_complet) === 1;
 }
 
-function utilisateurPeutVoirCompteHossam(utilisateur) {
-  return (
-    Number(utilisateur?.est_admin) === 1 ||
-    String(utilisateur?.email || "").trim().toLowerCase() === "hossam@test.com"
-  );
-}
-
-function seanceEstCompteHossam(seance) {
-  return normaliserCleCompte(seance?.compte) === comptePriveHossam;
-}
-
-function masquerSeanceConfidentiellePourClient(seance) {
-  if (!seance) {
-    return seance;
-  }
-
-  const dureeMinutes = calculerDureeMinutes(seance.heure_debut, seance.heure_fin);
-
-  return {
-    id: seance.id,
-    parent: "",
-    etudiant: libelleSeanceConfidentielle,
-    matiere: libelleSeanceConfidentielle,
-    compte: libelleSeanceConfidentielle,
-    est_essai: false,
-    essai_label: "Non",
-    date: seance.date,
-    heure_debut: seance.heure_debut,
-    heure_fin: seance.heure_fin,
-    duree_minutes: dureeMinutes,
-    duree_label: dureeMinutes ? formaterDuree(dureeMinutes) : "-",
-    statut_seance: "planifiee",
-    statut_manuel: "planifiee",
-    statut_auto: false,
-    libelle: libelleSeanceConfidentielle,
-    description: "",
-    cree_par_nom: "",
-    modifie_par_nom: "",
-    created_at: seance.created_at,
-    updated_at: seance.updated_at,
-    nombre_photos: 0,
-    est_masquee_pour_confidentialite: true,
-    est_compte_hossam_prive: true,
-  };
-}
-
 function construireMessageIndisponibilite(indisponibilite) {
   const raison = normaliserTexte(indisponibilite?.raison);
   const base = estIndisponibiliteJourComplet(indisponibilite)
-    ? `Cette journée est marquée comme indisponible par Hossam le ${indisponibilite.date}.`
-    : `Ce créneau est marqué comme indisponible par Hossam le ${indisponibilite.date} de ${indisponibilite.heure_debut} à ${indisponibilite.heure_fin}.`;
+    ? `Cette journée est marquée comme indisponible le ${indisponibilite.date}.`
+    : `Ce créneau est marqué comme indisponible le ${indisponibilite.date} de ${indisponibilite.heure_debut} à ${indisponibilite.heure_fin}.`;
 
   if (!raison) {
     return base;
   }
 
   return `${base} Raison : ${raison}.`;
+}
+
+function creneauSeanceEstEquivalent(seance, donneesSeance) {
+  return Boolean(
+    seance &&
+      String(seance.date || "") === String(donneesSeance?.date || "") &&
+      String(seance.heure_debut || "") === String(donneesSeance?.heure_debut || "") &&
+      String(seance.heure_fin || "") === String(donneesSeance?.heure_fin || "")
+  );
+}
+
+async function verifierSeanceDansPlageCalendrier(donneesSeance, options = {}) {
+  const handlerId = normaliserIdentifiant(donneesSeance?.handler_id);
+  if (!handlerId || !donneesSeance?.heure_debut || !donneesSeance?.heure_fin) {
+    return;
+  }
+
+  if (options.seanceExistante && creneauSeanceEstEquivalent(options.seanceExistante, donneesSeance)) {
+    // Un resserrement de plage ne rend jamais une ancienne séance impossible
+    // à consulter ou à corriger sur un champ non horaire.
+    return;
+  }
+
+  const reglages = await trouverReglagesEspace(handlerId);
+
+  if (
+    !estDateHeureZonneeCivileExistante(
+      donneesSeance.date,
+      donneesSeance.heure_debut,
+      CENTRAL_CALENDAR_TIMEZONE
+    ) ||
+    !estDateHeureZonneeCivileExistante(
+      donneesSeance.date,
+      donneesSeance.heure_fin,
+      CENTRAL_CALENDAR_TIMEZONE
+    )
+  ) {
+    throw creerErreurHttp(
+      400,
+      "L'heure choisie n'existe pas dans le fuseau horaire central à cette date."
+    );
+  }
+
+  const plage = normaliserPlageDepuisReglages(reglages || {});
+  if (
+    !intervalleEstDansPlageCalendrier({
+      heureDebut: donneesSeance.heure_debut,
+      heureFin: donneesSeance.heure_fin,
+      plage,
+    })
+  ) {
+    throw creerErreurHttp(
+      400,
+      `La séance doit rester dans la plage du calendrier Handler (${plage.calendar_start_time}–${plage.calendar_end_time}).`
+    );
+  }
 }
 
 function creerErreurHttp(status, message) {
@@ -232,6 +339,19 @@ function creneauSeanceEquivalent(seance, donneesSeance) {
 }
 
 async function recupererConflitIndisponibilite(donneesSeance) {
+  if (
+    normaliserIdentifiant(donneesSeance?.handler_id) &&
+    normaliserIdentifiant(donneesSeance?.intervenant_id)
+  ) {
+    return trouverIndisponibiliteIntervenantChevauchante({
+      handlerId: donneesSeance.handler_id,
+      intervenantId: donneesSeance.intervenant_id,
+      date: donneesSeance.date,
+      heureDebut: donneesSeance.heure_debut,
+      heureFin: donneesSeance.heure_fin,
+    });
+  }
+
   return trouverIndisponibiliteChevauchante({
     date: donneesSeance.date,
     heureDebut: donneesSeance.heure_debut,
@@ -239,17 +359,21 @@ async function recupererConflitIndisponibilite(donneesSeance) {
   });
 }
 
-async function recupererConflitSeancePriveeHossam(donneesSeance, options = {}) {
-  return trouverSeanceCompteChevauchante({
-    date: donneesSeance.date,
-    heureDebut: donneesSeance.heure_debut,
-    heureFin: donneesSeance.heure_fin,
-    compte: "Hossam",
-    exclureSeanceId: options.exclureSeanceId || null,
-  });
-}
-
 async function recupererConflitSeance(donneesSeance, options = {}) {
+  if (
+    normaliserIdentifiant(donneesSeance?.handler_id) &&
+    normaliserIdentifiant(donneesSeance?.intervenant_id)
+  ) {
+    return trouverSeanceIntervenantChevauchante({
+      handlerId: donneesSeance.handler_id,
+      intervenantId: donneesSeance.intervenant_id,
+      date: donneesSeance.date,
+      heureDebut: donneesSeance.heure_debut,
+      heureFin: donneesSeance.heure_fin,
+      exclureSeanceId: options.exclureSeanceId || null,
+    });
+  }
+
   return trouverSeanceChevauchante({
     date: donneesSeance.date,
     heureDebut: donneesSeance.heure_debut,
@@ -258,11 +382,7 @@ async function recupererConflitSeance(donneesSeance, options = {}) {
   });
 }
 
-function construireMessageConflitSeance(seance, utilisateur) {
-  if (!utilisateurPeutVoirCompteHossam(utilisateur) && seanceEstCompteHossam(seance)) {
-    return "Ce créneau est réservé et visible uniquement par l'administrateur.";
-  }
-
+function construireMessageConflitSeance(seance) {
   const etudiant = normaliserTexte(seance?.etudiant);
   const matiere = normaliserTexte(seance?.matiere);
   const details = [etudiant, matiere].filter(Boolean).join(" - ");
@@ -276,7 +396,7 @@ async function verifierAbsenceConflitSeance(donneesSeance, utilisateur, options 
   const conflitSeance = await recupererConflitSeance(donneesSeance, options);
 
   if (conflitSeance) {
-    throw creerErreurHttp(400, construireMessageConflitSeance(conflitSeance, utilisateur));
+    throw creerErreurHttp(400, construireMessageConflitSeance(conflitSeance));
   }
 }
 
@@ -335,6 +455,8 @@ async function restaurerIndisponibiliteDepuisPropositionAcceptee({
       date: plageOriginale.date,
       heureDebut: plageOriginale.heureDebut,
       heureFin: plageOriginale.heureFin,
+      handlerId: seance.handler_id,
+      intervenantId: seance.intervenant_id,
     });
     const createur =
       fragments.find((fragment) => Number(fragment.cree_par) > 0)?.cree_par ||
@@ -354,6 +476,8 @@ async function restaurerIndisponibiliteDepuisPropositionAcceptee({
       jourComplet: plageOriginale.jourComplet,
       raison: "",
       creePar: createur,
+      handlerId: seance.handler_id,
+      intervenantId: seance.intervenant_id,
     });
     return;
   }
@@ -362,6 +486,8 @@ async function restaurerIndisponibiliteDepuisPropositionAcceptee({
     date: seance.date,
     heureDebut: seance.heure_debut,
     heureFin: seance.heure_fin,
+    handlerId: seance.handler_id,
+    intervenantId: seance.intervenant_id,
   });
   const plage = construirePlageIndisponibiliteRestaurable(seance, fragments);
   const createur =
@@ -382,6 +508,8 @@ async function restaurerIndisponibiliteDepuisPropositionAcceptee({
     jourComplet: plage.jourComplet,
     raison: "",
     creePar: createur,
+    handlerId: seance.handler_id,
+    intervenantId: seance.intervenant_id,
   });
 }
 
@@ -492,11 +620,15 @@ async function journaliserActionSeance({
   actionLabel,
   acteur,
   seanceId,
+  handlerId,
+  intervenantId,
   seanceLibelle,
   details,
 }) {
   await creerEntreeHistorique({
     seanceId,
+    handlerId,
+    intervenantId,
     seanceLibelle,
     actionType,
     actionLabel,
@@ -512,7 +644,7 @@ function construireLibelleSeance(donneesSeance) {
   return `${matiere} - ${etudiant}`;
 }
 
-function construireDateHeureLocale(date, heure) {
+function construireDateHeureCentrale(date, heure) {
   if (!estDateIsoValide(date) || !estHeureFinLegacyValide(heure)) {
     return null;
   }
@@ -525,7 +657,7 @@ function calculerStatutSeanceAffiche(seance) {
     return seance.statut_seance;
   }
 
-  const dateFin = construireDateHeureLocale(seance.date, seance.heure_fin);
+  const dateFin = construireDateHeureCentrale(seance.date, seance.heure_fin);
 
   if (!dateFin) {
     return seance.statut_seance;
@@ -598,13 +730,6 @@ async function validerDonneesSeance(donneesSeance, utilisateur, options = {}) {
     erreurs.push("Le compte est invalide.");
   }
 
-  if (
-    normaliserCleCompte(donneesSeance.compte) === comptePriveHossam &&
-    !utilisateurPeutVoirCompteHossam(utilisateur)
-  ) {
-    erreurs.push("Seul l'administrateur peut planifier une séance sur le compte Hossam.");
-  }
-
   if (!valeursEssaiValides.includes(Number(donneesSeance.est_essai))) {
     erreurs.push("La valeur de séance d'essai est invalide.");
   }
@@ -627,6 +752,16 @@ async function validerDonneesSeance(donneesSeance, utilisateur, options = {}) {
 
   if (heureValide && dureeValide && !calculerHeureFin(donneesSeance.heure_debut, dureeMinutes)) {
     erreurs.push("La séance ne peut pas dépasser minuit.");
+  }
+
+  if (heureValide && dureeValide && donneesSeance.heure_fin) {
+    try {
+      await verifierSeanceDansPlageCalendrier(donneesSeance, {
+        seanceExistante,
+      });
+    } catch (erreur) {
+      erreurs.push(erreur.message || "La séance est hors de la plage du calendrier.");
+    }
   }
 
   if (!statutsSeanceValides.includes(donneesSeance.statut_seance)) {
@@ -705,47 +840,49 @@ function transformerSeancePourClient(seance) {
   };
 }
 
-function transformerSeancePourClientSelonUtilisateur(seance, utilisateur) {
-  if (!seance) {
-    return seance;
-  }
-
-  if (!utilisateurPeutVoirCompteHossam(utilisateur) && seanceEstCompteHossam(seance)) {
-    return masquerSeanceConfidentiellePourClient(seance);
-  }
-
+function transformerSeancePourClientSelonUtilisateur(seance) {
   return transformerSeancePourClient(seance);
 }
 
-function filtrerCataloguePourUtilisateur(catalogue, utilisateur) {
-  if (utilisateurPeutVoirCompteHossam(utilisateur)) {
-    return catalogue;
-  }
-
-  return {
-    ...catalogue,
-    comptes: Array.isArray(catalogue?.comptes)
-      ? catalogue.comptes.filter(
-          (compte) => normaliserCleCompte(compte?.valeur || compte) !== comptePriveHossam
-        )
-      : [],
-  };
+function filtrerCataloguePourUtilisateur(catalogue) {
+  return catalogue;
 }
 
 async function recupererToutesLesSeances(req, res) {
-  const seances = await listerToutesLesSeances();
+  const seances = await listerSeancesScopees(construireScopeLectureSeances(req));
   return res.json({
-    seances: seances.map((seance) => transformerSeancePourClientSelonUtilisateur(seance, req.utilisateur)),
+    seances: seances.map((seance) => transformerSeancePourClient(seance)),
   });
 }
 
 async function recupererOptionsSeances(req, res) {
   const catalogue = filtrerCataloguePourUtilisateur(await listerCatalogueOptions(), req.utilisateur);
+  const handlerId = req.scope?.estHandler
+    ? normaliserIdentifiant(req.scope.utilisateurId)
+    : normaliserIdentifiant(req.scope?.handlerProfesseurIds?.[0]);
+  const intervenantIds = handlerId
+    ? await listerIntervenantsAutorisesHandler(handlerId)
+    : [];
+  const intervenants = (
+    await Promise.all(intervenantIds.map((intervenantId) => trouverUtilisateurParId(intervenantId)))
+  )
+    .filter(Boolean)
+    .filter((intervenant) =>
+      req.scope?.estHandler || Number(intervenant.id) === Number(req.utilisateur?.id)
+    )
+    .map((intervenant) => ({
+      id: intervenant.id,
+      public_id: intervenant.public_id || null,
+      nom: intervenant.nom,
+      couleur_calendrier: intervenant.couleur_calendrier || null,
+      tarif_horaire: Number(intervenant.tarif_horaire) || 0,
+    }));
 
   return res.json({
     options: {
       matieres: Array.isArray(catalogue.matieres) ? catalogue.matieres : [],
       comptes: Array.isArray(catalogue.comptes) ? catalogue.comptes : [],
+      intervenants,
     },
   });
 }
@@ -755,13 +892,16 @@ async function recupererUneSeance(req, res) {
     return res.status(400).json({ message: "Identifiant de séance invalide." });
   }
 
-  const seance = await trouverSeanceParId(req.params.id);
+  const seance = await trouverSeanceParIdScopee(
+    req.params.id,
+    construireScopeLectureSeances(req)
+  );
 
   if (!seance) {
     return res.status(404).json({ message: "Séance introuvable." });
   }
 
-  return res.json({ seance: transformerSeancePourClientSelonUtilisateur(seance, req.utilisateur) });
+  return res.json({ seance: transformerSeancePourClient(seance) });
 }
 
 async function creerSeanceDepuisDonneesValidees({
@@ -772,31 +912,29 @@ async function creerSeanceDepuisDonneesValidees({
   utiliserTransaction = true,
 }) {
   const operation = async () => {
-  await verifierAbsenceConflitSeance(donneesSeance, acteur, {
+  const donneesAffectees = {
+    ...donneesSeance,
+    handler_id: normaliserIdentifiant(donneesSeance?.handler_id) || normaliserIdentifiant(acteur?.id),
+    intervenant_id:
+      normaliserIdentifiant(donneesSeance?.intervenant_id) || normaliserIdentifiant(acteur?.id),
+  };
+
+  await verifierSeanceDansPlageCalendrier(donneesAffectees);
+
+  await verifierAbsenceConflitSeance(donneesAffectees, acteur, {
     exclureSeanceId,
   });
 
   if (verifierIndisponibilite) {
-    const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesSeance);
+    const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesAffectees);
 
     if (conflitIndisponibilite) {
       throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite));
     }
   }
 
-  if (!utilisateurPeutVoirCompteHossam(acteur)) {
-    const conflitSeancePrivee = await recupererConflitSeancePriveeHossam(donneesSeance);
-
-    if (conflitSeancePrivee) {
-      throw creerErreurHttp(
-        400,
-        "Ce créneau est réservé et visible uniquement par l'administrateur."
-      );
-    }
-  }
-
   const nouvelleSeance = await creerSeance({
-    ...donneesSeance,
+    ...donneesAffectees,
     cree_par: acteur.id,
     modifie_par: acteur.id,
     utilisateur_id: acteur.id,
@@ -807,6 +945,8 @@ async function creerSeanceDepuisDonneesValidees({
     actionLabel: "Création de la séance",
     acteur,
     seanceId: nouvelleSeance.id,
+    handlerId: nouvelleSeance.handler_id,
+    intervenantId: nouvelleSeance.intervenant_id,
     seanceLibelle: construireLibelleSeance(nouvelleSeance),
     details: construireDetailsCreation(extraireEtatAuditSeance(nouvelleSeance)),
   });
@@ -829,47 +969,43 @@ async function modifierSeanceDepuisDonneesValidees({
     throw creerErreurHttp(404, "Seance introuvable.");
   }
 
-  if (!utilisateurPeutVoirCompteHossam(acteur) && seanceEstCompteHossam(seanceExistante)) {
-    throw creerErreurHttp(
-      403,
-      "Seul l'administrateur peut modifier les séances du compte Hossam."
-    );
-  }
-
   const seanceId = Number(seanceExistante.id);
-  const creneauInchange = creneauSeanceEquivalent(seanceExistante, donneesSeance);
+  const donneesAffectees = {
+    ...donneesSeance,
+    handler_id:
+      normaliserIdentifiant(donneesSeance?.handler_id) ||
+      normaliserIdentifiant(seanceExistante.handler_id) ||
+      normaliserIdentifiant(acteur?.id),
+    intervenant_id:
+      normaliserIdentifiant(donneesSeance?.intervenant_id) ||
+      normaliserIdentifiant(seanceExistante.intervenant_id) ||
+      normaliserIdentifiant(acteur?.id),
+  };
 
-  const conflitSeance = await recupererConflitSeance(donneesSeance, {
+  const creneauInchange = creneauSeanceEquivalent(seanceExistante, donneesAffectees);
+
+  await verifierSeanceDansPlageCalendrier(donneesAffectees, {
+    seanceExistante,
+  });
+
+  const conflitSeance = await recupererConflitSeance(donneesAffectees, {
     exclureSeanceId: seanceId,
   });
 
   if (conflitSeance && !creneauInchange) {
-    throw creerErreurHttp(400, construireMessageConflitSeance(conflitSeance, acteur));
+    throw creerErreurHttp(400, construireMessageConflitSeance(conflitSeance));
   }
 
   if (verifierIndisponibilite) {
-    const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesSeance);
+    const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesAffectees);
 
     if (conflitIndisponibilite && !creneauInchange) {
       throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite));
     }
   }
 
-  if (!utilisateurPeutVoirCompteHossam(acteur)) {
-    const conflitSeancePrivee = await recupererConflitSeancePriveeHossam(donneesSeance, {
-      exclureSeanceId: seanceId,
-    });
-
-    if (conflitSeancePrivee && !creneauInchange) {
-      throw creerErreurHttp(
-        400,
-        "Ce créneau est réservé et visible uniquement par l'administrateur."
-      );
-    }
-  }
-
   const seanceMiseAJour = await mettreAJourSeance(seanceId, {
-    ...donneesSeance,
+    ...donneesAffectees,
     modifie_par: acteur.id,
   });
 
@@ -878,6 +1014,8 @@ async function modifierSeanceDepuisDonneesValidees({
     actionLabel: "Modification de la séance",
     acteur,
     seanceId: seanceMiseAJour.id,
+    handlerId: seanceMiseAJour.handler_id,
+    intervenantId: seanceMiseAJour.intervenant_id,
     seanceLibelle: construireLibelleSeance(seanceMiseAJour),
     details: {
       type: "modification",
@@ -895,7 +1033,16 @@ async function modifierSeanceDepuisDonneesValidees({
 }
 
 async function ajouterSeance(req, res) {
-  const donneesSeance = preparerDonneesSeance(req.body);
+  let donneesSeance = preparerDonneesSeance(req.body);
+  const affectation = await resoudreAffectationSeance({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donneesSeance: req.body,
+  });
+  donneesSeance = await ajouterTarifSnapshotIntervenant({
+    ...donneesSeance,
+    ...affectation,
+  });
   const erreurs = await validerDonneesSeance(donneesSeance, req.utilisateur);
 
   if (erreurs.length > 0) {
@@ -913,10 +1060,14 @@ async function ajouterSeance(req, res) {
     acteur: req.utilisateur,
     verifierIndisponibilite: true,
   });
+  res.locals.realtimeScope = {
+    handlerId: nouvelleSeance.handler_id,
+    intervenantId: nouvelleSeance.intervenant_id,
+  };
 
   return res.status(201).json({
     message: "Séance créée avec succès.",
-    seance: transformerSeancePourClientSelonUtilisateur(nouvelleSeance, req.utilisateur),
+    seance: transformerSeancePourClient(nouvelleSeance),
   });
 }
 
@@ -925,19 +1076,25 @@ async function modifierSeance(req, res) {
     return res.status(400).json({ message: "Identifiant de séance invalide." });
   }
 
-  const seanceExistante = await trouverSeanceParId(req.params.id);
+  const seanceExistante = await trouverSeanceParIdScopee(
+    req.params.id,
+    construireScopeLectureSeances(req)
+  );
 
   if (!seanceExistante) {
     return res.status(404).json({ message: "Séance introuvable." });
   }
 
-  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seanceExistante)) {
-    return res.status(403).json({
-      message: "Seul l'administrateur peut modifier les séances du compte Hossam.",
-    });
-  }
-
-  const donneesSeance = preparerDonneesSeance(req.body);
+  const affectation = await resoudreAffectationSeance({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donneesSeance: req.body,
+    seanceExistante,
+  });
+  const donneesSeance = await ajouterTarifSnapshotIntervenant({
+    ...preparerDonneesSeance(req.body),
+    ...affectation,
+  });
   const erreurs = await validerDonneesSeance(donneesSeance, req.utilisateur, {
     seanceExistante,
   });
@@ -952,10 +1109,14 @@ async function modifierSeance(req, res) {
     acteur: req.utilisateur,
     verifierIndisponibilite: true,
   });
+  res.locals.realtimeScope = {
+    handlerId: seanceTransactionnelle.handler_id,
+    intervenantId: seanceTransactionnelle.intervenant_id,
+  };
 
   return res.json({
     message: "Séance modifiée avec succès.",
-    seance: transformerSeancePourClientSelonUtilisateur(seanceTransactionnelle, req.utilisateur),
+    seance: transformerSeancePourClient(seanceTransactionnelle),
   });
 }
 
@@ -965,16 +1126,13 @@ async function changerStatutSeance(req, res) {
   }
 
   const { statut_seance: statutSeance } = req.body;
-  const seanceExistante = await trouverSeanceParId(req.params.id);
+  const seanceExistante = await trouverSeanceParIdScopee(
+    req.params.id,
+    construireScopeLectureSeances(req)
+  );
 
   if (!seanceExistante) {
     return res.status(404).json({ message: "Séance introuvable." });
-  }
-
-  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seanceExistante)) {
-    return res.status(403).json({
-      message: "Seul l'administrateur peut modifier les séances du compte Hossam.",
-    });
   }
 
   if (!statutsSeanceValides.includes(statutSeance)) {
@@ -986,12 +1144,18 @@ async function changerStatutSeance(req, res) {
     statutSeance,
     req.utilisateur.id
   );
+  res.locals.realtimeScope = {
+    handlerId: seanceMiseAJour.handler_id,
+    intervenantId: seanceMiseAJour.intervenant_id,
+  };
 
   await journaliserActionSeance({
     actionType: "statut_modifie",
     actionLabel: "Changement de statut",
     acteur: req.utilisateur,
     seanceId: seanceMiseAJour.id,
+    handlerId: seanceMiseAJour.handler_id,
+    intervenantId: seanceMiseAJour.intervenant_id,
     seanceLibelle: construireLibelleSeance(seanceMiseAJour),
     details: {
       type: "statut",
@@ -1004,7 +1168,7 @@ async function changerStatutSeance(req, res) {
 
   return res.json({
     message: "Statut de la séance mis à jour.",
-    seance: transformerSeancePourClientSelonUtilisateur(seanceMiseAJour, req.utilisateur),
+    seance: transformerSeancePourClient(seanceMiseAJour),
   });
 }
 
@@ -1013,17 +1177,19 @@ async function supprimerUneSeance(req, res) {
     return res.status(400).json({ message: "Identifiant de séance invalide." });
   }
 
-  const seance = await trouverSeanceParId(req.params.id);
+  const seance = await trouverSeanceParIdScopee(
+    req.params.id,
+    construireScopeLectureSeances(req)
+  );
 
   if (!seance) {
     return res.status(404).json({ message: "Séance introuvable." });
   }
 
-  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seance)) {
-    return res.status(403).json({
-      message: "Seul l'administrateur peut supprimer les séances du compte Hossam.",
-    });
-  }
+  res.locals.realtimeScope = {
+    handlerId: seance.handler_id,
+    intervenantId: seance.intervenant_id,
+  };
 
   const photos = await recupererPhotosParSeance(req.params.id);
   const etatAvantSuppression = extraireEtatAuditSeance(seance);
@@ -1044,6 +1210,8 @@ async function supprimerUneSeance(req, res) {
     actionLabel: "Suppression de la séance",
     acteur: req.utilisateur,
     seanceId: null,
+    handlerId: seance.handler_id,
+    intervenantId: seance.intervenant_id,
     seanceLibelle: construireLibelleSeance(seance),
     details: construireDetailsSuppression(etatAvantSuppression),
     });
@@ -1080,12 +1248,14 @@ module.exports = {
   supprimerUneSeance,
   preparerDonneesSeance,
   validerDonneesSeance,
+  transformerSeancePourClient,
   transformerSeancePourClientSelonUtilisateur,
-  utilisateurPeutVoirCompteHossam,
-  recupererConflitSeancePriveeHossam,
   recupererConflitSeance,
   verifierAbsenceConflitSeance,
   creerSeanceDepuisDonneesValidees,
   modifierSeanceDepuisDonneesValidees,
+  resoudreAffectationSeance,
+  ajouterTarifSnapshotIntervenant,
+  verifierSeanceDansPlageCalendrier,
   statutsCreationValides,
 };

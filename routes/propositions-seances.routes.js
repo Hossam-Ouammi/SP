@@ -10,14 +10,23 @@ const {
 const {
   verifierAuthentification,
   verifierCompteSecurise,
-  verifierAccesHossamUniquement,
   verifierModeEcritureAutorise,
 } = require("../middleware/auth.middleware");
+const {
+  chargerScopeAcces,
+  verifierScopeHandlerCourant,
+  verifierRoleHandler,
+} = require("../middleware/scope.middleware");
 const { notifierMiseAJourApplication } = require("../utils/realtime-route");
 
 const router = express.Router();
 
-router.use(verifierAuthentification, verifierCompteSecurise);
+router.use(
+  verifierAuthentification,
+  verifierCompteSecurise,
+  chargerScopeAcces,
+  verifierScopeHandlerCourant
+);
 
 router.get("/", recupererPropositionsSeances);
 router.post(
@@ -27,17 +36,20 @@ router.post(
 );
 router.put(
   "/:id",
-  verifierAccesHossamUniquement,
+  verifierModeEcritureAutorise,
+  verifierRoleHandler,
   notifierMiseAJourApplication(modifierPropositionSeance, "propositions")
 );
 router.post(
   "/:id/accepter",
-  verifierAccesHossamUniquement,
+  verifierModeEcritureAutorise,
+  verifierRoleHandler,
   notifierMiseAJourApplication(accepterPropositionSeance, "propositions")
 );
 router.post(
   "/:id/refuser",
-  verifierAccesHossamUniquement,
+  verifierModeEcritureAutorise,
+  verifierRoleHandler,
   notifierMiseAJourApplication(refuserPropositionSeance, "propositions")
 );
 

@@ -1,4 +1,13 @@
-const { all, get, run } = require("./db");
+const { all, get, run, executerTransactionImmediate } = require("./db");
+
+class ErreurConflitProprietaireEndpointPush extends Error {
+  constructor() {
+    super("Cet appareil est déjà rattaché à un autre compte.");
+    this.name = "ErreurConflitProprietaireEndpointPush";
+    this.code = "PUSH_ENDPOINT_OWNED_BY_ANOTHER_USER";
+    this.status = 409;
+  }
+}
 
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
@@ -55,44 +64,73 @@ async function enregistrerOuMettreAJourAbonnementPush({
     throw new Error("Abonnement push invalide.");
   }
 
-  await run(
-    `
-      INSERT INTO push_subscriptions (
-        utilisateur_id,
-        endpoint,
-        p256dh,
-        auth,
-        expiration_time,
-        device_label,
-        user_agent,
-        actif,
-        updated_at,
-        last_used_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      ON CONFLICT(endpoint) DO UPDATE SET
-        utilisateur_id = excluded.utilisateur_id,
-        p256dh = excluded.p256dh,
-        auth = excluded.auth,
-        expiration_time = excluded.expiration_time,
-        device_label = excluded.device_label,
-        user_agent = excluded.user_agent,
-        actif = 1,
-        updated_at = CURRENT_TIMESTAMP,
-        last_used_at = CURRENT_TIMESTAMP
-    `,
-    [
-      Number(utilisateurId),
-      abonnement.endpoint,
-      abonnement.p256dh,
-      abonnement.auth,
-      abonnement.expiration_time,
-      normaliserTexte(deviceLabel),
-      normaliserTexte(userAgent).slice(0, 400),
-    ]
-  );
+  const proprietaireId = Number(utilisateurId);
+  const valeursMiseAJour = [
+    abonnement.p256dh,
+    abonnement.auth,
+    abonnement.expiration_time,
+    normaliserTexte(deviceLabel),
+    normaliserTexte(userAgent).slice(0, 400),
+  ];
 
-  return trouverAbonnementPushParEndpoint(abonnement.endpoint);
+  // L'ancien UPSERT réécrivait `utilisateur_id` en cas de collision. Une
+  // transaction IMMEDIATE sérialise ici lecture, contrôle du propriétaire et
+  // écriture, y compris entre plusieurs processus SQLite.
+  return executerTransactionImmediate(async () => {
+    const existant = await get(
+      `
+        SELECT id, utilisateur_id
+        FROM push_subscriptions
+        WHERE endpoint = ?
+        LIMIT 1
+      `,
+      [abonnement.endpoint]
+    );
+
+    if (existant && Number(existant.utilisateur_id) !== proprietaireId) {
+      throw new ErreurConflitProprietaireEndpointPush();
+    }
+
+    if (existant) {
+      await run(
+        `
+          UPDATE push_subscriptions
+          SET
+            p256dh = ?,
+            auth = ?,
+            expiration_time = ?,
+            device_label = ?,
+            user_agent = ?,
+            actif = 1,
+            updated_at = CURRENT_TIMESTAMP,
+            last_used_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND utilisateur_id = ?
+        `,
+        [...valeursMiseAJour, existant.id, proprietaireId]
+      );
+    } else {
+      await run(
+        `
+          INSERT INTO push_subscriptions (
+            utilisateur_id,
+            endpoint,
+            p256dh,
+            auth,
+            expiration_time,
+            device_label,
+            user_agent,
+            actif,
+            updated_at,
+            last_used_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `,
+        [proprietaireId, abonnement.endpoint, ...valeursMiseAJour]
+      );
+    }
+
+    return trouverAbonnementPushParEndpoint(abonnement.endpoint);
+  });
 }
 
 async function trouverAbonnementPushParEndpoint(endpoint) {
@@ -117,14 +155,14 @@ async function trouverAbonnementPushActifUtilisateurParEndpoint(utilisateurId, e
   );
 }
 
-async function desactiverAbonnementPushParEndpoint(endpoint) {
+async function desactiverAbonnementPushUtilisateurParEndpoint(utilisateurId, endpoint) {
   return run(
     `
       UPDATE push_subscriptions
       SET actif = 0, updated_at = CURRENT_TIMESTAMP
-      WHERE endpoint = ?
+      WHERE utilisateur_id = ? AND endpoint = ? AND actif = 1
     `,
-    [normaliserEndpoint(endpoint)]
+    [Number(utilisateurId), normaliserEndpoint(endpoint)]
   );
 }
 
@@ -146,8 +184,8 @@ async function listerAbonnementsPushActifs() {
         push_subscriptions.*,
         utilisateurs.nom AS utilisateur_nom,
         utilisateurs.email AS utilisateur_email,
-        utilisateurs.est_admin,
         utilisateurs.acces_active,
+        utilisateurs.statut_compte,
         utilisateurs.mode_lecture_seule,
         utilisateurs.peut_voir_aujourdhui,
         utilisateurs.peut_voir_monetisation,
@@ -189,10 +227,11 @@ async function marquerRappelJourEnvoye(id, cleRappel) {
 module.exports = {
   normaliserSubscriptionPush,
   construireAbonnementNavigateur,
+  ErreurConflitProprietaireEndpointPush,
   enregistrerOuMettreAJourAbonnementPush,
   trouverAbonnementPushParEndpoint,
   trouverAbonnementPushActifUtilisateurParEndpoint,
-  desactiverAbonnementPushParEndpoint,
+  desactiverAbonnementPushUtilisateurParEndpoint,
   desactiverAbonnementPushParId,
   listerAbonnementsPushActifs,
   marquerAbonnementPushCommeUtilise,

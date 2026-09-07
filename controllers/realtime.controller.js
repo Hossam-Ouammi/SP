@@ -6,6 +6,24 @@ const {
 } = require("../utils/realtime");
 const { normaliserIpClient } = require("../middleware/security.middleware");
 
+function obtenirExpirationSession(req) {
+  const expirationCookie = req.session?.cookie?.expires;
+
+  if (expirationCookie instanceof Date && Number.isFinite(expirationCookie.getTime())) {
+    return expirationCookie.getTime();
+  }
+
+  if (typeof expirationCookie === "string") {
+    const timestamp = Date.parse(expirationCookie);
+    if (Number.isFinite(timestamp)) {
+      return timestamp;
+    }
+  }
+
+  const maxAge = Number(req.session?.cookie?.maxAge);
+  return Number.isFinite(maxAge) && maxAge > 0 ? Date.now() + maxAge : null;
+}
+
 function ouvrirFluxTempsReel(req, res) {
   const clientKey = req.utilisateur?.id
     ? `user:${req.utilisateur.id}`
@@ -30,11 +48,18 @@ function ouvrirFluxTempsReel(req, res) {
   const client = ajouterClientTempsReel({
     res,
     utilisateurId: req.utilisateur?.id,
+    handlerIds: req.scope?.handlerIds,
+    handlerOwnIds: req.scope?.handlerOwnIds,
+    intervenantIds: req.scope?.intervenantIds,
     clientKey,
+    sessionId: req.sessionID,
+    sessionExpiresAt: obtenirExpirationSession(req),
   });
 
   configurerHeartbeatClient(client);
-  res.write(`event: connected\ndata: ${JSON.stringify({ timestamp: Date.now() })}\n\n`);
+  if (!res.writableEnded && !res.destroyed) {
+    res.write(`event: connected\ndata: ${JSON.stringify({ timestamp: Date.now() })}\n\n`);
+  }
 
   req.on("close", () => {
     retirerClientTempsReel(client);

@@ -1,5 +1,10 @@
 # Reference backend detaillee
 
+> **Archive pré-évolution multi-utilisateur.** Cette référence contient des
+> descriptions de l'ancien modèle nominatif; elle n'est pas une spécification
+> des permissions actuelles. Se référer au [guide de déploiement](../DEPLOIEMENT-MULTI-UTILISATEUR.md),
+> au [changelog](../CHANGELOG-MULTI-UTILISATEUR.md) et aux routes/models du dépôt.
+
 Ce document sert de lecture guidee du backend, fichier par fichier.
 
 Important:
@@ -126,11 +131,11 @@ Variables:
 - `PUBLIC_RESERVATION_COOKIE_MAX_AGE_MS`: duree de vie du cookie appareil public.
 - `PUBLIC_RESERVATION_ALLOWED_DURATIONS`: durees autorisees cote public, figees a `60/90/120`.
 - `PUBLIC_RESERVATION_SLOT_DURATION_MINUTES`: duree par defaut retenue si l'env est valide.
-- `PUBLIC_RESERVATION_TIMEZONE` et `PUBLIC_RESERVATION_TIMEZONE_LABEL`: fuseau et libelle public.
-- `CENTRAL_CALENDAR_TIMEZONE` et `CENTRAL_CALENDAR_TIMEZONE_LABEL`: fuseau et libelle du calendrier interne.
+- `CENTRAL_CALENDAR_TIMEZONE` et `CENTRAL_CALENDAR_TIMEZONE_LABEL`: référence et libellé du calendrier métier central, partagés par le Handler et ses Professeurs.
+- Le nom historique `public_calendar_timezone` est conservé en stockage, mais sa valeur métier est un décalage fixe de l'horloge centrale : `GMT` = 0, `GMT+1` = 60 et `GMT+2` = 120 minutes. Les nouvelles entrées IANA sont refusées et la migration `2026090710_public_calendar_fixed_offset` normalise les anciennes valeurs vers `GMT`. Il n'existe plus de fuseau public global d'environnement.
 - `PUBLIC_RESERVATION_DEFAULT_COMPTE`: compte par defaut si la reservation redevient active.
 - `PUBLIC_RESERVATION_OWNER_EMAIL`: proprietaire theorique de la reservation publique.
-- `PUBLIC_RESERVATION_SLOT_MIN_TIME` et `PUBLIC_RESERVATION_SLOT_MAX_TIME`: fenetre horaire affichee.
+- La fenêtre horaire centrale (`calendar_start_time`, `calendar_end_time`) est persistée par Handler. Elle est partagée par ses professeurs; la page publique en reçoit seulement une projection par addition de l'offset fixe, après calcul des disponibilités. Aucune conversion géographique/DST publique n'intervient.
 
 Fonction:
 
@@ -197,13 +202,13 @@ Fonctions metier:
 - `chargerUtilisateurAuthentifie(req, res)`: recharge l'utilisateur depuis la base a partir de la session et invalide si compte supprime, suspendu ou version de session obsolete.
 - `verifierAuthentification(req, res, next)`: refuse en `401` si aucun utilisateur charge.
 - `verifierCompteSecurise(req, res, next)`: refuse en `403` tant que le mot de passe initial n'a pas ete change.
-- `utilisateurEstAdministrateur(utilisateur)`: vrai si `est_admin=1` ou email `hossam@test.com`.
-- `utilisateurEstHossam(utilisateur)`: vrai si email `hossam@test.com`.
-- `verifierAccesAdministratifHossam(req, res, next)`: protege tout l'espace admin.
-- `verifierAccesHossamUniquement(req, res, next)`: reserve certaines actions au seul Hossam.
-- `verifierModeEcritureAutorise(req, res, next)`: interdit les comptes lecture seule, sauf admin.
-- `verifierAccesMonetisation(req, res, next)`: autorise Hossam ou les comptes explicitement marques.
-- `verifierAccesIndisponibilites(req, res, next)`: autorise admin ou comptes ayant ce droit.
+- `construireScopeAcces(utilisateur)`: charge les rôles canoniques depuis `utilisateur_roles` et calcule les périmètres Handler/Professeur.
+- `verifierRoleSuperAdmin(req, res, next)`: protège l'administration globale quand le scope contient le rôle `super_admin`.
+- `verifierModeEcritureAutorise(req, res, next)`: interdit les comptes lecture seule, sauf scope SuperAdmin.
+- `verifierAccesMonetisation(req, res, next)`: autorise le scope SuperAdmin, le Handler ou un Professeur explicitement habilité.
+- `verifierAccesIndisponibilites(req, res, next)`: autorise le scope SuperAdmin, le Handler ou un Professeur explicitement habilité.
+
+`est_admin` reste une colonne historique de compatibilité dans `utilisateurs` ; il n'accorde aucune permission globale sans le rôle canonique `super_admin`.
 
 ## 4. Routes
 
@@ -1026,10 +1031,10 @@ Helpers:
 
 Fonctions:
 
-- `enregistrerOuMettreAJourAbonnementPush(...)`: insertion ou reactivation idempotente par `endpoint`.
+- `enregistrerOuMettreAJourAbonnementPush(...)`: insertion ou réactivation idempotente uniquement pour le propriétaire existant ; un autre utilisateur reçoit le conflit `PUSH_ENDPOINT_OWNED_BY_ANOTHER_USER`.
 - `trouverAbonnementPushParEndpoint(endpoint)`
 - `trouverAbonnementPushActifUtilisateurParEndpoint(utilisateurId, endpoint)`
-- `desactiverAbonnementPushParEndpoint(endpoint)`
+- `desactiverAbonnementPushUtilisateurParEndpoint(utilisateurId, endpoint)`: désactive seulement l'abonnement du propriétaire courant.
 - `desactiverAbonnementPushParId(id)`
 - `listerAbonnementsPushActifs()`: joint aussi les droits utilisateur utiles aux rappels.
 - `marquerAbonnementPushCommeUtilise(id)`

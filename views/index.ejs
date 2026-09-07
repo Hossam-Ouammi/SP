@@ -86,6 +86,65 @@
               </button>
             </form>
 
+            <div class="login-lifecycle-actions" aria-label="Accès au cycle de compte">
+              <button id="show-account-request-button" class="button link-button" type="button">
+                Vous n'avez pas encore de compte ? Envoyer une demande d'inscription.
+              </button>
+              <button id="show-password-reset-button" class="button link-button" type="button">
+                Mot de passe oublié ?
+              </button>
+            </div>
+
+            <form id="account-request-form" class="stack-form login-secondary-form hidden" novalidate>
+              <h2>Demande d'inscription</h2>
+              <label class="field">
+                <span>Nom</span>
+                <input id="account-request-name" type="text" maxlength="120" required />
+              </label>
+              <label class="field">
+                <span>Email</span>
+                <input id="account-request-email" type="email" maxlength="160" required />
+              </label>
+              <label class="field">
+                <span>Type de compte</span>
+                <select id="account-request-role" required>
+                  <option value="professeur">Professeur</option>
+                  <option value="handler">Handler</option>
+                </select>
+              </label>
+              <label id="account-request-handler-field" class="field">
+                <span>Identifiant Handler</span>
+                <select id="account-request-handler"></select>
+              </label>
+              <p id="account-request-error" class="form-error hidden"></p>
+              <button class="button primary full-width" type="submit">Envoyer la demande</button>
+            </form>
+
+            <form id="password-reset-request-form" class="stack-form login-secondary-form hidden" novalidate>
+              <h2>Réinitialiser le mot de passe</h2>
+              <label class="field">
+                <span>Email ou ID public</span>
+                <input id="password-reset-identifier" type="text" maxlength="160" required />
+              </label>
+              <p id="password-reset-request-error" class="form-error hidden"></p>
+              <button class="button primary full-width" type="submit">Envoyer le lien</button>
+            </form>
+
+            <form id="account-token-form" class="stack-form login-secondary-form hidden" novalidate>
+              <h2 id="account-token-title">Définir votre mot de passe</h2>
+              <p class="section-note">Choisissez un mot de passe d'au moins 12 caractères, avec majuscule, minuscule, chiffre et caractère spécial.</p>
+              <label class="field">
+                <span>Nouveau mot de passe</span>
+                <input id="account-token-password" type="password" minlength="12" autocomplete="new-password" required />
+              </label>
+              <label class="field">
+                <span>Confirmer le mot de passe</span>
+                <input id="account-token-password-confirmation" type="password" minlength="12" autocomplete="new-password" required />
+              </label>
+              <p id="account-token-error" class="form-error hidden"></p>
+              <button class="button primary full-width" type="submit">Enregistrer le mot de passe</button>
+            </form>
+
           </div>
         </div>
       </section>
@@ -116,8 +175,14 @@
           <button class="nav-tab" type="button" data-section-target="dashboard">
             Dashboard
           </button>
+          <button class="nav-tab hidden" type="button" data-section-target="calendrier">
+            Calendrier
+          </button>
           <button class="nav-tab hidden" type="button" data-section-target="indisponibilites">
             Indisponibilités
+          </button>
+          <button class="nav-tab hidden" type="button" data-section-target="equipe">
+            Équipe
           </button>
           <button class="nav-tab" type="button" data-section-target="statistiques">
             Statistiques
@@ -153,6 +218,12 @@
               <h2>Calendrier</h2>
             </div>
 
+            <section
+              id="availability-overview"
+              class="availability-overview hidden"
+              aria-live="polite"
+            ></section>
+
             <div id="calendar"></div>
           </section>
         </section>
@@ -168,6 +239,112 @@
                 </p>
               </div>
             </div>
+
+            <section class="admin-card availability-rules-card">
+              <div class="admin-card-head">
+                <div>
+                  <h3 class="user-form-title">Disponibilités proposées au calendrier public</h3>
+                  <p class="section-note">
+                    Sans disponibilité déclarée, aucun créneau n’est proposé publiquement. Les séances
+                    et les indisponibilités existantes restent des blocages prioritaires.
+                  </p>
+                </div>
+              </div>
+
+              <form id="availability-rule-form" class="availability-rule-form stack-form">
+                <div class="form-grid">
+                  <label class="field">
+                    <span>Intervenant</span>
+                    <select id="availability-rule-intervenant" required></select>
+                  </label>
+                  <label class="field">
+                    <span>Type</span>
+                    <select id="availability-rule-type" required>
+                      <option value="recurrente">Chaque semaine</option>
+                      <option value="ponctuelle">Date précise</option>
+                    </select>
+                  </label>
+                  <label id="availability-rule-day-field" class="field">
+                    <span>Jour</span>
+                    <select id="availability-rule-day" required>
+                      <option value="0">Lundi</option>
+                      <option value="1">Mardi</option>
+                      <option value="2">Mercredi</option>
+                      <option value="3">Jeudi</option>
+                      <option value="4">Vendredi</option>
+                      <option value="5">Samedi</option>
+                      <option value="6">Dimanche</option>
+                    </select>
+                  </label>
+                  <label id="availability-rule-date-field" class="field hidden">
+                    <span>Date</span>
+                    <input id="availability-rule-date" type="date" />
+                  </label>
+                  <label class="field">
+                    <span>Début</span>
+                    <input id="availability-rule-start" type="time" step="1800" required />
+                  </label>
+                  <label class="field">
+                    <span>Fin</span>
+                    <input id="availability-rule-end" type="time" step="1800" required />
+                  </label>
+                </div>
+                <p id="availability-rule-error" class="form-error hidden"></p>
+                <div class="form-actions">
+                  <button id="availability-rule-button" class="button primary" type="submit">
+                    Ajouter la disponibilité
+                  </button>
+                </div>
+              </form>
+              <div id="availability-rules-list" class="admin-session-list"></div>
+            </section>
+
+            <section class="admin-card availability-rules-card">
+              <div class="admin-card-head">
+                <div>
+                  <h3 class="user-form-title">Exceptions</h3>
+                  <p class="section-note">Fermez ou ouvrez exceptionnellement une date ou une plage horaire.</p>
+                </div>
+              </div>
+              <form id="availability-exception-form" class="availability-rule-form stack-form">
+                <div class="form-grid">
+                  <label class="field">
+                    <span>Intervenant</span>
+                    <select id="availability-exception-intervenant" required></select>
+                  </label>
+                  <label class="field">
+                    <span>Type</span>
+                    <select id="availability-exception-type" required>
+                      <option value="indisponible">Indisponible</option>
+                      <option value="disponible">Disponible</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Date</span>
+                    <input id="availability-exception-date" type="date" required />
+                  </label>
+                  <label class="field">
+                    <span>Début (facultatif)</span>
+                    <input id="availability-exception-start" type="time" step="1800" />
+                  </label>
+                  <label class="field">
+                    <span>Fin (facultatif)</span>
+                    <input id="availability-exception-end" type="time" step="1800" />
+                  </label>
+                  <label class="field">
+                    <span>Motif (facultatif)</span>
+                    <input id="availability-exception-reason" type="text" maxlength="500" />
+                  </label>
+                </div>
+                <p id="availability-exception-error" class="form-error hidden"></p>
+                <div class="form-actions">
+                  <button id="availability-exception-button" class="button secondary" type="submit">
+                    Ajouter l’exception
+                  </button>
+                </div>
+              </form>
+              <div id="availability-exceptions-list" class="admin-session-list"></div>
+            </section>
 
             <nav class="unavailability-workbench-nav" aria-label="Vues des indisponibilités">
               <button
@@ -229,6 +406,42 @@
           </section>
         </section>
 
+        <section id="equipe-section" class="app-section hidden">
+          <section class="panel admin-panel-shell">
+            <div class="section-heading section-heading-stack">
+              <div>
+                <h2>Équipe</h2>
+                <p class="section-note">
+                  Gérez les Professeurs rattachés à votre espace. Les nouveaux Professeurs
+                  rejoignent l’équipe après une demande, une validation et leur activation par email.
+                </p>
+              </div>
+            </div>
+
+            <article class="admin-card admin-directory-card">
+              <div class="admin-card-head">
+                <div>
+                  <h3 class="user-form-title">Demandes en attente</h3>
+                  <p class="section-note">Seules les demandes adressées à votre Handler sont affichées.</p>
+                </div>
+              </div>
+              <div id="team-pending-requests" class="admin-user-list"></div>
+            </article>
+
+            <article class="admin-card admin-directory-card">
+              <div class="admin-card-head">
+                <div>
+                  <h3 class="user-form-title">Professeurs</h3>
+                  <p class="section-note">
+                    Les suspensions conservent les données et ferment immédiatement les sessions du compte.
+                  </p>
+                </div>
+              </div>
+              <div id="team-list" class="admin-user-list"></div>
+            </article>
+          </section>
+        </section>
+
         <section id="statistiques-section" class="app-section hidden">
           <div id="stats-accounts-overview" class="statistics-overview-grid">
             <article class="panel stat-overview-card stat-overview-card-primary">
@@ -236,15 +449,6 @@
               <strong id="total-count" class="stat-overview-value">0</strong>
             </article>
 
-            <article class="panel stat-overview-card">
-              <span class="stat-overview-label">Compte Yassine</span>
-              <strong id="stats-yassine-total" class="stat-overview-value">0</strong>
-            </article>
-
-            <article class="panel stat-overview-card">
-              <span class="stat-overview-label">Compte Abdo</span>
-              <strong id="stats-abdo-total" class="stat-overview-value">0</strong>
-            </article>
           </div>
 
           <section class="panel stats-compare-panel">
@@ -258,46 +462,151 @@
             <div id="stats-accounts-table" class="stats-table">
               <div class="stats-table-row stats-table-head">
                 <span>Indicateur</span>
-                <strong>Yassine</strong>
-                <strong>Abdo</strong>
+                <strong>Intervenant</strong>
+                <strong>Intervenant</strong>
               </div>
 
               <div class="stats-table-row">
                 <span>Planifiées</span>
-                <strong id="stats-yassine-planned">0</strong>
-                <strong id="stats-abdo-planned">0</strong>
+                <strong>0</strong>
+                <strong>0</strong>
               </div>
 
               <div class="stats-table-row">
                 <span>Faites</span>
-                <strong id="stats-yassine-completed">0</strong>
-                <strong id="stats-abdo-completed">0</strong>
+                <strong>0</strong>
+                <strong>0</strong>
               </div>
 
               <div class="stats-table-row stats-table-row-muted stats-table-row-sub">
                 <span class="stats-table-label-sub">Séances d'essai</span>
-                <strong id="stats-yassine-completed-trial">0</strong>
-                <strong id="stats-abdo-completed-trial">0</strong>
+                <strong>0</strong>
+                <strong>0</strong>
               </div>
 
               <div class="stats-table-row stats-table-row-muted stats-table-row-sub">
                 <span class="stats-table-label-sub">Séances standard</span>
-                <strong id="stats-yassine-completed-regular">0</strong>
-                <strong id="stats-abdo-completed-regular">0</strong>
+                <strong>0</strong>
+                <strong>0</strong>
               </div>
 
               <div class="stats-table-row">
                 <span>Reportées</span>
-                <strong id="stats-yassine-postponed">0</strong>
-                <strong id="stats-abdo-postponed">0</strong>
+                <strong>0</strong>
+                <strong>0</strong>
               </div>
 
               <div class="stats-table-row">
                 <span>Annulées</span>
-                <strong id="stats-yassine-cancelled">0</strong>
-                <strong id="stats-abdo-cancelled">0</strong>
+                <strong>0</strong>
+                <strong>0</strong>
               </div>
             </div>
+          </section>
+        </section>
+
+        <section id="calendrier-section" class="app-section hidden">
+          <section id="calendar-settings-panel" class="panel admin-panel-shell">
+            <article id="workspace-settings-card" class="admin-card user-notifications-card">
+              <div class="admin-card-head">
+                <div>
+                  <h3 class="user-form-title">Calendrier</h3>
+                  <p class="section-note">
+                    Configurez séparément les horaires métier de votre espace et la présentation
+                    destinée aux clients.
+                  </p>
+                </div>
+              </div>
+
+              <div class="admin-card-body stack-form">
+                <form id="workspace-settings-form" class="stack-form" novalidate>
+                  <div>
+                    <h4 class="user-form-title">Calendrier central</h4>
+                    <p class="section-note">
+                      Ces horaires s’appliquent à votre calendrier et à ceux de vos Professeurs.
+                    </p>
+                  </div>
+                  <div class="form-grid">
+                    <label class="field">
+                      <span>Début de journée</span>
+                      <input id="calendar-start-time" type="time" step="1800" required />
+                    </label>
+                    <label class="field">
+                      <span>Fin de journée</span>
+                      <input id="calendar-end-time" type="time" step="1800" required />
+                      <small class="field-help">00:00 signifie la fin de la journée civile.</small>
+                    </label>
+                  </div>
+                  <p id="workspace-settings-error" class="form-error hidden"></p>
+                  <div class="form-actions">
+                    <button id="workspace-settings-button" class="button primary" type="submit">
+                      Enregistrer les paramètres
+                    </button>
+                  </div>
+                </form>
+
+                <section id="public-calendar-settings" class="workspace-public-calendar hidden">
+                  <div>
+                    <h4 class="user-form-title">Calendrier public</h4>
+                    <p class="section-note">
+                      Réglez un décalage fixe appliqué à l’horloge centrale, sans modifier votre planning interne.
+                    </p>
+                  </div>
+                  <div class="admin-identity-stats">
+                    <div class="admin-identity-stat">
+                      <span>Calendrier public</span>
+                      <strong id="public-calendar-status">-</strong>
+                    </div>
+                    <div class="admin-identity-stat">
+                      <span>Lien configuré</span>
+                      <strong id="public-calendar-token-status">-</strong>
+                    </div>
+                  </div>
+
+                  <p id="public-calendar-help" class="security-notice security-notice-subtle">
+                    Le calendrier public ne révèle que « Disponible » ou « Indisponible ».
+                  </p>
+
+                  <form id="public-calendar-timezone-form" class="stack-form" novalidate>
+                    <label class="field">
+                      <span>Décalage affiché aux clients</span>
+                      <select id="public-calendar-timezone" required>
+                        <option value="GMT">GMT — horloge centrale</option>
+                        <option value="GMT+1">GMT+1 — horloge centrale + 1 h</option>
+                        <option value="GMT+2">GMT+2 — horloge centrale + 2 h</option>
+                      </select>
+                      <small class="field-help">
+                        Le décalage s’applique uniquement aux heures affichées publiquement.
+                        Il ne modifie jamais les séances, disponibilités ni tableaux de bord.
+                      </small>
+                    </label>
+                    <p id="public-calendar-timezone-error" class="form-error hidden"></p>
+                    <div class="form-actions">
+                      <button id="public-calendar-timezone-button" class="button secondary" type="submit">
+                        Enregistrer le décalage public
+                      </button>
+                    </div>
+                  </form>
+
+                  <label class="field">
+                    <span>Nouveau lien public</span>
+                    <input id="public-calendar-link" type="url" readonly value="" />
+                  </label>
+
+                  <div class="form-actions">
+                    <button id="public-calendar-toggle-button" class="button secondary" type="button">
+                      Activer le calendrier
+                    </button>
+                    <button id="public-calendar-regenerate-button" class="button primary" type="button">
+                      Générer un lien
+                    </button>
+                    <button id="public-calendar-copy-button" class="button secondary" type="button">
+                      Copier le lien
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </article>
           </section>
         </section>
 
@@ -351,8 +660,8 @@
                 <span class="summary-label">Vue rapide</span>
                 <strong id="admin-guide-title" class="admin-guide-title">Sécurité et contrôle</strong>
                 <p id="admin-guide-note" class="section-note">
-                  Le mot de passe se modifie ici. Les actions avancées sont réservées à
-                  Hossam et demandent toujours son mot de passe actuel.
+                  Le mot de passe se modifie ici. Les actions avancées sont réservées aux
+                  administrateurs et demandent toujours leur mot de passe actuel.
                 </p>
               </article>
             </section>
@@ -442,6 +751,9 @@
                   <button class="admin-workbench-tab" type="button" data-admin-view="access">
                     Accès
                   </button>
+                  <button class="admin-workbench-tab" type="button" data-admin-view="analytics">
+                    Analyses
+                  </button>
                   <button class="admin-workbench-tab" type="button" data-admin-view="security">
                     Sécurité
                   </button>
@@ -464,7 +776,7 @@
                     <div>
                       <h3 class="user-form-title">Utilisateurs</h3>
                       <p class="section-note">
-                        Ajoutez des comptes et suivez leur état en un seul endroit.
+                        Suivez les comptes, leurs rôles et leur état d’accès.
                       </p>
                     </div>
                   </div>
@@ -489,6 +801,69 @@
                   </div>
 
                   <div id="admin-users-list" class="admin-user-list"></div>
+                </article>
+
+                <article class="admin-card admin-directory-card" data-admin-group="accounts">
+                  <div class="admin-card-head">
+                    <div>
+                      <h3 class="user-form-title">Demandes de comptes</h3>
+                      <p class="section-note">
+                        Approuvez les demandes Handler et les demandes Professeur de toutes les équipes.
+                        Chaque activation est envoyée par lien sécurisé.
+                      </p>
+                    </div>
+                  </div>
+                  <div id="admin-account-requests-list" class="admin-user-list"></div>
+                </article>
+
+                <article class="admin-card admin-global-analytics-card" data-admin-group="analytics">
+                  <div class="admin-card-head">
+                    <div>
+                      <h3 class="user-form-title">Analyses globales</h3>
+                      <p class="section-note">
+                        Cette vue Super Admin agrège la plateforme. Elle est distincte du dashboard Handler.
+                      </p>
+                    </div>
+                  </div>
+
+                  <form id="admin-global-analytics-form" class="admin-analytics-filter" novalidate>
+                    <label class="field">
+                      <span>Du</span>
+                      <input id="admin-global-analytics-du" type="date" />
+                    </label>
+                    <label class="field">
+                      <span>Au</span>
+                      <input id="admin-global-analytics-au" type="date" />
+                    </label>
+                    <div class="form-actions">
+                      <button id="admin-global-analytics-button" class="button primary" type="submit">
+                        Actualiser
+                      </button>
+                    </div>
+                  </form>
+                  <p id="admin-global-analytics-error" class="form-error hidden"></p>
+
+                  <section id="admin-global-analytics-results" class="hidden" aria-live="polite">
+                    <div class="admin-summary-strip">
+                      <div class="admin-summary-tile">
+                        <span>Séances</span>
+                        <strong id="admin-global-analytics-total">0</strong>
+                      </div>
+                      <div class="admin-summary-tile">
+                        <span>Faites</span>
+                        <strong id="admin-global-analytics-faites">0</strong>
+                      </div>
+                      <div class="admin-summary-tile">
+                        <span>Heures</span>
+                        <strong id="admin-global-analytics-heures">0</strong>
+                      </div>
+                      <div class="admin-summary-tile">
+                        <span>Montant</span>
+                        <strong id="admin-global-analytics-montant">0 dh</strong>
+                      </div>
+                    </div>
+                    <div id="admin-global-analytics-intervenants" class="admin-global-analytics-list"></div>
+                  </section>
                 </article>
 
                 <article class="admin-card admin-actions-shell" data-admin-group-shell>
@@ -544,6 +919,7 @@
                       id="admin-create-user-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
                       data-admin-group="accounts"
+                      data-legacy-admin-workflow="true"
                     >
                       <div>
                         <h3 class="user-form-title">Ajouter un utilisateur</h3>
@@ -601,6 +977,7 @@
                       id="admin-delete-user-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
                       data-admin-group="accounts danger"
+                      data-legacy-admin-workflow="true"
                     >
                       <div>
                         <h3 class="user-form-title">Supprimer un utilisateur</h3>
@@ -637,6 +1014,7 @@
                       id="admin-reset-password-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
                       data-admin-group="accounts"
+                      data-legacy-admin-workflow="true"
                     >
                       <div>
                         <h3 class="user-form-title">Réinitialiser un mot de passe</h3>
@@ -1021,6 +1399,7 @@
                       id="admin-clear-seances-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
                       data-admin-group="danger"
+                      data-legacy-admin-workflow="true"
                     >
                       <div>
                         <h3 class="user-form-title">Supprimer toutes les séances</h3>
@@ -1056,6 +1435,7 @@
                       id="admin-clear-history-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
                       data-admin-group="danger"
+                      data-legacy-admin-workflow="true"
                     >
                       <div>
                         <h3 class="user-form-title">Supprimer tout l'historique</h3>
@@ -1315,69 +1695,69 @@
               <strong id="monetisation-total-amount" class="stat-overview-value">0 dh</strong>
             </article>
 
-            <article class="panel stat-overview-card">
-              <span class="stat-overview-label">Compte Yassine</span>
-              <strong id="monetisation-yassine-amount-card" class="stat-overview-value">0 dh</strong>
+            <article id="monetisation-primary-one-card" class="panel stat-overview-card hidden">
+              <span id="monetisation-primary-one-label" class="stat-overview-label">Intervenant</span>
+              <strong id="monetisation-primary-one-amount-card" class="stat-overview-value">0 dh</strong>
             </article>
 
-            <article class="panel stat-overview-card">
-              <span class="stat-overview-label">Compte Abdo</span>
-              <strong id="monetisation-abdo-amount-card" class="stat-overview-value">0 dh</strong>
+            <article id="monetisation-primary-two-card" class="panel stat-overview-card hidden">
+              <span id="monetisation-primary-two-label" class="stat-overview-label">Intervenant</span>
+              <strong id="monetisation-primary-two-amount-card" class="stat-overview-value">0 dh</strong>
             </article>
           </section>
 
           <section class="panel stats-compare-panel monetisation-details-panel">
             <div class="section-heading section-heading-stack">
               <div>
-                <h2>Détails par compte</h2>
+                <h2>Détails par intervenant</h2>
               </div>
             </div>
 
             <div class="account-stats-grid monetisation-details-grid">
-              <article class="account-stats-card monetisation-account-card">
+              <article id="monetisation-primary-one-details" class="account-stats-card monetisation-account-card hidden">
                 <div class="account-stats-header">
                   <div>
-                    <h3>Yassine</h3>
+                    <h3 id="monetisation-primary-one-title">Intervenant</h3>
                   </div>
-                  <strong id="monetisation-yassine-amount" class="account-stats-total">0 dh</strong>
+                  <strong id="monetisation-primary-one-amount" class="account-stats-total">0 dh</strong>
                 </div>
 
                 <div class="account-stats-list">
                   <div class="stats-list-row">
                     <span>Tarif unitaire</span>
-                    <strong id="monetisation-yassine-rate">130 dh</strong>
+                    <strong id="monetisation-primary-one-rate">0 dh</strong>
                   </div>
                   <div class="stats-list-row">
                     <span>Séances facturables</span>
-                    <strong id="monetisation-yassine-billable-count">0</strong>
+                    <strong id="monetisation-primary-one-billable-count">0</strong>
                   </div>
                   <div class="stats-list-row">
                     <span>Séances d'essai faites</span>
-                    <strong id="monetisation-yassine-trial-count">0</strong>
+                    <strong id="monetisation-primary-one-trial-count">0</strong>
                   </div>
                 </div>
               </article>
 
-              <article class="account-stats-card monetisation-account-card">
+              <article id="monetisation-primary-two-details" class="account-stats-card monetisation-account-card hidden">
                 <div class="account-stats-header">
                   <div>
-                    <h3>Abdo</h3>
+                    <h3 id="monetisation-primary-two-title">Intervenant</h3>
                   </div>
-                  <strong id="monetisation-abdo-amount" class="account-stats-total">0 dh</strong>
+                  <strong id="monetisation-primary-two-amount" class="account-stats-total">0 dh</strong>
                 </div>
 
                 <div class="account-stats-list">
                   <div class="stats-list-row">
                     <span>Tarif unitaire</span>
-                    <strong id="monetisation-abdo-rate">90 dh</strong>
+                    <strong id="monetisation-primary-two-rate">0 dh</strong>
                   </div>
                   <div class="stats-list-row">
                     <span>Séances facturables</span>
-                    <strong id="monetisation-abdo-billable-count">0</strong>
+                    <strong id="monetisation-primary-two-billable-count">0</strong>
                   </div>
                   <div class="stats-list-row">
                     <span>Séances d'essai faites</span>
-                    <strong id="monetisation-abdo-trial-count">0</strong>
+                    <strong id="monetisation-primary-two-trial-count">0</strong>
                   </div>
                 </div>
               </article>
@@ -1390,7 +1770,7 @@
           >
             <div class="section-heading section-heading-stack">
               <div>
-                <h2>Autres comptes</h2>
+                <h2>Autres intervenants</h2>
               </div>
             </div>
 
@@ -2045,6 +2425,6 @@
     <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
-    <script type="module" src="/js/ui.js?v=20260611d"></script>
+    <script type="module" src="/js/ui.js?v=20260907-central-public-timezone"></script>
   </body>
 </html>

@@ -1,20 +1,37 @@
 const {
   listerToutesLesIndisponibilites,
+  listerIndisponibilitesScopees,
   trouverIndisponibiliteParId,
+  trouverIndisponibiliteParIdScopee,
   creerIndisponibilite,
   modifierIndisponibilite,
   supprimerIndisponibilite,
   trouverIndisponibiliteChevauchante,
+  trouverIndisponibiliteIntervenantChevauchante,
 } = require("../models/indisponibilite.model");
 const {
   listerToutesLesSeances,
+  listerSeancesScopees,
   trouverSeanceChevauchante,
+  trouverSeanceIntervenantChevauchante,
 } = require("../models/seance.model");
+const {
+  construireFiltreLectureSeances,
+  scopePeutGererIntervenant,
+} = require("../models/access-scope.model");
+const { trouverReglagesEspace } = require("../models/workspace-settings.model");
+const {
+  intervalleEstDansPlageCalendrier,
+  normaliserPlageDepuisReglages,
+} = require("../utils/calendar-hours");
+const { estDateHeureZonneeCivileExistante } = require("../utils/timezone");
+const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
 const { creerEntreeHistorique } = require("../models/historique.model");
 const { executerTransactionImmediate } = require("../models/db");
 
 const HEURE_DEBUT_JOUR_COMPLET = "00:00";
 const HEURE_FIN_JOUR_COMPLET = "23:59";
+const HEURE_FIN_MINUIT = "24:00";
 
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
@@ -22,6 +39,78 @@ function normaliserTexte(valeur) {
 
 function estIdentifiantValide(valeur) {
   return Number.isInteger(Number(valeur)) && Number(valeur) > 0;
+}
+
+function normaliserIdentifiant(valeur) {
+  return estIdentifiantValide(valeur) ? Number(valeur) : null;
+}
+
+function construireScopeLectureIndisponibilites(req) {
+  return construireFiltreLectureSeances(req.scope);
+}
+
+function creerErreurRessourceInaccessible() {
+  return creerErreurHttp(404, "Cr\u00e9neau indisponible introuvable.");
+}
+
+async function resoudreAffectationIndisponibilite({
+  scope,
+  acteur,
+  donnees,
+  indisponibiliteExistante = null,
+}) {
+  const utilisateurId = normaliserIdentifiant(acteur?.id);
+  const handlerDemande = normaliserIdentifiant(donnees?.handler_id ?? donnees?.handlerId);
+  const intervenantDemande = normaliserIdentifiant(
+    donnees?.intervenant_id ?? donnees?.professeur_id ?? donnees?.intervenantId
+  );
+
+  if (!utilisateurId || !scope?.utilisateurId) {
+    throw creerErreurHttp(403, "Aucun espace Handler ou Professeur actif n'est associ\u00e9 \u00e0 ce compte.");
+  }
+
+  if (scope.estHandler) {
+    const handlerId = utilisateurId;
+
+    if (handlerDemande && handlerDemande !== handlerId) {
+      throw creerErreurRessourceInaccessible();
+    }
+
+    const intervenantId =
+      intervenantDemande ||
+      normaliserIdentifiant(indisponibiliteExistante?.intervenant_id) ||
+      utilisateurId;
+
+    if (!(await scopePeutGererIntervenant(scope, { handlerId, intervenantId }))) {
+      throw creerErreurRessourceInaccessible();
+    }
+
+    return { handlerId, intervenantId };
+  }
+
+  const handlerIds = Array.isArray(scope.handlerProfesseurIds)
+    ? scope.handlerProfesseurIds.map(normaliserIdentifiant).filter(Boolean)
+    : [];
+  const handlerId = normaliserIdentifiant(indisponibiliteExistante?.handler_id) || handlerIds[0];
+
+  if (!scope.estProfesseur || !handlerId || !handlerIds.includes(handlerId)) {
+    throw creerErreurHttp(403, "Aucun espace Professeur actif n'est associ\u00e9 \u00e0 ce compte.");
+  }
+
+  if (handlerDemande && handlerDemande !== handlerId) {
+    throw creerErreurRessourceInaccessible();
+  }
+
+  const intervenantId =
+    intervenantDemande ||
+    normaliserIdentifiant(indisponibiliteExistante?.intervenant_id) ||
+    utilisateurId;
+
+  if (intervenantId !== utilisateurId) {
+    throw creerErreurRessourceInaccessible();
+  }
+
+  return { handlerId, intervenantId };
 }
 
 function creerErreurHttp(status, message) {
@@ -48,7 +137,11 @@ function estHeureCreneauValide(heure) {
 }
 
 function estHeureFinIndisponibiliteValide(heure) {
-  return estHeureCreneauValide(heure) || String(heure || "") === HEURE_FIN_JOUR_COMPLET;
+  return (
+    estHeureCreneauValide(heure) ||
+    String(heure || "") === HEURE_FIN_JOUR_COMPLET ||
+    String(heure || "") === HEURE_FIN_MINUIT
+  );
 }
 
 function convertirHeureEnMinutes(heure) {
@@ -72,7 +165,7 @@ function convertirMinutesEnHeure(minutes) {
 }
 
 function normaliserIntervalleOccupe(heureDebut, heureFin) {
-  if (!estHeureValide(heureDebut) || !estHeureValide(heureFin)) {
+  if (!estHeureValide(heureDebut) || !estHeureFinIndisponibiliteValide(heureFin)) {
     return null;
   }
 
@@ -159,17 +252,31 @@ function estIndisponibiliteJourComplet(indisponibilite) {
   return Number(indisponibilite?.jour_complet) === 1;
 }
 
-function construireLibelleIndisponibilite(indisponibilite) {
+function formaterPlageIndisponibilite(indisponibilite) {
   if (estIndisponibiliteJourComplet(indisponibilite)) {
-    return `Indisponibilité - ${indisponibilite.date} (jour complet)`;
+    return "Jour complet";
   }
 
-  return `Indisponibilité - ${indisponibilite.date} ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}`;
+  const heureFin = indisponibilite?.heure_fin === HEURE_FIN_MINUIT
+    ? HEURE_DEBUT_JOUR_COMPLET
+    : indisponibilite?.heure_fin;
+  return `${indisponibilite?.heure_debut || ""} - ${heureFin || ""}`.trim();
+}
+
+function construireLibelleIndisponibilite(indisponibilite) {
+  const plage = formaterPlageIndisponibilite(indisponibilite);
+  return estIndisponibiliteJourComplet(indisponibilite)
+    ? `Indisponibilité - ${indisponibilite.date} (${plage.toLowerCase()})`
+    : `Indisponibilité - ${indisponibilite.date} ${plage.replace(" - ", "-")}`;
 }
 
 function transformerIndisponibilitePourClient(indisponibilite) {
   return {
     ...indisponibilite,
+    heure_fin:
+      indisponibilite?.heure_fin === HEURE_FIN_MINUIT
+        ? HEURE_DEBUT_JOUR_COMPLET
+        : indisponibilite?.heure_fin,
     jour_complet: estIndisponibiliteJourComplet(indisponibilite) ? 1 : 0,
     raison: "",
     libelle: construireLibelleIndisponibilite(indisponibilite),
@@ -177,9 +284,7 @@ function transformerIndisponibilitePourClient(indisponibilite) {
 }
 
 function construireDetailsCreation(indisponibilite) {
-  const plage = estIndisponibiliteJourComplet(indisponibilite)
-    ? "Jour complet"
-    : `${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`;
+  const plage = formaterPlageIndisponibilite(indisponibilite);
 
   return {
     changements: [
@@ -196,11 +301,7 @@ function construireDetailsCreation(indisponibilite) {
 
 function construireDetailsCreationJourneeFragmentee(date, indisponibilites) {
   const plages = indisponibilites
-    .map((indisponibilite) =>
-      estIndisponibiliteJourComplet(indisponibilite)
-        ? "Jour complet"
-        : `${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`
-    )
+    .map(formaterPlageIndisponibilite)
     .join(", ");
 
   return {
@@ -217,9 +318,7 @@ function construireDetailsCreationJourneeFragmentee(date, indisponibilites) {
 }
 
 function construireDetailsSuppression(indisponibilite) {
-  const plage = estIndisponibiliteJourComplet(indisponibilite)
-    ? "Jour complet"
-    : `${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`;
+  const plage = formaterPlageIndisponibilite(indisponibilite);
 
   return {
     changements: [
@@ -235,12 +334,8 @@ function construireDetailsSuppression(indisponibilite) {
 }
 
 function construireDetailsModification(indisponibiliteAvant, indisponibiliteApres) {
-  const plageAvant = estIndisponibiliteJourComplet(indisponibiliteAvant)
-    ? "Jour complet"
-    : `${indisponibiliteAvant.heure_debut} - ${indisponibiliteAvant.heure_fin}`;
-  const plageApres = estIndisponibiliteJourComplet(indisponibiliteApres)
-    ? "Jour complet"
-    : `${indisponibiliteApres.heure_debut} - ${indisponibiliteApres.heure_fin}`;
+  const plageAvant = formaterPlageIndisponibilite(indisponibiliteAvant);
+  const plageApres = formaterPlageIndisponibilite(indisponibiliteApres);
   const changements = [];
 
   if (indisponibiliteAvant.date !== indisponibiliteApres.date) {
@@ -278,15 +373,9 @@ function construireDetailsModificationJourneeFragmentee(
   date,
   indisponibilitesApres
 ) {
-  const plageAvant = estIndisponibiliteJourComplet(indisponibiliteAvant)
-    ? "Jour complet"
-    : `${indisponibiliteAvant.heure_debut} - ${indisponibiliteAvant.heure_fin}`;
+  const plageAvant = formaterPlageIndisponibilite(indisponibiliteAvant);
   const plagesApres = indisponibilitesApres
-    .map((indisponibilite) =>
-      estIndisponibiliteJourComplet(indisponibilite)
-        ? "Jour complet"
-        : `${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`
-    )
+    .map(formaterPlageIndisponibilite)
     .join(", ");
 
   return {
@@ -326,6 +415,11 @@ function normaliserDonneesIndisponibilite(donnees = {}) {
   if (jourComplet) {
     heureDebut = HEURE_DEBUT_JOUR_COMPLET;
     heureFin = HEURE_FIN_JOUR_COMPLET;
+  } else if (heureFin === HEURE_DEBUT_JOUR_COMPLET) {
+    // Une fin saisie à 00:00 désigne la fin de la journée civile, jamais le
+    // début de cette même journée. Le stockage explicite 24:00 conserve la
+    // convention commune avec les séances et disponibilités.
+    heureFin = HEURE_FIN_MINUIT;
   }
 
   return {
@@ -338,7 +432,7 @@ function normaliserDonneesIndisponibilite(donnees = {}) {
 }
 
 async function validerDonneesIndisponibilite(
-  { date, heureDebut, heureFin, jourComplet },
+  { date, heureDebut, heureFin, jourComplet, handlerId = null, intervenantId = null },
   options = {}
 ) {
   if (!date || (!jourComplet && (!heureDebut || !heureFin))) {
@@ -358,26 +452,101 @@ async function validerDonneesIndisponibilite(
       return "L'heure de fin doit être posterieure a l'heure de debut.";
     }
 
-    const conflitSeance = await trouverSeanceChevauchante({
+    const erreurPlageCalendrier = await verifierPlageCalendrierIndisponibilite({
+      handlerId,
       date,
       heureDebut,
       heureFin,
+      indisponibiliteExistante: options.indisponibiliteExistante,
     });
+    if (erreurPlageCalendrier) {
+      return erreurPlageCalendrier;
+    }
+
+    const conflitSeance =
+      normaliserIdentifiant(handlerId) && normaliserIdentifiant(intervenantId)
+        ? await trouverSeanceIntervenantChevauchante({
+            handlerId,
+            intervenantId,
+            date,
+            heureDebut,
+            heureFin,
+          })
+        : await trouverSeanceChevauchante({
+            date,
+            heureDebut,
+            heureFin,
+          });
 
     if (conflitSeance) {
       return "Ce créneau contient déjà une séance. Déclarez un jour complet pour bloquer uniquement les plages libres.";
     }
   }
 
-  const conflit = await trouverIndisponibiliteChevauchante({
-    date,
-    heureDebut,
-    heureFin,
-    exclureId: options.exclureId || null,
-  });
+  const conflit =
+    normaliserIdentifiant(handlerId) && normaliserIdentifiant(intervenantId)
+      ? await trouverIndisponibiliteIntervenantChevauchante({
+          handlerId,
+          intervenantId,
+          date,
+          heureDebut,
+          heureFin,
+          exclureId: options.exclureId || null,
+        })
+      : await trouverIndisponibiliteChevauchante({
+          date,
+          heureDebut,
+          heureFin,
+          exclureId: options.exclureId || null,
+        });
 
   if (conflit) {
     return "Ce créneau chevauche déjà une indisponibilité existante. Supprimez-la ou créez un créneau plus large.";
+  }
+
+  return "";
+}
+
+async function verifierPlageCalendrierIndisponibilite({
+  handlerId,
+  date,
+  heureDebut,
+  heureFin,
+  indisponibiliteExistante = null,
+}) {
+  const idHandler = normaliserIdentifiant(handlerId);
+  if (!idHandler) {
+    return "";
+  }
+
+  if (
+    indisponibiliteExistante &&
+    String(indisponibiliteExistante.date || "") === String(date || "") &&
+    String(indisponibiliteExistante.heure_debut || "") === String(heureDebut || "") &&
+    String(indisponibiliteExistante.heure_fin || "") === String(heureFin || "")
+  ) {
+    // Un créneau historique devenu hors plage après un resserrement reste
+    // conservé et peut encore être modifié sans déplacement forcé.
+    return "";
+  }
+
+  const reglages = await trouverReglagesEspace(idHandler);
+  if (
+    !estDateHeureZonneeCivileExistante(date, heureDebut, CENTRAL_CALENDAR_TIMEZONE) ||
+    !estDateHeureZonneeCivileExistante(date, heureFin, CENTRAL_CALENDAR_TIMEZONE)
+  ) {
+    return "L'heure choisie n'existe pas dans le fuseau horaire central à cette date.";
+  }
+
+  const plage = normaliserPlageDepuisReglages(reglages || {});
+  if (
+    !intervalleEstDansPlageCalendrier({
+      heureDebut,
+      heureFin,
+      plage,
+    })
+  ) {
+    return `Le créneau doit rester dans la plage du calendrier (${plage.calendar_start_time}–${plage.calendar_end_time}).`;
   }
 
   return "";
@@ -388,6 +557,8 @@ async function creerIndisponibilitesDisponiblesPourJourComplet({
   raison,
   creePar,
   acteur,
+  handlerId = null,
+  intervenantId = null,
   exclureIndisponibiliteIds = [],
   journaliser = true,
 }) {
@@ -399,13 +570,24 @@ async function creerIndisponibilitesDisponiblesPourJourComplet({
     throw creerErreurHttp(400, "La date est invalide.");
   }
 
-  const seances = await listerToutesLesSeances();
+  const scopeIntervenant = {
+    handlerIds: normaliserIdentifiant(handlerId) ? [normaliserIdentifiant(handlerId)] : [],
+    intervenantId: normaliserIdentifiant(intervenantId),
+  };
+  const seances =
+    scopeIntervenant.handlerIds.length > 0 && scopeIntervenant.intervenantId
+      ? await listerSeancesScopees(scopeIntervenant)
+      : await listerToutesLesSeances();
   const exclusions = new Set(
     exclureIndisponibiliteIds
       .map((id) => Number(id))
       .filter((id) => Number.isInteger(id) && id > 0)
   );
-  const indisponibilitesExistantes = (await listerToutesLesIndisponibilites()).filter(
+  const indisponibilitesSource =
+    scopeIntervenant.handlerIds.length > 0 && scopeIntervenant.intervenantId
+      ? await listerIndisponibilitesScopees(scopeIntervenant)
+      : await listerToutesLesIndisponibilites();
+  const indisponibilitesExistantes = indisponibilitesSource.filter(
     (indisponibilite) => !exclusions.has(Number(indisponibilite.id))
   );
   const creneauxDisponibles = calculerCreneauxLibresJournee({
@@ -431,6 +613,8 @@ async function creerIndisponibilitesDisponiblesPourJourComplet({
       jourComplet: creneau.jourComplet,
       raison,
       creePar,
+      handlerId,
+      intervenantId,
     });
 
     indisponibilitesCreees.push(indisponibiliteCreee);
@@ -446,6 +630,8 @@ async function creerIndisponibilitesDisponiblesPourJourComplet({
         : "Création des créneaux disponibles d'une journée",
       acteurId: acteur?.id,
       acteurNom: acteur?.nom,
+      handlerId,
+      intervenantId,
       details:
         indisponibilitesCreees.length === 1
           ? construireDetailsCreation(indisponibilitesCreees[0])
@@ -461,7 +647,9 @@ async function creerIndisponibilitesDisponiblesPourJourComplet({
 }
 
 async function recupererIndisponibilites(req, res) {
-  const indisponibilites = await listerToutesLesIndisponibilites();
+  const indisponibilites = await listerIndisponibilitesScopees(
+    construireScopeLectureIndisponibilites(req)
+  );
 
   return res.json({
     indisponibilites: indisponibilites.map(transformerIndisponibilitePourClient),
@@ -471,6 +659,11 @@ async function recupererIndisponibilites(req, res) {
 async function ajouterIndisponibilite(req, res) {
   const { date, heureDebut, heureFin, jourComplet, raison } =
     normaliserDonneesIndisponibilite(req.body);
+  const affectation = await resoudreAffectationIndisponibilite({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donnees: req.body,
+  });
 
   const resultatCreation = await executerTransactionImmediate(async () => {
     if (jourComplet) {
@@ -479,6 +672,8 @@ async function ajouterIndisponibilite(req, res) {
         raison,
         creePar: req.utilisateur.id,
         acteur: req.utilisateur,
+        handlerId: affectation.handlerId,
+        intervenantId: affectation.intervenantId,
       });
     }
 
@@ -488,6 +683,8 @@ async function ajouterIndisponibilite(req, res) {
       heureFin,
       jourComplet,
       raison,
+      handlerId: affectation.handlerId,
+      intervenantId: affectation.intervenantId,
     });
 
     if (erreurValidation) {
@@ -501,6 +698,8 @@ async function ajouterIndisponibilite(req, res) {
       jourComplet,
       raison,
       creePar: req.utilisateur.id,
+      handlerId: affectation.handlerId,
+      intervenantId: affectation.intervenantId,
     });
 
     await creerEntreeHistorique({
@@ -512,6 +711,8 @@ async function ajouterIndisponibilite(req, res) {
         : "Création d'un créneau indisponible",
       acteurId: req.utilisateur?.id,
       acteurNom: req.utilisateur?.nom,
+      handlerId: affectation.handlerId,
+      intervenantId: affectation.intervenantId,
       details: construireDetailsCreation(indisponibiliteCreee),
     });
 
@@ -521,6 +722,11 @@ async function ajouterIndisponibilite(req, res) {
       creationPartielle: false,
     };
   });
+
+  res.locals.realtimeScope = {
+    handlerId: affectation.handlerId,
+    intervenantId: affectation.intervenantId,
+  };
 
   return res.status(201).json({
     message: jourComplet
@@ -543,7 +749,10 @@ async function modifierUneIndisponibilite(req, res) {
     });
   }
 
-  const indisponibiliteExistante = await trouverIndisponibiliteParId(indisponibiliteId);
+  const indisponibiliteExistante = await trouverIndisponibiliteParIdScopee(
+    indisponibiliteId,
+    construireScopeLectureIndisponibilites(req)
+  );
 
   if (!indisponibiliteExistante) {
     return res.status(404).json({
@@ -553,6 +762,12 @@ async function modifierUneIndisponibilite(req, res) {
 
   const { date, heureDebut, heureFin, jourComplet, raison } =
     normaliserDonneesIndisponibilite(req.body);
+  const affectation = await resoudreAffectationIndisponibilite({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donnees: req.body,
+    indisponibiliteExistante,
+  });
   const resultatModification = await executerTransactionImmediate(async () => {
     if (jourComplet) {
       const resultatJourComplet = await creerIndisponibilitesDisponiblesPourJourComplet({
@@ -560,6 +775,8 @@ async function modifierUneIndisponibilite(req, res) {
         raison,
         creePar: indisponibiliteExistante.cree_par || req.utilisateur.id,
         acteur: req.utilisateur,
+        handlerId: affectation.handlerId,
+        intervenantId: affectation.intervenantId,
         exclureIndisponibiliteIds: [indisponibiliteId],
         journaliser: false,
       });
@@ -575,6 +792,8 @@ async function modifierUneIndisponibilite(req, res) {
           : "Modification en journée indisponible",
         acteurId: req.utilisateur?.id,
         acteurNom: req.utilisateur?.nom,
+        handlerId: affectation.handlerId,
+        intervenantId: affectation.intervenantId,
         details: construireDetailsModificationJourneeFragmentee(
           indisponibiliteExistante,
           date,
@@ -592,8 +811,13 @@ async function modifierUneIndisponibilite(req, res) {
         heureFin,
         jourComplet,
         raison,
+        handlerId: affectation.handlerId,
+        intervenantId: affectation.intervenantId,
       },
-      { exclureId: indisponibiliteId }
+      {
+        exclureId: indisponibiliteId,
+        indisponibiliteExistante,
+      }
     );
 
     if (erreurValidation) {
@@ -606,6 +830,8 @@ async function modifierUneIndisponibilite(req, res) {
       heureFin,
       jourComplet,
       raison,
+      handlerId: affectation.handlerId,
+      intervenantId: affectation.intervenantId,
     });
 
     await creerEntreeHistorique({
@@ -617,6 +843,8 @@ async function modifierUneIndisponibilite(req, res) {
         : "Modification d'un créneau indisponible",
       acteurId: req.utilisateur?.id,
       acteurNom: req.utilisateur?.nom,
+      handlerId: affectation.handlerId,
+      intervenantId: affectation.intervenantId,
       details: construireDetailsModification(indisponibiliteExistante, indisponibiliteModifiee),
     });
 
@@ -627,6 +855,10 @@ async function modifierUneIndisponibilite(req, res) {
     };
   });
   const indisponibilite = resultatModification.indisponibilite;
+  res.locals.realtimeScope = {
+    handlerId: indisponibilite.handler_id,
+    intervenantId: indisponibilite.intervenant_id,
+  };
 
   return res.json({
     message: jourComplet
@@ -651,13 +883,21 @@ async function supprimerUneIndisponibilite(req, res) {
     });
   }
 
-  const indisponibilite = await trouverIndisponibiliteParId(indisponibiliteId);
+  const indisponibilite = await trouverIndisponibiliteParIdScopee(
+    indisponibiliteId,
+    construireScopeLectureIndisponibilites(req)
+  );
 
   if (!indisponibilite) {
     return res.status(404).json({
       message: "Créneau indisponible introuvable.",
     });
   }
+
+  res.locals.realtimeScope = {
+    handlerId: indisponibilite.handler_id,
+    intervenantId: indisponibilite.intervenant_id,
+  };
 
   await executerTransactionImmediate(async () => {
     await supprimerIndisponibilite(indisponibiliteId);
@@ -671,6 +911,8 @@ async function supprimerUneIndisponibilite(req, res) {
         : "Suppression d'un créneau indisponible",
       acteurId: req.utilisateur?.id,
       acteurNom: req.utilisateur?.nom,
+      handlerId: indisponibilite.handler_id,
+      intervenantId: indisponibilite.intervenant_id,
       details: construireDetailsSuppression(indisponibilite),
     });
   });

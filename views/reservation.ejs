@@ -10,24 +10,26 @@
       href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260611d" />
+    <link rel="stylesheet" href="/css/style.css?v=20260907a" />
   </head>
   <body
     class="reservation-public-body"
-    data-public-timezone="<%= timezonePublique %>"
-    data-public-timezone-label="<%= timezonePubliqueLabel %>"
-    data-central-timezone-label="<%= timezoneCentraleLabel %>"
+    data-public-calendar-offset-minutes="<%= publicCalendarOffsetMinutes %>"
+    data-public-calendar-offset-label="<%= publicCalendarOffsetLabel %>"
+    data-central-calendar-timezone="<%= centralCalendarTimezone %>"
+    data-public-calendar-api-url="<%= planningApiPath %>"
+    data-public-calendar-events-url="<%= planningEventsPath %>"
   >
     <main class="reservation-public-main">
       <section class="reservation-public-shell">
         <header class="panel reservation-public-toolbar">
           <div>
             <p class="reservation-public-eyebrow">Calendrier public</p>
-            <h1>Planning SuperProf</h1>
+            <h1>Disponibilités</h1>
           </div>
 
           <div class="reservation-public-actions">
-            <span class="reservation-public-timezone"><%= timezonePubliqueLabel %></span>
+            <span class="reservation-public-timezone"><%= publicCalendarOffsetLabel %></span>
             <span
               id="reservation-public-updated-at"
               class="reservation-public-sync"
@@ -42,8 +44,12 @@
           <div class="reservation-public-calendar-head">
             <div class="reservation-public-legend" aria-label="Légende">
               <span class="reservation-public-legend-item">
+                <span class="reservation-public-legend-swatch reservation-public-legend-swatch-available"></span>
+                Disponible
+              </span>
+              <span class="reservation-public-legend-item">
                 <span class="reservation-public-legend-swatch reservation-public-legend-swatch-blocked"></span>
-                Créneaux occupés
+                Indisponible
               </span>
             </div>
           </div>
@@ -59,6 +65,6 @@
     <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
-    <script type="module" src="/js/public-reservation.js?v=20260519a"></script>
+    <script type="module" src="/js/public-reservation.js?v=20260907c"></script>
   </body>
 </html>

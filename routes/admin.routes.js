@@ -28,17 +28,76 @@ const {
   revoquerAppareilAutoLoginAdministration,
 } = require("../controllers/admin.controller");
 const {
+  listerDemandesEnAttente,
+  approuverDemande,
+  refuserDemande,
+  renvoyerActivation,
+} = require("../controllers/account-lifecycle.controller");
+const {
+  recupererHistorique,
+  recupererDetailHistorique,
+  activerModeAdministration,
+} = require("../controllers/historique.controller");
+const {
+  transfererProfesseurAdministration,
+} = require("../controllers/professeur-transfer.controller");
+const {
   verifierAuthentification,
   verifierCompteSecurise,
-  verifierAccesAdministratifHossam,
+  verifierModeEcritureAutorise,
 } = require("../middleware/auth.middleware");
+const {
+  chargerScopeAcces,
+  verifierRoleSuperAdmin,
+} = require("../middleware/scope.middleware");
 const { notifierMiseAJourApplication } = require("../utils/realtime-route");
 
 const router = express.Router();
 
-router.use(verifierAuthentification, verifierCompteSecurise, verifierAccesAdministratifHossam);
+function fonctionnaliteLegacyDesactivee(message) {
+  return (req, res) =>
+    res.status(410).json({
+      message,
+      code: "LEGACY_ADMIN_WORKFLOW_DISABLED",
+    });
+}
+
+router.use(
+  verifierAuthentification,
+  verifierCompteSecurise,
+  chargerScopeAcces,
+  verifierRoleSuperAdmin
+);
+
+// A global account-request/audit view is available only under the explicit
+// SuperAdmin router.  This marker avoids widening the normal Handler view for
+// a person who has both roles.
+router.use(activerModeAdministration);
 
 router.get("/", recupererVueAdministration);
+router.get("/account-requests", listerDemandesEnAttente);
+router.post(
+  "/account-requests/:id/approve",
+  verifierModeEcritureAutorise,
+  approuverDemande
+);
+router.post(
+  "/account-requests/:id/reject",
+  verifierModeEcritureAutorise,
+  refuserDemande
+);
+router.post(
+  "/account-requests/:id/resend-activation",
+  verifierModeEcritureAutorise,
+  renvoyerActivation
+);
+router.get("/history", recupererHistorique);
+router.get("/history/:id", recupererDetailHistorique);
+router.post(
+  "/professeurs/:id/transfer",
+  verifierModeEcritureAutorise,
+  transfererProfesseurAdministration
+);
 router.post(
   "/catalogue-items",
   notifierMiseAJourApplication(ajouterElementCatalogueAdministration, "catalogue")
@@ -51,14 +110,23 @@ router.post(
   "/catalogue-items/:id/restore",
   notifierMiseAJourApplication(restaurerElementCatalogueAdministration, "catalogue")
 );
-router.post("/users", notifierMiseAJourApplication(creerUtilisateurAdministration, "administration"));
+router.post(
+  "/users",
+  fonctionnaliteLegacyDesactivee(
+    "La création directe est remplacée par le workflow de demande et d'activation sécurisé."
+  )
+);
 router.delete(
   "/users/:id",
-  notifierMiseAJourApplication(supprimerUtilisateurAdministration, "administration")
+  fonctionnaliteLegacyDesactivee(
+    "La suppression physique est désactivée. Utilisez la suspension ou la révocation du compte."
+  )
 );
 router.post(
   "/reset-password",
-  notifierMiseAJourApplication(reinitialiserMotDePasseCompte, "administration")
+  fonctionnaliteLegacyDesactivee(
+    "Le mot de passe n'est jamais défini par un administrateur ; envoyez un lien sécurisé."
+  )
 );
 router.patch(
   "/access",
@@ -94,11 +162,11 @@ router.post(
 );
 router.post(
   "/clear-seances",
-  notifierMiseAJourApplication(supprimerToutesLesSeancesAdmin, "administration")
+  fonctionnaliteLegacyDesactivee("La suppression globale des séances est désactivée.")
 );
 router.post(
   "/clear-history",
-  notifierMiseAJourApplication(supprimerToutHistoriqueAdmin, "historique")
+  fonctionnaliteLegacyDesactivee("Le journal d'actions est immuable et ne peut pas être effacé.")
 );
 router.post(
   "/maintenance/sqlite",

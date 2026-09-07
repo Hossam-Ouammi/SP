@@ -1,197 +1,54 @@
-# Gestion collaborative de seances
+# Gestion collaborative de séances
 
-Application web pour gerer des seances de cours entre plusieurs comptes, avec calendrier partage, historique, controle d'acces, monetisation et calendrier public en lecture seule.
+Application existante de gestion de séances, désormais organisée autour d'espaces d'équipe isolés. Elle conserve l'architecture Express 5, EJS, JavaScript natif, FullCalendar et SQLite du projet.
 
-## Stack
+## Documentation utile
 
-- Front-end : HTML, CSS, JavaScript vanilla
-- Back-end : Node.js + Express
-- Base de donnees : SQLite
-- Calendrier : FullCalendar
-- Production : PM2 + Caddy sur Oracle Cloud
+- [Déploiement multi-utilisateur](docs/DEPLOIEMENT-MULTI-UTILISATEUR.md) — prérequis, premier compte, migrations, sécurité et exploitation.
+- [Changelog multi-utilisateur](docs/CHANGELOG-MULTI-UTILISATEUR.md) — modifications, raisons et couverture de test.
+- [Contrat du cycle de vie des comptes](docs/account-lifecycle-contract.md) — demandes, activation et réinitialisation.
+- [Audit technique multi-utilisateur](docs/AUDIT-TECHNIQUE-MULTI-UTILISATEUR.md) — architecture observée, matrice de permissions, migrations et risques résiduels.
 
-## Fonctionnalites principales
+Les anciens documents détaillant une logique nominative ou mono-compte sont des archives de contexte : ils ne constituent pas la référence d'exploitation. Les documents ci-dessus et le code des routes sont la source de vérité.
 
-- Connexion par identifiant ou email + mot de passe
-- Changement obligatoire du mot de passe initial
-- Creneaux d'indisponibilite geres par Hossam
-- Calendrier mensuel, hebdomadaire et vue `Aujourd'hui`
-- Ajout, modification, suppression et changement de statut d'une seance
-- Duplication d'une seance existante pour recreer rapidement un creneau similaire
-- Historique detaille des actions
-- Statistiques par compte
-- Monetisation
-- Panneau d'administration pour Hossam
-- Page publique `/reservation` pour consulter les creneaux occupes en lecture seule
+## Fonctionnement principal
 
-## Documentation backend detaillee
+- Trois capacités cumulables : `super_admin`, `handler` et `professeur`.
+- Un Handler possède son espace et peut aussi être intervenant sans faux compte Professeur.
+- Un Professeur a un seul rattachement Handler actif ; les lectures et mutations sont filtrées côté serveur par cet espace.
+- Les demandes de compte, l'activation et les réinitialisations utilisent des liens à durée limitée et à usage unique.
+- Les disponibilités récurrentes, ponctuelles et leurs exceptions sont séparées des indisponibilités historiques.
+- Le calendrier public est isolé par Handler et accessible uniquement avec un jeton non devinable, régénérable et stocké haché ; aucune réservation publique n'est créée.
+- L'Administration Super Admin inclut une vue d'analyses globales séparée des statistiques et de la monétisation d'un Handler.
 
-- Vue d'ensemble backend : `docs/backend/README.md`
-- Reference fichier par fichier : `docs/backend/REFERENCE.md`
+## Démarrage local
 
-## Comptes initiaux
-
-- `Hossam` / `123456`
-- `Abdo` / `123456`
-
-Au premier login avec un mot de passe temporaire, l'application force le changement de mot de passe.
-
-## Lancement local
-
-```bash
+```powershell
 npm install
+
+# Obligatoire sur une base vide : aucun compte ni mot de passe connu n'est créé.
+$env:INITIAL_SUPERADMIN_NAME = "Administrateur"
+$env:INITIAL_SUPERADMIN_EMAIL = "admin@example.test"
+$env:INITIAL_SUPERADMIN_PASSWORD = "Choisir-un-secret-fort"
+
 npm start
 ```
 
-Puis ouvrir :
+Ouvrir ensuite `http://localhost:3000`. Les trois variables de bootstrap ne servent qu'à créer le premier compte d'une base vide ; retirez-les de l'environnement après ce premier démarrage. Voir le guide de déploiement pour les variables de production et les migrations.
 
-```text
-http://localhost:3000
-```
-
-Pour lancer les tests de fumee :
+## Vérification
 
 ```bash
 npm test
 ```
 
-## Deploiement Oracle
+La suite crée ses propres bases SQLite temporaires et couvre les scopes Handler, le cycle de vie des comptes, les disponibilités, le calendrier public et ses réglages, les transferts, les analyses globales, le temps réel et les notifications push.
 
-Variables utiles derriere Caddy ou un autre reverse proxy :
-
-```bash
-HOST=127.0.0.1
-PORT=3000
-TRUST_PROXY=true
-PUBLIC_RESERVATION_TIMEZONE=Europe/Paris
-PUBLIC_RESERVATION_TIMEZONE_LABEL="heure de France"
-CENTRAL_CALENDAR_TIMEZONE=Africa/Casablanca
-CENTRAL_CALENDAR_TIMEZONE_LABEL="heure du Maroc"
-PUSH_VAPID_SUBJECT=mailto:votre-adresse@example.com
-
-# Backup quotidien des seances par email
-BACKUP_SEANCES_ENABLED=true
-BACKUP_SEANCES_EMAIL_TO=votre-adresse@example.com
-BACKUP_SEANCES_TIMEZONE=Africa/Casablanca
-BACKUP_SEANCES_RETENTION_DAYS=60
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465
-SMTP_SECURE=true
-SMTP_USER=ton-adresse-gmail@gmail.com
-SMTP_PASS=ton-app-password-gmail
-```
-
-Le serveur Node doit ecouter uniquement en local sur `127.0.0.1:3000`, puis Caddy expose le site en HTTPS sur les ports `80` et `443`.
-Sur Oracle Linux, reconstruire `sqlite3` apres `npm install` pour eviter les binaires precompiles incompatibles avec la version GLIBC du systeme :
-
-```bash
-npm run oracle:rebuild-sqlite
-```
-
-PM2 peut utiliser la configuration fournie :
-
-```bash
-pm2 start ecosystem.config.js
-pm2 save
-```
-
-Exemple de Caddyfile :
-
-```caddyfile
-superprof.84-8-216-203.sslip.io {
-    reverse_proxy 127.0.0.1:3000
-}
-```
-
-## Initialisation automatique
-
-Au premier lancement, l'application cree automatiquement :
-
-- la base SQLite `database/database.db`
-- les tables necessaires
-- les comptes initiaux
-
-Les donnees d'exemple ne sont creees que si `SEED_DEMO_DATA=true`.
-
-## Routes principales
-
-### Auth
-
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/auth/me`
-- `PATCH /api/auth/password`
-
-### Seances
-
-- `GET /api/seances`
-- `GET /api/seances/options`
-- `GET /api/seances/:id`
-- `POST /api/seances`
-- `PUT /api/seances/:id`
-- `PATCH /api/seances/:id/statut`
-- `DELETE /api/seances/:id`
-
-### Reservation publique
-
-- `GET /reservation`
-- `GET /api/reservation-public`
-- `POST /api/reservation-public/reserver`
-
-### Backup seances
-
-- Tous les jours a `00:00` heure du Maroc, l'application genere un CSV dans `backups/seances/`.
-- Si SMTP est configure, ce CSV est envoye a `BACKUP_SEANCES_EMAIL_TO`.
-- Les anciens CSV generes par l'application sont nettoyes apres `BACKUP_SEANCES_RETENTION_DAYS` jours, `60` par defaut.
-- Pour tester manuellement :
-
-```bash
-npm run backup:seances
-```
-
-- Pour generer le fichier sans email :
-
-```bash
-BACKUP_SEANCES_EMAIL_DRY_RUN=true npm run backup:seances
-```
-
-### Maintenance SQLite
-
-Pour verifier et optimiser legerement la base sans changer les donnees :
+## Exploitation courante
 
 ```bash
 npm run maintenance:sqlite
+npm run backup:seances
 ```
 
-Ce script execute `PRAGMA integrity_check`, tronque le WAL si possible et lance `PRAGMA optimize`.
-
-### Indisponibilites
-
-- `GET /api/indisponibilites`
-- `POST /api/indisponibilites`
-- `DELETE /api/indisponibilites/:id`
-
-### Administration
-
-- `GET /api/admin`
-- `POST /api/admin/users`
-- `DELETE /api/admin/users/:id`
-- `POST /api/admin/catalogue-items`
-- `DELETE /api/admin/catalogue-items/:id`
-- `POST /api/admin/catalogue-items/:id/restore`
-- `POST /api/admin/reset-password`
-- `PATCH /api/admin/access`
-- `PATCH /api/admin/read-only`
-- `PATCH /api/admin/monetisation-access`
-- `POST /api/admin/sessions/revoke`
-- `POST /api/admin/sessions/revoke-user`
-- `POST /api/admin/clear-seances`
-- `POST /api/admin/clear-history`
-
-## Notes
-
-- Les mots de passe sont hashes avant stockage.
-- L'API applique une protection CSRF sur les actions authentifiees non `GET`.
-- Les comptes en lecture seule peuvent consulter mais pas modifier les donnees.
-- La page publique `/reservation` affiche les creneaux en heure de France et ne cree pas de reservation.
-- `POST /api/reservation-public/reserver` est volontairement desactive et renvoie `410 Gone`.
+Les paramètres de sauvegarde, SMTP, proxy, fuseau et calendrier public sont décrits dans le [guide de déploiement](docs/DEPLOIEMENT-MULTI-UTILISATEUR.md).

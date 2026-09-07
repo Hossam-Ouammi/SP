@@ -21,11 +21,12 @@ const {
 } = require("../models/push-subscription.model");
 const { listerToutesLesSeances } = require("../models/seance.model");
 const { listerToutesLesIndisponibilites } = require("../models/indisponibilite.model");
-const { executerAvecVerrou } = require("./job-lock");
 const {
-  utilisateurEstAdministrateur,
-  utilisateurEstHossam,
-} = require("../middleware/auth.middleware");
+  construireScopeAcces,
+  normaliserIdentifiant,
+  normaliserListeIds,
+} = require("../models/access-scope.model");
+const { executerAvecVerrou } = require("./job-lock");
 
 let webPushConfigure = false;
 let rappelInterval = null;
@@ -86,10 +87,6 @@ function recupererClePubliqueVapid() {
 
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
-}
-
-function normaliserCleCompte(valeur) {
-  return normaliserTexte(valeur).toLowerCase();
 }
 
 function convertirHeureEnMinutes(heure) {
@@ -203,6 +200,10 @@ function utilisateurEstActifPourPush(utilisateur) {
     return false;
   }
 
+  if (String(utilisateur?.statut_compte || "active").trim().toLowerCase() !== "active") {
+    return false;
+  }
+
   if (Number(utilisateur?.doit_changer_mot_de_passe) === 1) {
     return false;
   }
@@ -210,26 +211,86 @@ function utilisateurEstActifPourPush(utilisateur) {
   return true;
 }
 
-function utilisateurPeutRecevoirEvenementApplication(utilisateur, payload = {}) {
+function normaliserCiblePush(payload = {}) {
+  return {
+    actorId: normaliserIdentifiant(payload.actorId ?? payload.actor_id),
+    handlerId: normaliserIdentifiant(payload.handlerId ?? payload.handler_id),
+    intervenantId: normaliserIdentifiant(
+      payload.intervenantId ?? payload.intervenant_id
+    ),
+  };
+}
+
+/**
+ * Les pushes applicatifs suivent le meme contrat de confidentialite que les
+ * lectures privees : un Handler voit uniquement son propre espace, et un
+ * Professeur uniquement ses propres seances rattachees. Un payload incomplet
+ * est volontairement reduit a son acteur ; il ne devient jamais un broadcast.
+ */
+function utilisateurPeutRecevoirEvenementApplication(
+  utilisateur,
+  scopeUtilisateur,
+  payload = {}
+) {
   if (!utilisateurEstActifPourPush(utilisateur)) {
     return false;
   }
 
-  if (utilisateurEstAdministrateur(utilisateur) || utilisateurEstHossam(utilisateur)) {
+  const utilisateurId = normaliserIdentifiant(utilisateur?.utilisateur_id);
+  const { actorId, handlerId, intervenantId } = normaliserCiblePush(payload);
+
+  if (!utilisateurId) {
+    return false;
+  }
+
+  // Sans une cible complete, l'acteur est le seul destinataire eventuel. Cela
+  // protege aussi les anciennes mutations qui n'ont pas encore renseigne leur
+  // Handler/intervenant.
+  if (!handlerId || !intervenantId) {
+    return Boolean(actorId && utilisateurId === actorId);
+  }
+
+  // On ne notifie pas l'auteur d'une mutation ciblee : il a deja la reponse de
+  // son action. L'exception ci-dessus reste utile pour une mutation legacy
+  // sans cible afin d'eviter toute diffusion non voulue.
+  if (actorId && utilisateurId === actorId) {
+    return false;
+  }
+
+  // Le Handler ne recoit que les evenements de son espace propre. Ne pas se
+  // baser sur handlerIds ici : un utilisateur multi-role peut etre Professeur
+  // dans l'espace d'un autre Handler, sans devenir destinataire de toute son
+  // equipe.
+  if (normaliserListeIds(scopeUtilisateur?.handlerOwnIds).includes(handlerId)) {
     return true;
   }
 
-  const scope = normaliserTexte(payload.scope).toLowerCase();
+  // Un Professeur n'est informe que lorsque l'evenement le concerne et que le
+  // rattachement au Handler cible est toujours actif.
+  return Boolean(
+    Number(scopeUtilisateur?.utilisateurId) === intervenantId &&
+      normaliserListeIds(scopeUtilisateur?.handlerProfesseurIds).includes(handlerId)
+  );
+}
 
-  if (scope === "indisponibilites") {
-    return Number(utilisateur?.peut_voir_indisponibilites) === 1;
+function creerCacheScopesPush() {
+  return new Map();
+}
+
+async function chargerScopePushPourAbonnement(abonnement, cacheScopes) {
+  const utilisateurId = normaliserIdentifiant(abonnement?.utilisateur_id);
+
+  if (!utilisateurId) {
+    return null;
   }
 
-  if (scope === "seances" || scope === "propositions") {
-    return true;
+  const cache = cacheScopes instanceof Map ? cacheScopes : creerCacheScopesPush();
+
+  if (!cache.has(utilisateurId)) {
+    cache.set(utilisateurId, construireScopeAcces({ id: utilisateurId }));
   }
 
-  return false;
+  return cache.get(utilisateurId);
 }
 
 async function envoyerNotificationAbonnement(abonnementLigne, notification, options = {}) {
@@ -289,19 +350,23 @@ async function notifierEvenementApplicationPush(payload = {}) {
     },
   };
 
-  const acteurId = Number(payload.actorId || 0);
+  const cacheScopes = creerCacheScopesPush();
 
   await executerAvecConcurrence(
     abonnements,
     async (abonnement) => {
-      if (
-        acteurId > 0 &&
-        Number(abonnement.utilisateur_id) === acteurId
-      ) {
-        return;
-      }
+      const scopeUtilisateur = await chargerScopePushPourAbonnement(
+        abonnement,
+        cacheScopes
+      );
 
-      if (!utilisateurPeutRecevoirEvenementApplication(abonnement, payload)) {
+      if (
+        !utilisateurPeutRecevoirEvenementApplication(
+          abonnement,
+          scopeUtilisateur,
+          payload
+        )
+      ) {
         return;
       }
 
@@ -314,33 +379,84 @@ async function notifierEvenementApplicationPush(payload = {}) {
   );
 }
 
-function utilisateurPeutRecevoirRappelAujourdhui(utilisateur) {
-  if (Number(utilisateur?.acces_active) !== 1) {
+function utilisateurPeutRecevoirRappelAujourdhui(utilisateur, scopeUtilisateur) {
+  if (!utilisateurEstActifPourPush(utilisateur)) {
     return false;
   }
 
-  if (Number(utilisateur?.doit_changer_mot_de_passe) === 1) {
+  return Boolean(scopeUtilisateur?.estHandler || scopeUtilisateur?.estProfesseur);
+}
+
+function entitePlanningEstDansScope(scopeUtilisateur, entite) {
+  const handlerId = normaliserIdentifiant(entite?.handler_id ?? entite?.handlerId);
+  const intervenantId = normaliserIdentifiant(
+    entite?.intervenant_id ?? entite?.intervenantId
+  );
+
+  if (!handlerId) {
     return false;
   }
 
-  return (
-    utilisateurEstAdministrateur(utilisateur) ||
-    utilisateurEstHossam(utilisateur) ||
-    Number(utilisateur?.peut_voir_aujourdhui) === 1
+  if (normaliserListeIds(scopeUtilisateur?.handlerOwnIds).includes(handlerId)) {
+    return true;
+  }
+
+  return Boolean(
+    intervenantId &&
+      Number(scopeUtilisateur?.utilisateurId) === intervenantId &&
+      normaliserListeIds(scopeUtilisateur?.handlerProfesseurIds).includes(handlerId)
   );
 }
 
-function seanceEstConfidentiellePourUtilisateur(utilisateur, seance) {
-  if (utilisateurEstAdministrateur(utilisateur) || utilisateurEstHossam(utilisateur)) {
-    return false;
-  }
-
-  return normaliserCleCompte(seance?.compte) === "hossam";
+function filtrerDonneesRappelParScope(
+  scopeUtilisateur,
+  seances = [],
+  indisponibilites = []
+) {
+  return {
+    seances: (Array.isArray(seances) ? seances : []).filter((seance) =>
+      entitePlanningEstDansScope(scopeUtilisateur, seance)
+    ),
+    indisponibilites: (Array.isArray(indisponibilites) ? indisponibilites : []).filter(
+      (indisponibilite) => entitePlanningEstDansScope(scopeUtilisateur, indisponibilite)
+    ),
+  };
 }
 
 function indisponibiliteChevaucheSeance(indisponibilite, seance) {
   if (!indisponibilite || !seance || indisponibilite.date !== seance.date) {
     return false;
+  }
+
+  const handlerIndisponibilite = normaliserIdentifiant(
+    indisponibilite.handler_id ?? indisponibilite.handlerId
+  );
+  const handlerSeance = normaliserIdentifiant(seance.handler_id ?? seance.handlerId);
+  const intervenantIndisponibilite = normaliserIdentifiant(
+    indisponibilite.intervenant_id ?? indisponibilite.intervenantId
+  );
+  const intervenantSeance = normaliserIdentifiant(
+    seance.intervenant_id ?? seance.intervenantId
+  );
+
+  if (handlerIndisponibilite && handlerSeance && handlerIndisponibilite !== handlerSeance) {
+    return false;
+  }
+
+  // Les donnees nouvelles doivent correspondre au meme intervenant. Les deux
+  // Identifiants absents gardent la compatibilité des données historiques non
+  // encore réconciliées.
+  if (
+    intervenantIndisponibilite ||
+    intervenantSeance
+  ) {
+    if (!intervenantIndisponibilite || !intervenantSeance) {
+      return false;
+    }
+
+    if (intervenantIndisponibilite !== intervenantSeance) {
+      return false;
+    }
   }
 
   if (Number(indisponibilite.jour_complet) === 1) {
@@ -355,15 +471,7 @@ function indisponibiliteChevaucheSeance(indisponibilite, seance) {
   );
 }
 
-function seanceDoitEtreMasqueeDansAujourdhui(utilisateur, seance, indisponibilites) {
-  if (utilisateurEstAdministrateur(utilisateur)) {
-    return false;
-  }
-
-  if (seanceEstConfidentiellePourUtilisateur(utilisateur, seance)) {
-    return true;
-  }
-
+function seanceDoitEtreMasqueeDansAujourdhui(seance, indisponibilites) {
   return indisponibilites.some((indisponibilite) =>
     indisponibiliteChevaucheSeance(indisponibilite, seance)
   );
@@ -373,9 +481,10 @@ function obtenirSeancesProgrammeesPourUtilisateur(
   utilisateur,
   seances,
   indisponibilites,
-  dateKey
+  dateKey,
+  scopeUtilisateur
 ) {
-  if (!utilisateurPeutRecevoirRappelAujourdhui(utilisateur)) {
+  if (!utilisateurPeutRecevoirRappelAujourdhui(utilisateur, scopeUtilisateur)) {
     return [];
   }
 
@@ -384,7 +493,7 @@ function obtenirSeancesProgrammeesPourUtilisateur(
     .filter((seance) => String(seance.statut_seance || "").toLowerCase() !== "annulee")
     .filter(
       (seance) =>
-        !seanceDoitEtreMasqueeDansAujourdhui(utilisateur, seance, indisponibilites)
+        !seanceDoitEtreMasqueeDansAujourdhui(seance, indisponibilites)
     )
     .sort((seanceA, seanceB) => {
       return (
@@ -398,9 +507,10 @@ function obtenirSeancesRestantesAujourdhuiPourUtilisateur(
   utilisateur,
   seances,
   indisponibilites,
-  partiesDate
+  partiesDate,
+  scopeUtilisateur
 ) {
-  if (!utilisateurPeutRecevoirRappelAujourdhui(utilisateur)) {
+  if (!utilisateurPeutRecevoirRappelAujourdhui(utilisateur, scopeUtilisateur)) {
     return [];
   }
 
@@ -410,7 +520,8 @@ function obtenirSeancesRestantesAujourdhuiPourUtilisateur(
     utilisateur,
     seances,
     indisponibilites,
-    partiesDate.dateKey
+    partiesDate.dateKey,
+    scopeUtilisateur
   )
     .filter((seance) => convertirHeureEnMinutes(seance.heure_fin) > minuteCourante)
 }
@@ -484,6 +595,8 @@ async function envoyerResumeMinuitSiNecessaire() {
     return;
   }
 
+  const cacheScopes = creerCacheScopesPush();
+
   await executerAvecConcurrence(
     abonnements,
     async (abonnement) => {
@@ -491,11 +604,21 @@ async function envoyerResumeMinuitSiNecessaire() {
         return;
       }
 
+      const scopeUtilisateur = await chargerScopePushPourAbonnement(
+        abonnement,
+        cacheScopes
+      );
+      const donneesScopees = filtrerDonneesRappelParScope(
+        scopeUtilisateur,
+        seances,
+        indisponibilites
+      );
       const seancesVisibles = obtenirSeancesProgrammeesPourUtilisateur(
         abonnement,
-        seances,
-        indisponibilites,
-        partiesDate.dateKey
+        donneesScopees.seances,
+        donneesScopees.indisponibilites,
+        partiesDate.dateKey,
+        scopeUtilisateur
       );
 
       if (seancesVisibles.length === 0) {
@@ -545,6 +668,8 @@ async function envoyerRappelsSeancesDuJourSiNecessaire() {
     return;
   }
 
+  const cacheScopes = creerCacheScopesPush();
+
   await executerAvecConcurrence(
     abonnements,
     async (abonnement) => {
@@ -552,11 +677,21 @@ async function envoyerRappelsSeancesDuJourSiNecessaire() {
         return;
       }
 
+      const scopeUtilisateur = await chargerScopePushPourAbonnement(
+        abonnement,
+        cacheScopes
+      );
+      const donneesScopees = filtrerDonneesRappelParScope(
+        scopeUtilisateur,
+        seances,
+        indisponibilites
+      );
       const seancesVisibles = obtenirSeancesRestantesAujourdhuiPourUtilisateur(
         abonnement,
-        seances,
-        indisponibilites,
-        partiesDate
+        donneesScopees.seances,
+        donneesScopees.indisponibilites,
+        partiesDate,
+        scopeUtilisateur
       );
 
       if (seancesVisibles.length === 0) {
@@ -664,4 +799,10 @@ module.exports = {
   envoyerRappelsSeancesDuJourSiNecessaire,
   executerRappelsPushDus,
   demarrerPlanificateurRappelsPush,
+  // Exposes pour les tests unitaires de confidentialite et reutilisables par
+  // les futurs jobs de notification. Ils ne font aucune ecriture ni envoi.
+  utilisateurPeutRecevoirEvenementApplication,
+  entitePlanningEstDansScope,
+  filtrerDonneesRappelParScope,
+  indisponibiliteChevaucheSeance,
 };

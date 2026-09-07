@@ -4,22 +4,16 @@ const {
   recupererPhotosParSeance,
   trouverPhotoParId,
 } = require("../models/photo.model");
-const { trouverSeanceParId } = require("../models/seance.model");
+const { trouverSeanceParIdScopee } = require("../models/seance.model");
+const { construireFiltreLectureSeances } = require("../models/access-scope.model");
 const { resoudreCheminScreenshot } = require("../utils/screenshot-storage");
 
 function estIdentifiantValide(valeur) {
   return Number.isInteger(Number(valeur)) && Number(valeur) > 0;
 }
 
-function utilisateurPeutVoirCompteHossam(utilisateur) {
-  return (
-    Number(utilisateur?.est_admin) === 1 ||
-    String(utilisateur?.email || "").trim().toLowerCase() === "hossam@test.com"
-  );
-}
-
-function seanceEstCompteHossam(seance) {
-  return String(seance?.compte || "").trim().toLowerCase() === "hossam";
+function construireScopeLecturePhotos(req) {
+  return construireFiltreLectureSeances(req.scope);
 }
 
 function transformerPhotoPourClient(photo) {
@@ -48,17 +42,14 @@ async function recupererPhotosDuneSeance(req, res) {
     });
   }
 
-  const seance = await trouverSeanceParId(seanceId);
+  const seance = await trouverSeanceParIdScopee(
+    seanceId,
+    construireScopeLecturePhotos(req)
+  );
 
   if (!seance) {
     return res.status(404).json({
       message: "Séance introuvable.",
-    });
-  }
-
-  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seance)) {
-    return res.status(403).json({
-      message: "Ce créneau est réservé et visible uniquement par l'administrateur.",
     });
   }
 
@@ -84,17 +75,14 @@ async function recupererFichierPhoto(req, res) {
     });
   }
 
-  const seance = await trouverSeanceParId(photo.seance_id);
+  const seance = await trouverSeanceParIdScopee(
+    photo.seance_id,
+    construireScopeLecturePhotos(req)
+  );
 
   if (!seance) {
     return res.status(404).json({
       message: "Séance introuvable.",
-    });
-  }
-
-  if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seance)) {
-    return res.status(403).json({
-      message: "Ce créneau est réservé et visible uniquement par l'administrateur.",
     });
   }
 

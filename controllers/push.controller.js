@@ -1,7 +1,7 @@
 const {
   enregistrerOuMettreAJourAbonnementPush,
   trouverAbonnementPushActifUtilisateurParEndpoint,
-  desactiverAbonnementPushParEndpoint,
+  desactiverAbonnementPushUtilisateurParEndpoint,
 } = require("../models/push-subscription.model");
 const {
   recupererClePubliqueVapid,
@@ -36,12 +36,23 @@ async function enregistrerAbonnementPush(req, res) {
     });
   }
 
-  await enregistrerOuMettreAJourAbonnementPush({
-    utilisateurId: req.utilisateur.id,
-    subscription,
-    deviceLabel: normaliserTexte(deviceLabel),
-    userAgent: String(req.headers["user-agent"] || "").slice(0, 400),
-  });
+  try {
+    await enregistrerOuMettreAJourAbonnementPush({
+      utilisateurId: req.utilisateur.id,
+      subscription,
+      deviceLabel: normaliserTexte(deviceLabel),
+      userAgent: String(req.headers["user-agent"] || "").slice(0, 400),
+    });
+  } catch (error) {
+    if (error?.code === "PUSH_ENDPOINT_OWNED_BY_ANOTHER_USER") {
+      return res.status(409).json({
+        code: error.code,
+        message: "Cet appareil est déjà rattaché à un autre compte.",
+      });
+    }
+
+    throw error;
+  }
 
   return res.status(201).json({
     message: "Les notifications push sont actives sur cet appareil.",
@@ -68,7 +79,7 @@ async function supprimerAbonnementPush(req, res) {
     });
   }
 
-  await desactiverAbonnementPushParEndpoint(endpoint);
+  await desactiverAbonnementPushUtilisateurParEndpoint(req.utilisateur.id, endpoint);
 
   return res.json({
     message: "Les notifications push sont desactivees sur cet appareil.",

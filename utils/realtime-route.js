@@ -11,6 +11,54 @@ function valeurBooleenneActive(valeur) {
   );
 }
 
+function normaliserIdentifiant(valeur) {
+  const identifiant = Number(valeur);
+  return Number.isInteger(identifiant) && identifiant > 0 ? identifiant : null;
+}
+
+function determinerIdentifiantUnique(valeurs) {
+  const identifiants = Array.from(
+    new Set(
+      (Array.isArray(valeurs) ? valeurs : [valeurs])
+        .map(normaliserIdentifiant)
+        .filter(Boolean)
+    )
+  );
+
+  return identifiants.length === 1 ? identifiants[0] : undefined;
+}
+
+function lireCibleExplicite(scope, nom) {
+  if (!scope || typeof scope !== "object") {
+    return undefined;
+  }
+
+  const nomSnakeCase = nom.replace(/[A-Z]/g, (lettre) => `_${lettre.toLowerCase()}`);
+  const identifiant = normaliserIdentifiant(scope[nom] ?? scope[nomSnakeCase]);
+
+  if (identifiant) {
+    return identifiant;
+  }
+
+  return determinerIdentifiantUnique(scope[`${nom}s`] ?? scope[`${nomSnakeCase}s`]);
+}
+
+function determinerCibleTempsReel(req, res) {
+  const scopeExplicite = res.locals?.realtimeScope;
+
+  if (scopeExplicite && typeof scopeExplicite === "object") {
+    return {
+      handlerId: lireCibleExplicite(scopeExplicite, "handlerId"),
+      intervenantId: lireCibleExplicite(scopeExplicite, "intervenantId"),
+    };
+  }
+
+  return {
+    handlerId: determinerIdentifiantUnique(req.scope?.handlerIds),
+    intervenantId: determinerIdentifiantUnique(req.scope?.intervenantIds),
+  };
+}
+
 function determinerActionTempsReel(req, scope, reponseJson = null) {
   const methode = String(req.method || "").toUpperCase();
   const chemin = String(req.route?.path || req.path || "");
@@ -98,10 +146,13 @@ function notifierMiseAJourApplication(controller, scope = "application") {
       await controller(req, res, next);
 
       if (res.statusCode < 400) {
+        const { handlerId, intervenantId } = determinerCibleTempsReel(req, res);
         const notificationPayload = {
           scope,
           actorId: req.utilisateur?.id || null,
           actorName: req.utilisateur?.nom || null,
+          handlerId,
+          intervenantId,
           action: determinerActionTempsReel(req, scope, reponseJson),
           message: reponseJson?.message || null,
         };

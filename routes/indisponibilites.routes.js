@@ -9,28 +9,39 @@ const {
 const {
   verifierAuthentification,
   verifierCompteSecurise,
-  verifierAccesHossamUniquement,
+  verifierAccesIndisponibilites,
+  verifierModeEcritureAutorise,
 } = require("../middleware/auth.middleware");
+const {
+  chargerScopeAcces,
+  verifierScopeHandlerCourant,
+} = require("../middleware/scope.middleware");
 const { notifierMiseAJourApplication } = require("../utils/realtime-route");
 
 const router = express.Router();
 
-router.use(verifierAuthentification, verifierCompteSecurise);
+router.use(
+  verifierAuthentification,
+  verifierCompteSecurise,
+  chargerScopeAcces,
+  verifierScopeHandlerCourant,
+  verifierAccesIndisponibilites
+);
 
 router.get("/", recupererIndisponibilites);
 router.post(
   "/",
-  verifierAccesHossamUniquement,
+  verifierModeEcritureAutorise,
   notifierMiseAJourApplication(ajouterIndisponibilite, "indisponibilites")
 );
 router.put(
   "/:id",
-  verifierAccesHossamUniquement,
+  verifierModeEcritureAutorise,
   notifierMiseAJourApplication(modifierUneIndisponibilite, "indisponibilites")
 );
 router.delete(
   "/:id",
-  verifierAccesHossamUniquement,
+  verifierModeEcritureAutorise,
   notifierMiseAJourApplication(supprimerUneIndisponibilite, "indisponibilites")
 );
 

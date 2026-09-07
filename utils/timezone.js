@@ -36,13 +36,23 @@ function convertirDateHeureZonneeEnInstant(dateIso, heure, timeZone) {
     return null;
   }
 
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(heure || ""))) {
+  const estFinDeJournee = String(heure || "") === "24:00";
+  if (!estFinDeJournee && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(heure || ""))) {
     return null;
   }
 
   const [annee, mois, jour] = String(dateIso).split("-").map(Number);
-  const [heures, minutes] = String(heure).split(":").map(Number);
-  const horodatageLocalCible = Date.UTC(annee, mois - 1, jour, heures, minutes, 0);
+  const [heures, minutes] = estFinDeJournee
+    ? [0, 0]
+    : String(heure).split(":").map(Number);
+  const horodatageLocalCible = Date.UTC(
+    annee,
+    mois - 1,
+    jour + (estFinDeJournee ? 1 : 0),
+    heures,
+    minutes,
+    0
+  );
   let horodatageUtc = horodatageLocalCible;
 
   for (let index = 0; index < 4; index += 1) {
@@ -65,6 +75,64 @@ function convertirDateHeureZonneeEnInstant(dateIso, heure, timeZone) {
   }
 
   return new Date(horodatageUtc);
+}
+
+function ajouterJoursDateIso(dateIso, nombreJours) {
+  const date = new Date(`${dateIso}T12:00:00Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  date.setUTCDate(date.getUTCDate() + nombreJours);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Verifie qu'une heure murale existe reellement dans le fuseau demande.
+ *
+ * Les heures sautees lors du passage a l'heure d'ete ne passent pas le
+ * controle aller-retour : `02:30 Europe/Paris` devient `03:30`. Une heure
+ * repetee a l'automne, elle, reste une heure civile valide ; la conversion
+ * existante choisit de maniere deterministe l'une de ses occurrences.
+ */
+function estDateHeureZonneeCivileExistante(dateIso, heure, timeZone) {
+  const date = String(dateIso || "");
+  const heureNormalisee = String(heure || "");
+  const finDeJournee = heureNormalisee === "24:00";
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return false;
+  }
+
+  const dateControle = new Date(`${date}T12:00:00Z`);
+  if (Number.isNaN(dateControle.getTime()) || !dateControle.toISOString().startsWith(date)) {
+    return false;
+  }
+
+  if (!finDeJournee && !/^([01]\d|2[0-3]):[0-5]\d$/.test(heureNormalisee)) {
+    return false;
+  }
+
+  const dateAttendue = finDeJournee ? ajouterJoursDateIso(date, 1) : date;
+  const heureAttendue = finDeJournee ? "00:00" : heureNormalisee;
+
+  if (!dateAttendue) {
+    return false;
+  }
+
+  try {
+    const instant = convertirDateHeureZonneeEnInstant(date, heureNormalisee, timeZone);
+    const valeurLocale = instant && convertirInstantEnDateHeureZonnee(instant, timeZone);
+
+    return Boolean(
+      valeurLocale &&
+        valeurLocale.date === dateAttendue &&
+        valeurLocale.heure === heureAttendue
+    );
+  } catch (error) {
+    return false;
+  }
 }
 
 function convertirInstantEnDateHeureZonnee(dateObjet, timeZone) {
@@ -103,4 +171,5 @@ module.exports = {
   convertirDateHeureZonneeEnInstant,
   convertirInstantEnDateHeureZonnee,
   convertirDateHeureEntreFuseaux,
+  estDateHeureZonneeCivileExistante,
 };

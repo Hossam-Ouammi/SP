@@ -1,5 +1,10 @@
 # README Backend - Gestion des seances
 
+> **Archive pré-évolution multi-utilisateur.** Les règles nominatives et les
+> comptes initiaux cités ci-dessous ne sont plus la référence. Consulter
+> d'abord [le guide de déploiement multi-utilisateur](../DEPLOIEMENT-MULTI-UTILISATEUR.md)
+> et [le changelog](../CHANGELOG-MULTI-UTILISATEUR.md), puis le code courant.
+
 Ce document explique le backend du projet en lecture humaine. L'idee est de comprendre:
 
 - ce que fait l'application
@@ -100,7 +105,8 @@ La page publique est beaucoup plus simple:
 1. pas d'authentification
 2. affichage EJS de la page
 3. lecture du planning via `/api/reservation-public`
-4. conversion des heures du calendrier central vers le fuseau public
+4. projection des heures du calendrier central par offset fixe public
+   (`GMT` = +0, `GMT+1` = +60 min, `GMT+2` = +120 min ; pas de zone IANA)
 5. diffusion SSE publique pour forcer le refresh du planning en lecture seule
 
 Important: `POST /api/reservation-public/reserver` renvoie volontairement `410 Gone`. La creation publique de reservation est desactivee dans l'etat actuel du code.

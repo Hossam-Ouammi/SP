@@ -1,11 +1,6 @@
 const { all, get, run, executerTransactionImmediate } = require("./db");
 
 const typesCatalogueAutorises = new Set(["matiere", "compte"]);
-const tarifsHorairesParDefautComptes = {
-  abdo: 90,
-  yassine: 130,
-  hossam: 150,
-};
 
 function normaliserTypeCatalogue(type) {
   const typeNormalise = String(type || "").trim().toLowerCase();
@@ -25,9 +20,7 @@ function obtenirTarifHoraireCatalogueParDefaut(type, valeur) {
     return 0;
   }
 
-  return (
-    tarifsHorairesParDefautComptes[normaliserValeurCatalogue(valeur).toLowerCase()] || 100
-  );
+  return 0;
 }
 
 async function listerValeursCatalogueParType(type) {

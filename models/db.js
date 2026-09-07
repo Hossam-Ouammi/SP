@@ -1,27 +1,25 @@
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { AsyncLocalStorage } = require("async_hooks");
 const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
 const { recupererSecretAudit } = require("./audit-secret");
 const { assurerDossiersScreenshots } = require("../utils/screenshot-storage");
 const { executerAvecVerrou } = require("../utils/job-lock");
+const { executerMigrationsVersionnees } = require("./migrations");
 
 const databaseDirectory = path.join(__dirname, "..", "database");
 const databasePath = process.env.DATABASE_PATH || path.join(databaseDirectory, "database.db");
 const databaseLockDirectory = path.join(path.dirname(databasePath), "locks");
-const activerDonneesExemple = process.env.SEED_DEMO_DATA === "true" && process.env.NODE_ENV !== "production";
 const matieresParDefaut = ["Maths", "Physique chimie", "Python", "C++"];
-const comptesParDefaut = ["Abdo", "Yassine", "Hossam"];
-const tarifsComptesParDefaut = {
-  abdo: 90,
-  yassine: 130,
-  hossam: 150,
-};
+const comptesParDefaut = [];
 
 function obtenirTarifHoraireCompteParDefaut(compte) {
-  const cle = String(compte || "").trim().toLowerCase();
-  return tarifsComptesParDefaut[cle] ?? 100;
+  // A legacy catalogue entry is never an identity or a source of a teacher's
+  // rate.  Rates now belong to the intervenant and are snapshotted on each
+  // session, so a neutral fallback is sufficient for old catalogue rows.
+  return 0;
 }
 
 function normaliserValeurCatalogueSupprimee(valeur) {
@@ -55,6 +53,7 @@ assurerDossiersScreenshots();
 const db = new sqlite3.Database(databasePath);
 let initialisationBaseEnCours = null;
 let fileTransaction = Promise.resolve();
+const contexteTransactionImmediate = new AsyncLocalStorage();
 
 db.serialize(() => {
   db.run("PRAGMA busy_timeout = 5000");
@@ -103,11 +102,22 @@ function all(sql, params = []) {
 }
 
 function executerTransactionImmediate(callback) {
+  // Several domain operations already own an IMMEDIATE transaction and write
+  // their audit entry before committing. Re-entering `BEGIN` on the same
+  // SQLite connection would deadlock behind `fileTransaction`; the nested
+  // operation must instead remain part of the transaction already in flight.
+  if (contexteTransactionImmediate.getStore()?.active === true) {
+    return Promise.resolve().then(callback);
+  }
+
   const execution = fileTransaction.then(async () => {
     await run("BEGIN IMMEDIATE TRANSACTION");
 
     try {
-      const resultat = await callback();
+      const resultat = await contexteTransactionImmediate.run(
+        { active: true },
+        callback
+      );
       await run("COMMIT");
       return resultat;
     } catch (error) {
@@ -188,7 +198,7 @@ function construireListeCreationHistorique(seance) {
   return [
     { champ: "etudiant", label: "Etudiant", avant: "-", apres: seance.etudiant },
     { champ: "matiere", label: "Matiere", avant: "-", apres: seance.matiere },
-    { champ: "compte", label: "Compte", avant: "-", apres: seance.compte || "Abdo" },
+    { champ: "compte", label: "Compte", avant: "-", apres: seance.compte || "Non attribué" },
     {
       champ: "est_essai",
       label: "Seance d'essai",
@@ -224,7 +234,7 @@ async function ajouterColonneCompteSiNecessaire() {
   await run(
     `
       UPDATE seances
-      SET compte = COALESCE(NULLIF(compte, ''), 'Abdo')
+      SET compte = COALESCE(NULLIF(compte, ''), 'Non attribué')
     `
   );
 }
@@ -342,23 +352,11 @@ async function normaliserRolesUtilisateurs() {
     `
       UPDATE utilisateurs
       SET
-        est_admin = CASE
-          WHEN lower(email) = 'hossam@test.com' THEN 1
-          ELSE 0
-        END,
+        est_admin = COALESCE(est_admin, 0),
         mode_lecture_seule = COALESCE(mode_lecture_seule, 0),
-        peut_voir_monetisation = CASE
-          WHEN lower(email) = 'hossam@test.com' THEN 1
-          ELSE COALESCE(peut_voir_monetisation, 0)
-        END,
-        peut_voir_aujourdhui = CASE
-          WHEN lower(email) = 'hossam@test.com' THEN 1
-          ELSE COALESCE(peut_voir_aujourdhui, 0)
-        END,
-        peut_voir_indisponibilites = CASE
-          WHEN lower(email) = 'hossam@test.com' THEN 1
-          ELSE COALESCE(peut_voir_indisponibilites, 0)
-        END
+        peut_voir_monetisation = COALESCE(peut_voir_monetisation, 0),
+        peut_voir_aujourdhui = COALESCE(peut_voir_aujourdhui, 0),
+        peut_voir_indisponibilites = COALESCE(peut_voir_indisponibilites, 0)
     `
   );
 }
@@ -591,10 +589,7 @@ async function ajouterColonneTarifHoraireCatalogueSiNecessaire() {
       ),
       CASE
         WHEN type <> 'compte' THEN 0
-        WHEN lower(trim(valeur)) = 'abdo' THEN 90
-        WHEN lower(trim(valeur)) = 'yassine' THEN 130
-        WHEN lower(trim(valeur)) = 'hossam' THEN 150
-        ELSE 100
+        ELSE 0
       END
     )
   `);
@@ -859,9 +854,7 @@ async function normaliserSeancesExistantes() {
           ELSE trim(matiere)
         END,
         compte = CASE
-          WHEN lower(trim(COALESCE(compte, ''))) = 'yassine' THEN 'Yassine'
-          WHEN lower(trim(COALESCE(compte, ''))) IN ('abdo', 'ami') THEN 'Abdo'
-          WHEN trim(COALESCE(compte, '')) = '' THEN 'Abdo'
+          WHEN trim(COALESCE(compte, '')) = '' THEN 'Non attribué'
           ELSE trim(compte)
         END,
         parent = COALESCE(parent, ''),
@@ -980,197 +973,64 @@ async function initialiserUtilisateursInitiaux() {
     return;
   }
 
-  const utilisateurs = [
-    {
-      nom: "Hossam",
-      email: "hossam@test.com",
-      motDePasse: "123456",
-      estAdmin: 1,
-    },
-    {
-      nom: "Abdo",
-      email: "abdo@test.com",
-      motDePasse: "123456",
-      estAdmin: 0,
-    },
-  ];
+  const nom = String(process.env.INITIAL_SUPERADMIN_NAME || "").trim();
+  const email = String(process.env.INITIAL_SUPERADMIN_EMAIL || "").trim().toLowerCase();
+  const motDePasse = String(process.env.INITIAL_SUPERADMIN_PASSWORD || "");
 
-  for (const utilisateur of utilisateurs) {
-    const motDePasseHash = await bcrypt.hash(utilisateur.motDePasse, 10);
-
-    await run(
-      `
-        INSERT OR IGNORE INTO utilisateurs (
-          nom,
-          email,
-          mot_de_passe,
-          est_admin,
-          acces_active,
-          mode_lecture_seule,
-          peut_voir_monetisation,
-          peut_voir_aujourdhui,
-          peut_voir_indisponibilites,
-          session_version,
-          doit_changer_mot_de_passe,
-          mot_de_passe_change_at,
-          echecs_connexion,
-          tarif_horaire,
-          created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `,
-      [
-        utilisateur.nom,
-        utilisateur.email,
-        motDePasseHash,
-        utilisateur.estAdmin,
-        1,
-        0,
-        utilisateur.estAdmin ? 1 : 0,
-        utilisateur.estAdmin ? 1 : 0,
-        utilisateur.estAdmin ? 1 : 0,
-        1,
-        1,
-        null,
-        0,
-        obtenirTarifHoraireCompteParDefaut(utilisateur.nom)
-      ]
-    );
+  // A fresh instance never receives a known account or password.  Deployment
+  // automation may provide this one-time bootstrap account; otherwise the
+  // database stays empty until an operator provisions it explicitly.
+  if (!nom || !email || !motDePasse) {
+    return;
   }
-}
 
-async function normaliserNomsUtilisateurs() {
-  await run(`
-    UPDATE utilisateurs
-    SET nom = 'Abdo'
-    WHERE lower(email) IN ('abdo@test.com', 'ami@test.com') OR nom = 'Ami'
-  `);
-}
-
-async function normaliserEmailsUtilisateurs() {
-  await run(`
-    UPDATE utilisateurs
-    SET email = 'abdo@test.com'
-    WHERE lower(email) = 'ami@test.com'
-      AND NOT EXISTS (
-        SELECT 1
-        FROM utilisateurs AS utilisateurs_existants
-        WHERE lower(utilisateurs_existants.email) = 'abdo@test.com'
+  const motDePasseHash = await bcrypt.hash(motDePasse, 12);
+  await run(
+    `
+      INSERT INTO utilisateurs (
+        nom, email, mot_de_passe, est_admin, acces_active,
+        mode_lecture_seule, peut_voir_monetisation, peut_voir_aujourdhui,
+        peut_voir_indisponibilites, session_version, doit_changer_mot_de_passe,
+        mot_de_passe_change_at, echecs_connexion, tarif_horaire, created_at
       )
-  `);
+      VALUES (?, ?, ?, 1, 1, 0, 1, 1, 1, 1, 1, NULL, 0, 0, CURRENT_TIMESTAMP)
+    `,
+    [nom, email, motDePasseHash]
+  );
 }
 
-async function initialiserSeancesExemple() {
-  const resultat = await get("SELECT COUNT(*) AS total FROM seances");
-
-  if (resultat.total > 0) {
+async function assurerRolesCompteBootstrap() {
+  const email = String(process.env.INITIAL_SUPERADMIN_EMAIL || "").trim().toLowerCase();
+  if (!email) {
     return;
   }
 
-  const hossam = await get(
-    "SELECT id FROM utilisateurs WHERE email = ?",
-    ["hossam@test.com"]
+  const utilisateur = await get(
+    "SELECT id FROM utilisateurs WHERE lower(email) = lower(?) LIMIT 1",
+    [email]
   );
-  const abdoUtilisateur = await get(
-    "SELECT id FROM utilisateurs WHERE email = ?",
-    ["abdo@test.com"]
-  );
-
-  if (!hossam || !abdoUtilisateur) {
+  if (!utilisateur?.id) {
     return;
   }
 
-  const maintenant = new Date();
-  const seances = [
-    {
-      etudiant: "Yassine",
-      matiere: "Maths",
-      compte: "Yassine",
-      est_essai: 1,
-      date: formaterDate(ajouterJours(maintenant, 1)),
-      heure_debut: "18:00",
-      heure_fin: "19:30",
-      statut_seance: "planifiee",
-      description: "Revision des equations et exercices guides.",
-      cree_par: hossam.id,
-      modifie_par: hossam.id,
-    },
-    {
-      etudiant: "Abdo",
-      matiere: "Physique chimie",
-      compte: "Abdo",
-      est_essai: 0,
-      date: formaterDate(ajouterJours(maintenant, -2)),
-      heure_debut: "17:00",
-      heure_fin: "18:00",
-      statut_seance: "faite",
-      description: "Mecanique et resolution d'exercices.",
-      cree_par: abdoUtilisateur.id,
-      modifie_par: abdoUtilisateur.id,
-    },
-    {
-      etudiant: "Lina",
-      matiere: "Python",
-      compte: "Yassine",
-      est_essai: 0,
-      date: formaterDate(ajouterJours(maintenant, 4)),
-      heure_debut: "19:00",
-      heure_fin: "20:00",
-      statut_seance: "reportee",
-      description: "Seance deplacee apres changement d'horaire.",
-      cree_par: hossam.id,
-      modifie_par: abdoUtilisateur.id,
-    },
-    {
-      etudiant: "Adam",
-      matiere: "C++",
-      compte: "Abdo",
-      est_essai: 0,
-      date: formaterDate(ajouterJours(maintenant, 2)),
-      heure_debut: "15:30",
-      heure_fin: "16:30",
-      statut_seance: "annulee",
-      description: "Seance annulee a la demande de l'etudiant.",
-      cree_par: abdoUtilisateur.id,
-      modifie_par: hossam.id,
-    },
-  ];
-
-  for (const seance of seances) {
+  for (const role of ["super_admin", "handler", "professeur"]) {
     await run(
-      `
-        INSERT INTO seances (
-          etudiant,
-          matiere,
-          compte,
-          est_essai,
-          date,
-          heure_debut,
-          heure_fin,
-          statut_seance,
-          description,
-          cree_par,
-          modifie_par,
-          titre
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        seance.etudiant,
-        seance.matiere,
-        seance.compte,
-        seance.est_essai,
-        seance.date,
-        seance.heure_debut,
-        seance.heure_fin,
-        seance.statut_seance,
-        seance.description,
-        seance.cree_par,
-        seance.modifie_par,
-        `${seance.matiere} - ${seance.etudiant}`,
-      ]
+      "INSERT OR IGNORE INTO utilisateur_roles (utilisateur_id, role, accorde_par) VALUES (?, ?, ?)",
+      [utilisateur.id, role, utilisateur.id]
     );
   }
+  await run(
+    `
+      INSERT INTO rattachements_professeurs (handler_id, professeur_id, actif, cree_par)
+      SELECT ?, ?, 1, ?
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM rattachements_professeurs
+        WHERE professeur_id = ? AND actif = 1
+      )
+    `,
+    [utilisateur.id, utilisateur.id, utilisateur.id, utilisateur.id]
+  );
 }
 
 async function initialiserBaseDeDonneesInterne() {
@@ -1190,7 +1050,7 @@ async function initialiserBaseDeDonneesInterne() {
       etudiant TEXT NOT NULL,
       parent TEXT DEFAULT '',
       matiere TEXT NOT NULL,
-      compte TEXT DEFAULT 'Abdo',
+      compte TEXT DEFAULT 'Non attribué',
       est_essai INTEGER DEFAULT 0,
       date TEXT NOT NULL,
       heure_debut TEXT NOT NULL,
@@ -1245,7 +1105,7 @@ async function initialiserBaseDeDonneesInterne() {
       etudiant TEXT NOT NULL,
       parent TEXT DEFAULT '',
       matiere TEXT NOT NULL,
-      compte TEXT DEFAULT 'Abdo',
+      compte TEXT DEFAULT 'Non attribué',
       est_essai INTEGER DEFAULT 0,
       date TEXT NOT NULL,
       heure_debut TEXT NOT NULL,
@@ -1299,6 +1159,7 @@ async function initialiserBaseDeDonneesInterne() {
       details_json TEXT NOT NULL,
       previous_hash TEXT NOT NULL,
       entry_hash TEXT NOT NULL,
+      signature_version INTEGER NOT NULL DEFAULT 1 CHECK (signature_version IN (1, 2)),
       created_at TEXT NOT NULL
     )
   `);
@@ -1473,17 +1334,20 @@ async function initialiserBaseDeDonneesInterne() {
   await ajouterColonnesJournalAuthSiNecessaire();
   await synchroniserHistoriqueActionsSiNecessaire();
   await initialiserUtilisateursInitiaux();
-  await normaliserEmailsUtilisateurs();
-  await normaliserNomsUtilisateurs();
   await marquerComptesTemporairesCommeASecuriser();
   await initialiserCatalogueParDefaut();
   await synchroniserCatalogueDepuisSeances();
 
-  if (activerDonneesExemple) {
-    await initialiserSeancesExemple();
-    await normaliserSeancesExistantes();
-    await synchroniserCatalogueDepuisSeances();
-  }
+  // Les migrations versionnees sont executees apres le bootstrap legacy afin
+  // que les donnees d'exemple eventuelles soient egalement scopees sans
+  // traitement special.
+  await executerMigrationsVersionnees({
+    run,
+    get,
+    all,
+    executerTransactionImmediate,
+  });
+  await assurerRolesCompteBootstrap();
 }
 
 async function initialiserBaseDeDonnees() {

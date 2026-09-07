@@ -9,11 +9,16 @@ const {
   verifierCompteSecurise,
   verifierAccesMonetisation,
 } = require("../middleware/auth.middleware");
+const {
+  chargerScopeAcces,
+  verifierScopeHandlerCourant,
+} = require("../middleware/scope.middleware");
 
 const router = express.Router();
 
 router.use(verifierAuthentification);
 router.use(verifierCompteSecurise);
+router.use(chargerScopeAcces, verifierScopeHandlerCourant);
 router.use(verifierAccesMonetisation);
 
 router.get("/releve", telechargerReleveMonetisation);

@@ -1,8 +1,15 @@
-const publicTimezone = String(
-  document.body?.dataset?.publicTimezone || "Europe/Paris"
+const publicCalendarOffsetMinutes = Number(
+  document.body?.dataset?.publicCalendarOffsetMinutes || 0
+);
+const publicCalendarOffsetLabel = String(
+  document.body?.dataset?.publicCalendarOffsetLabel || "GMT"
 ).trim();
-const publicTimezoneLabel = String(
-  document.body?.dataset?.publicTimezoneLabel || "GMT+2"
+const centralCalendarTimezone = String(
+  document.body?.dataset?.centralCalendarTimezone || ""
+).trim();
+const planningApiUrl = String(document.body?.dataset?.publicCalendarApiUrl || "").trim();
+const planningEventsUrl = String(
+  document.body?.dataset?.publicCalendarEventsUrl || ""
 ).trim();
 
 const elements = {
@@ -14,28 +21,39 @@ const elements = {
 const etat = {
   calendrier: null,
   config: {
-    timezone_public: publicTimezone,
-    timezone_public_label: publicTimezoneLabel,
-    slot_min_time: "09:00",
-    slot_max_time: "23:00",
+    public_calendar_offset_minutes: publicCalendarOffsetMinutes,
+    public_calendar_offset_label: publicCalendarOffsetLabel,
+    reference_timezone: centralCalendarTimezone,
+    calendar_start_time: "08:00",
+    calendar_end_time: "23:30",
+    slot_min_time: "08:00",
+    slot_max_time: "23:30",
+    slot_duration_minutes: 30,
     refresh_interval_ms: 15000,
   },
   planning: {
     week_start: "",
-    blocages: [],
+    creneaux: [],
   },
   requetePlanningId: 0,
   maintenantTimer: null,
   synchronisationTimer: null,
   synchronisationProgrammee: null,
   sourceTempsReel: null,
+  calendrierIndisponible: false,
 };
 
-const RESERVATION_PAS_CRENEAU_MINUTES = 30;
 const RESERVATION_ACTUALISATION_MAINTENANT_MS = 60 * 1000;
 
-function obtenirFuseauPublic() {
-  return String(etat.config?.timezone_public || publicTimezone || "Europe/Paris").trim();
+function obtenirOffsetPublicMinutes() {
+  const offset = Number(
+    etat.config?.public_calendar_offset_minutes ?? publicCalendarOffsetMinutes
+  );
+  return Number.isFinite(offset) ? offset : 0;
+}
+
+function obtenirFuseauHorlogeCentrale() {
+  return String(etat.config?.reference_timezone || centralCalendarTimezone || "").trim();
 }
 
 function extrairePartiesDateFuseau(dateObjet, timeZone) {
@@ -67,12 +85,30 @@ function extrairePartiesDateFuseau(dateObjet, timeZone) {
   };
 }
 
-// The public calendar displays France local times on a UTC grid.
-// We therefore convert the real current instant into a "fake UTC" date
-// whose clock values match the public timezone, so FullCalendar's
-// nowIndicator stays aligned with the displayed schedule.
+// Le serveur fournit deja les créneaux projetés sur l'horloge publique.
+// On represente cette horloge publique sur une grille UTC artificielle afin
+// que FullCalendar conserve exactement les heures murales recues, y compris
+// lorsque la projection centrale franchit minuit.
 function convertirInstantVersHorlogePubliqueUtc(dateObjet = new Date()) {
-  const parties = extrairePartiesDateFuseau(dateObjet, obtenirFuseauPublic());
+  let parties = null;
+  const fuseauCentral = obtenirFuseauHorlogeCentrale();
+
+  try {
+    parties = fuseauCentral ? extrairePartiesDateFuseau(dateObjet, fuseauCentral) : null;
+  } catch (erreur) {
+    parties = null;
+  }
+
+  if (!parties) {
+    parties = {
+      year: dateObjet.getFullYear(),
+      month: dateObjet.getMonth() + 1,
+      day: dateObjet.getDate(),
+      hour: dateObjet.getHours(),
+      minute: dateObjet.getMinutes(),
+      second: dateObjet.getSeconds(),
+    };
+  }
 
   return new Date(
     Date.UTC(
@@ -80,7 +116,7 @@ function convertirInstantVersHorlogePubliqueUtc(dateObjet = new Date()) {
       parties.month - 1,
       parties.day,
       parties.hour,
-      parties.minute,
+      parties.minute + obtenirOffsetPublicMinutes(),
       parties.second
     )
   );
@@ -112,24 +148,14 @@ function convertirMinutesEnHeureOption(totalMinutes) {
   return `${heures}:${minutes}:00`;
 }
 
-function obtenirMinutesMaintenantFuseauPublic(dateObjet = new Date()) {
-  const parties = extrairePartiesDateFuseau(dateObjet, obtenirFuseauPublic());
-  return parties.hour * 60 + parties.minute;
-}
-
-function calculerFenetreHoraireVisible({
-  slotMinTime,
-  slotMaxTime,
-  maintenantMinutes,
-  pasMinutes = RESERVATION_PAS_CRENEAU_MINUTES,
-}) {
+function calculerFenetreHoraireVisible({ slotMinTime, slotMaxTime }) {
   const minBase = convertirHeureOptionEnMinutes(slotMinTime);
   const maxBase = convertirHeureOptionEnMinutes(slotMaxTime);
 
   if (
     !Number.isFinite(minBase) ||
     !Number.isFinite(maxBase) ||
-    !Number.isFinite(maintenantMinutes)
+    maxBase <= minBase
   ) {
     return {
       slotMinTime,
@@ -137,15 +163,9 @@ function calculerFenetreHoraireVisible({
     };
   }
 
-  const minVisible = minBase;
-  const maxVisible =
-    maintenantMinutes >= maxBase
-      ? Math.min(24 * 60, Math.ceil((maintenantMinutes + 1) / pasMinutes) * pasMinutes)
-      : maxBase;
-
   return {
-    slotMinTime: convertirMinutesEnHeureOption(minVisible),
-    slotMaxTime: convertirMinutesEnHeureOption(maxVisible),
+    slotMinTime: convertirMinutesEnHeureOption(minBase),
+    slotMaxTime: convertirMinutesEnHeureOption(maxBase),
   };
 }
 
@@ -159,9 +179,8 @@ function appliquerOptionsMaintenantCalendrierPublic(dateObjet = new Date()) {
   }
 
   const fenetre = calculerFenetreHoraireVisible({
-    slotMinTime: etat.config.slot_min_time || "09:00",
-    slotMaxTime: etat.config.slot_max_time || "23:00",
-    maintenantMinutes: obtenirMinutesMaintenantFuseauPublic(dateObjet),
+    slotMinTime: etat.config.slot_min_time || "08:00",
+    slotMaxTime: etat.config.slot_max_time || "23:30",
   });
 
   if (etat.calendrier.getOption("slotMinTime") !== fenetre.slotMinTime) {
@@ -239,16 +258,25 @@ function genererContenuEnteteJour(info) {
   };
 }
 
-function evenementBlocage(blocage) {
+function evenementCreneau(creneau, index) {
+  const estDisponible = creneau.etat === "disponible";
+
   return {
-    id: String(blocage.id || `${blocage.type}-${blocage.date}-${blocage.heure_debut}`),
-    title: "",
-    start: `${blocage.date}T${blocage.heure_debut}:00Z`,
-    end: `${blocage.date_fin || blocage.date}T${blocage.heure_fin}:00Z`,
+    // Cet identifiant est local au rendu FullCalendar : il ne provient jamais
+    // de la base de donnees et ne revele aucun objet metier.
+    id: `public-slot-${index}`,
+    title: estDisponible ? "Disponible" : "Indisponible",
+    start: `${creneau.date}T${creneau.heure_debut}:00Z`,
+    end:
+      creneau.heure_fin === "24:00"
+        ? `${ajouterJoursIso(creneau.date, 1)}T00:00:00Z`
+        : `${creneau.date}T${creneau.heure_fin}:00Z`,
     display: "block",
-    classNames: ["reservation-public-blocked-event", "calendar-mobile-week-indisponibilite"],
+    classNames: estDisponible
+      ? ["reservation-public-available-event"]
+      : ["reservation-public-blocked-event", "calendar-mobile-week-indisponibilite"],
     extendedProps: {
-      type: "blocked",
+      etat: estDisponible ? "disponible" : "indisponible",
     },
   };
 }
@@ -258,10 +286,10 @@ function mettreAJourCalendrier() {
     return;
   }
 
-  const blocages = Array.isArray(etat.planning?.blocages) ? etat.planning.blocages : [];
+  const creneaux = Array.isArray(etat.planning?.creneaux) ? etat.planning.creneaux : [];
   etat.calendrier.batchRendering(() => {
     etat.calendrier.removeAllEvents();
-    etat.calendrier.addEventSource(blocages.map(evenementBlocage));
+    etat.calendrier.addEventSource(creneaux.map(evenementCreneau));
   });
 }
 
@@ -272,11 +300,11 @@ function mettreAJourHorodatageSynchronisation() {
 
   const maintenant = new Date();
   const heureLocale = new Intl.DateTimeFormat("fr-FR", {
-    timeZone: obtenirFuseauPublic(),
+    timeZone: "UTC",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-  }).format(maintenant);
+  }).format(convertirInstantVersHorlogePubliqueUtc(maintenant));
 
   elements.updatedAt.textContent = `Mis à jour à ${heureLocale}`;
 }
@@ -302,8 +330,17 @@ async function envoyerRequete(url, options = {}) {
 }
 
 async function recupererPlanning(weekStart = "") {
-  const suffixe = weekStart ? `?week_start=${encodeURIComponent(weekStart)}` : "";
-  return envoyerRequete(`/api/reservation-public${suffixe}`);
+  if (!planningApiUrl) {
+    throw new Error("Lien du calendrier public invalide.");
+  }
+
+  const url = new URL(planningApiUrl, window.location.origin);
+
+  if (weekStart) {
+    url.searchParams.set("week_start", weekStart);
+  }
+
+  return envoyerRequete(`${url.pathname}${url.search}`);
 }
 
 async function appliquerResultatPlanning(resultat) {
@@ -322,6 +359,10 @@ async function appliquerResultatPlanning(resultat) {
 }
 
 async function chargerPlanning(weekStart = etat.planning.week_start, options = {}) {
+  if (etat.calendrierIndisponible) {
+    return null;
+  }
+
   const requeteId = ++etat.requetePlanningId;
 
   try {
@@ -334,6 +375,11 @@ async function chargerPlanning(weekStart = etat.planning.week_start, options = {
     await appliquerResultatPlanning(resultat);
     masquerErreur();
   } catch (erreur) {
+    if (erreur?.status === 404) {
+      rendreCalendrierPublicIndisponible();
+      return null;
+    }
+
     if (!options.silencieux) {
       afficherErreur(erreur.message || "Impossible de charger le calendrier.");
     }
@@ -341,8 +387,40 @@ async function chargerPlanning(weekStart = etat.planning.week_start, options = {
   }
 }
 
-function programmerSynchronisationRapide() {
+function rendreCalendrierPublicIndisponible() {
+  etat.calendrierIndisponible = true;
+  etat.requetePlanningId += 1;
+
   if (etat.synchronisationProgrammee) {
+    window.clearTimeout(etat.synchronisationProgrammee);
+    etat.synchronisationProgrammee = null;
+  }
+
+  if (etat.synchronisationTimer) {
+    window.clearInterval(etat.synchronisationTimer);
+    etat.synchronisationTimer = null;
+  }
+
+  if (etat.maintenantTimer) {
+    window.clearInterval(etat.maintenantTimer);
+    etat.maintenantTimer = null;
+  }
+
+  if (etat.sourceTempsReel) {
+    etat.sourceTempsReel.close();
+    etat.sourceTempsReel = null;
+  }
+
+  etat.planning = {
+    ...etat.planning,
+    creneaux: [],
+  };
+  etat.calendrier?.removeAllEvents();
+  afficherErreur("Ce calendrier public n'est plus disponible.");
+}
+
+function programmerSynchronisationRapide() {
+  if (etat.calendrierIndisponible || etat.synchronisationProgrammee) {
     return;
   }
 
@@ -358,7 +436,11 @@ function lancerSynchronisationAutomatique() {
   }
 
   etat.synchronisationTimer = window.setInterval(() => {
-    if (document.visibilityState === "hidden" || !etat.planning.week_start) {
+    if (
+      etat.calendrierIndisponible ||
+      document.visibilityState === "hidden" ||
+      !etat.planning.week_start
+    ) {
       return;
     }
 
@@ -366,7 +448,11 @@ function lancerSynchronisationAutomatique() {
   }, Number(etat.config.refresh_interval_ms) || 15000);
 
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && etat.planning.week_start) {
+    if (
+      !etat.calendrierIndisponible &&
+      document.visibilityState === "visible" &&
+      etat.planning.week_start
+    ) {
       chargerPlanning(etat.planning.week_start, { silencieux: true }).catch(() => {});
     }
   });
@@ -399,11 +485,16 @@ function lancerActualisationMaintenant() {
 }
 
 function lancerSynchronisationTempsReel() {
-  if (typeof window.EventSource !== "function" || etat.sourceTempsReel) {
+  if (
+    etat.calendrierIndisponible ||
+    typeof window.EventSource !== "function" ||
+    etat.sourceTempsReel ||
+    !planningEventsUrl
+  ) {
     return;
   }
 
-  const source = new window.EventSource("/api/reservation-public/events");
+  const source = new window.EventSource(planningEventsUrl);
   etat.sourceTempsReel = source;
 
   source.addEventListener("app-updated", (event) => {
@@ -415,14 +506,25 @@ function lancerSynchronisationTempsReel() {
       payload = {};
     }
 
-    if (["seances", "indisponibilites"].includes(payload.scope)) {
+    if (["seances", "indisponibilites", "disponibilites", "settings"].includes(payload.scope)) {
       programmerSynchronisationRapide();
     }
   });
 
   source.addEventListener("connected", () => {});
   source.addEventListener("ping", () => {});
+  source.addEventListener("session-invalidated", () => {
+    rendreCalendrierPublicIndisponible();
+  });
   source.onerror = () => {
+    if (etat.calendrierIndisponible) {
+      source.close();
+      if (etat.sourceTempsReel === source) {
+        etat.sourceTempsReel = null;
+      }
+      return;
+    }
+
     source.close();
     etat.sourceTempsReel = null;
     window.setTimeout(lancerSynchronisationTempsReel, 5000);
@@ -438,9 +540,8 @@ function initialiserCalendrier(initialWeekStart) {
   }
 
   const fenetreInitiale = calculerFenetreHoraireVisible({
-    slotMinTime: etat.config.slot_min_time || "09:00",
-    slotMaxTime: etat.config.slot_max_time || "23:00",
-    maintenantMinutes: obtenirMinutesMaintenantFuseauPublic(),
+    slotMinTime: etat.config.slot_min_time || "08:00",
+    slotMaxTime: etat.config.slot_max_time || "23:30",
   });
 
   etat.calendrier = new FullCalendar.Calendar(elements.calendar, {
@@ -493,7 +594,8 @@ function initialiserCalendrier(initialWeekStart) {
       synchroniserEtatVisuelCalendrier(elements.calendar, etat.calendrier?.view?.type);
     },
     eventDidMount(info) {
-      info.el.title = "Créneau occupé";
+      info.el.title =
+        info.event.extendedProps?.etat === "disponible" ? "Disponible" : "Indisponible";
     },
     eventClick(info) {
       info.jsEvent?.preventDefault();

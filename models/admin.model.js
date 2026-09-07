@@ -23,23 +23,22 @@ const {
 const { detacherSeancesPropositions } = require("./proposition-seance.model");
 
 function normaliserCleCompte(utilisateur) {
-  const email = String(utilisateur?.email || "").trim().toLowerCase();
-
-  if (email === "hossam@test.com") {
-    return "hossam";
-  }
-
-  if (email === "abdo@test.com" || email === "ami@test.com") {
-    return "abdo";
-  }
-
-  return `user-${utilisateur?.id || "inconnu"}`;
+  return String(utilisateur?.public_id || "").trim() || `user-${utilisateur?.id || "inconnu"}`;
 }
 
 function normaliserUtilisateurAdministration(utilisateur) {
+  const roles = String(utilisateur?.roles || "")
+    .split(",")
+    .map((role) => role.trim())
+    .filter(Boolean);
+
   return {
     ...utilisateur,
     cle: normaliserCleCompte(utilisateur),
+    // `est_admin` is kept in the payload for legacy clients only. This
+    // derived field makes the canonical source explicit to all new callers.
+    roles,
+    est_super_admin: roles.includes("super_admin"),
   };
 }
 
@@ -78,6 +77,10 @@ async function listerComptesAdministration() {
       id,
       nom,
       email,
+      public_id,
+      statut_compte,
+      timezone,
+      couleur_calendrier,
       est_admin,
       acces_active,
       mode_lecture_seule,
@@ -88,9 +91,14 @@ async function listerComptesAdministration() {
       doit_changer_mot_de_passe,
       dernier_login_at,
       dernier_login_ip,
-      created_at
+      created_at,
+      (
+        SELECT group_concat(role, ',')
+        FROM utilisateur_roles
+        WHERE utilisateur_roles.utilisateur_id = utilisateurs.id
+      ) AS roles
     FROM utilisateurs
-    ORDER BY est_admin DESC, id ASC
+    ORDER BY id ASC
   `);
 
   return utilisateurs.map(normaliserUtilisateurAdministration);
@@ -100,10 +108,14 @@ async function trouverCompteParId(utilisateurId) {
   const utilisateur = await get(
     `
       SELECT
-        id,
-        nom,
-        email,
-        est_admin,
+      id,
+      nom,
+      email,
+      public_id,
+      statut_compte,
+      timezone,
+      couleur_calendrier,
+      est_admin,
         acces_active,
         mode_lecture_seule,
         peut_voir_monetisation,
@@ -113,7 +125,12 @@ async function trouverCompteParId(utilisateurId) {
         doit_changer_mot_de_passe,
         dernier_login_at,
         dernier_login_ip,
-        created_at
+      created_at,
+      (
+        SELECT group_concat(role, ',')
+        FROM utilisateur_roles
+        WHERE utilisateur_roles.utilisateur_id = utilisateurs.id
+      ) AS roles
       FROM utilisateurs
       WHERE id = ?
     `,
@@ -126,28 +143,20 @@ async function trouverCompteParId(utilisateurId) {
 async function trouverCompteParCle(cleCompte) {
   const cle = String(cleCompte || "").trim().toLowerCase();
 
-  if (cle === "hossam") {
-    return trouverCompteParEmail("hossam@test.com");
-  }
-
-  if (cle === "abdo") {
-    return trouverCompteParEmail("abdo@test.com");
-  }
-
   if (cle.startsWith("user-")) {
     return trouverCompteParId(cle.replace("user-", ""));
   }
 
-  return null;
-}
-
-async function trouverCompteParEmail(email) {
   const utilisateur = await get(
     `
       SELECT
         id,
         nom,
         email,
+        public_id,
+        statut_compte,
+        timezone,
+        couleur_calendrier,
         est_admin,
         acces_active,
         mode_lecture_seule,
@@ -158,7 +167,49 @@ async function trouverCompteParEmail(email) {
         doit_changer_mot_de_passe,
         dernier_login_at,
         dernier_login_ip,
-        created_at
+        created_at,
+        (
+          SELECT group_concat(role, ',')
+          FROM utilisateur_roles
+          WHERE utilisateur_roles.utilisateur_id = utilisateurs.id
+        ) AS roles
+      FROM utilisateurs
+      WHERE lower(public_id) = lower(?)
+      LIMIT 1
+    `,
+    [cle]
+  );
+
+  return utilisateur ? normaliserUtilisateurAdministration(utilisateur) : null;
+}
+
+async function trouverCompteParEmail(email) {
+  const utilisateur = await get(
+    `
+      SELECT
+        id,
+        nom,
+        email,
+        public_id,
+        statut_compte,
+        timezone,
+        couleur_calendrier,
+        est_admin,
+        acces_active,
+        mode_lecture_seule,
+        peut_voir_monetisation,
+        peut_voir_aujourdhui,
+        peut_voir_indisponibilites,
+        tarif_horaire,
+        doit_changer_mot_de_passe,
+        dernier_login_at,
+        dernier_login_ip,
+        created_at,
+        (
+          SELECT group_concat(role, ',')
+          FROM utilisateur_roles
+          WHERE utilisateur_roles.utilisateur_id = utilisateurs.id
+        ) AS roles
       FROM utilisateurs
       WHERE lower(email) = lower(?)
     `,

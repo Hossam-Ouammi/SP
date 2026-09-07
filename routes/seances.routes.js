@@ -14,12 +14,18 @@ const {
   verifierCompteSecurise,
   verifierModeEcritureAutorise,
 } = require("../middleware/auth.middleware");
+const {
+  chargerScopeAcces,
+  verifierScopeHandlerCourant,
+} = require("../middleware/scope.middleware");
 const { notifierMiseAJourApplication } = require("../utils/realtime-route");
 
 const router = express.Router();
 
 router.use(verifierAuthentification);
 router.use(verifierCompteSecurise);
+router.use(chargerScopeAcces);
+router.use(verifierScopeHandlerCourant);
 
 router.get("/", recupererToutesLesSeances);
 router.get("/options", recupererOptionsSeances);

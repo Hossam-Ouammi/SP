@@ -18,6 +18,11 @@ const {
   supprimerAppareilAutoLoginParSelector,
 } = require("../models/trusted-device.model");
 
+function compteEstActif(utilisateur) {
+  const statut = String(utilisateur?.statut_compte || "active").trim().toLowerCase();
+  return Number(utilisateur?.acces_active) === 1 && statut === "active";
+}
+
 function obtenirOptionsCookie(req) {
   return {
     path: "/",
@@ -127,6 +132,7 @@ async function initialiserSessionAuthentifiee(req, utilisateur, options = {}) {
     id: utilisateur.id,
     nom: utilisateur.nom,
     email: utilisateur.email,
+    public_id: utilisateur.public_id || null,
     session_version: utilisateur.session_version,
     est_admin: utilisateur.est_admin,
     peut_voir_monetisation: utilisateur.peut_voir_monetisation,
@@ -188,7 +194,7 @@ async function restaurerConnexionAutomatique(req, res, next) {
 
     if (
       !utilisateur ||
-      Number(utilisateur.acces_active) !== 1 ||
+      !compteEstActif(utilisateur) ||
       Number(appareil.session_version || 0) !== Number(utilisateur.session_version || 0)
     ) {
       await supprimerAppareilAutoLoginParSelector(donneesCookie.selector);
@@ -232,7 +238,7 @@ async function chargerUtilisateurAuthentifie(req, res) {
     return null;
   }
 
-  if (Number(utilisateur.acces_active) !== 1) {
+  if (!compteEstActif(utilisateur)) {
     await invaliderSessionEtCookie(req, res);
     return null;
   }
@@ -277,48 +283,23 @@ function verifierCompteSecurise(req, res, next) {
   return next();
 }
 
-function utilisateurEstAdministrateur(utilisateur) {
-  return (
-    Number(utilisateur?.est_admin) === 1 ||
-    String(utilisateur?.email || "").trim().toLowerCase() === "hossam@test.com"
-  );
-}
-
-function utilisateurEstHossam(utilisateur) {
-  const emailUtilisateur = String(utilisateur?.email || "").trim().toLowerCase();
-  return emailUtilisateur === "hossam@test.com";
-}
-
-function verifierAccesAdministratifHossam(req, res, next) {
-  if (!utilisateurEstAdministrateur(req.utilisateur)) {
-    return res.status(403).json({
-      message: "Vous n'avez pas accès à cette ressource.",
-    });
-  }
-
-  return next();
-}
-
-function verifierAccesHossamUniquement(req, res, next) {
-  if (!utilisateurEstHossam(req.utilisateur)) {
-    return res.status(403).json({
-      message: "Seul Hossam peut gérer les indisponibilités.",
-    });
-  }
-
-  return next();
-}
-
 function verifierModeEcritureAutorise(req, res, next) {
-  if (utilisateurEstAdministrateur(req.utilisateur)) {
-    return next();
+  const peutEcrireDansEspace =
+    req.scope?.estSuperAdmin === true ||
+    req.scope?.estHandler === true ||
+    req.scope?.estProfesseur === true;
+
+  if (!peutEcrireDansEspace) {
+    return res.status(403).json({
+      code: "WRITE_SCOPE_REQUIRED",
+      message: "Vous n'avez pas de droit d'écriture dans cet espace.",
+    });
   }
 
-  if (Number(req.utilisateur?.mode_lecture_seule) === 1) {
+  if (Number(req.utilisateur?.mode_lecture_seule) === 1 && !req.scope?.estSuperAdmin) {
     return res.status(403).json({
       code: "READ_ONLY_ACCOUNT",
-      message:
-        "Votre compte est actuellement en lecture seule. Les modifications sont réservées à Hossam.",
+      message: "Votre compte est actuellement en lecture seule.",
     });
   }
 
@@ -326,12 +307,16 @@ function verifierModeEcritureAutorise(req, res, next) {
 }
 
 function verifierAccesMonetisation(req, res, next) {
-  if (
-    !utilisateurEstHossam(req.utilisateur) &&
-    Number(req.utilisateur?.peut_voir_monetisation) !== 1
-  ) {
+  const estAutorise =
+    req.scope?.estSuperAdmin === true ||
+    req.scope?.estHandler === true ||
+    (req.scope?.estProfesseur === true &&
+      Number(req.utilisateur?.peut_voir_monetisation) === 1);
+
+  if (!estAutorise) {
     return res.status(403).json({
-      message: "Vous n'avez pas accès à cette ressource.",
+      code: "MONETISATION_ACCESS_DISABLED",
+      message: "La monétisation n'est pas activée pour ce compte.",
     });
   }
 
@@ -339,12 +324,16 @@ function verifierAccesMonetisation(req, res, next) {
 }
 
 function verifierAccesIndisponibilites(req, res, next) {
-  if (
-    !utilisateurEstAdministrateur(req.utilisateur) &&
-    Number(req.utilisateur?.peut_voir_indisponibilites) !== 1
-  ) {
+  const estAutorise =
+    req.scope?.estSuperAdmin === true ||
+    req.scope?.estHandler === true ||
+    (req.scope?.estProfesseur === true &&
+      Number(req.utilisateur?.peut_voir_indisponibilites) === 1);
+
+  if (!estAutorise) {
     return res.status(403).json({
-      message: "Vous n'avez pas accès à cette ressource.",
+      code: "UNAVAILABILITY_ACCESS_DISABLED",
+      message: "Les disponibilités ne sont pas activées pour ce compte.",
     });
   }
 
@@ -354,18 +343,15 @@ function verifierAccesIndisponibilites(req, res, next) {
 module.exports = {
   verifierAuthentification,
   verifierCompteSecurise,
-  verifierAccesAdministratifHossam,
-  verifierAccesHossamUniquement,
   verifierAccesMonetisation,
   verifierAccesIndisponibilites,
   chargerUtilisateurAuthentifie,
   verifierModeEcritureAutorise,
-  utilisateurEstAdministrateur,
-  utilisateurEstHossam,
   initialiserSessionAuthentifiee,
   obtenirOptionsCookieConnexionAutomatique,
   recupererCookieRequete,
   effacerCookieConnexionAutomatique,
   restaurerConnexionAutomatique,
   detruireSession,
+  compteEstActif,
 };

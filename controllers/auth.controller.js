@@ -21,7 +21,9 @@ const {
   recupererCookieRequete,
   effacerCookieConnexionAutomatique,
   detruireSession,
+  compteEstActif,
 } = require("../middleware/auth.middleware");
+const { construireScopeAcces } = require("../models/access-scope.model");
 const { motDePasseRespectePolitique } = require("../utils/security");
 const {
   analyserCookieAppareil,
@@ -34,6 +36,10 @@ const {
   SESSION_MAX_AGE_MS,
   AUTO_LOGIN_COOKIE_NAME,
 } = require("../config/security.config");
+const {
+  fermerFluxTempsReelUtilisateur,
+  fermerFluxTempsReelSession,
+} = require("../utils/realtime");
 
 const tentativesConnexionParIp = new Map();
 const FENETRE_TENTATIVES_IP_MS = 15 * 60 * 1000;
@@ -45,18 +51,7 @@ const DUREE_BLOCAGE_COMPTE_MS = 15 * 60 * 1000;
 const MAX_TENTATIVES_COMPTE = 5;
 
 function normaliserIdentifiantConnexion(identifiant) {
-  const identifiantBrut = String(identifiant || "").trim();
-  const identifiantNormalise = identifiantBrut.toLowerCase();
-
-  if (identifiantNormalise === "ami") {
-    return "Abdo";
-  }
-
-  if (identifiantNormalise === "ami@test.com") {
-    return "abdo@test.com";
-  }
-
-  return identifiantBrut;
+  return String(identifiant || "").trim();
 }
 
 function creerErreurConnexion(status, message, options = {}) {
@@ -294,7 +289,7 @@ async function authentifierConnexion(req, res, options = {}) {
     throw creerErreurConnexion(401, "Identifiants invalides.");
   }
 
-  if (Number(utilisateur.acces_active) !== 1) {
+  if (!compteEstActif(utilisateur)) {
     await journaliserEvenementAuth(req, {
       utilisateurId: utilisateur.id,
       identifiant,
@@ -373,12 +368,15 @@ async function authentifierConnexion(req, res, options = {}) {
     },
   });
 
+  const scope = await construireScopeAcces(utilisateurActualise);
+
   return {
     message:
       Number(utilisateurActualise.doit_changer_mot_de_passe) === 1
         ? "Connexion reussie. Vous devez changer le mot de passe avant de continuer."
         : "Connexion reussie.",
     utilisateur: utilisateurActualise,
+    scope,
   };
 }
 
@@ -492,6 +490,9 @@ async function modifierMotDePasse(req, res) {
   const nouveauMotDePasseHash = await bcrypt.hash(nouveauMotDePasse, 12);
   await mettreAJourMotDePasseUtilisateur(utilisateur.id, nouveauMotDePasseHash);
   await supprimerAppareilsAutoLoginUtilisateur(utilisateur.id);
+  fermerFluxTempsReelUtilisateur(utilisateur.id, {
+    reason: "password_changed",
+  });
 
   const utilisateurActualise = await trouverUtilisateurParId(utilisateur.id);
 
@@ -512,12 +513,16 @@ async function modifierMotDePasse(req, res) {
   return res.json({
     message: "Mot de passe modifié avec succès.",
     utilisateur: utilisateurActualise,
+    scope: await construireScopeAcces(utilisateurActualise),
   });
 }
 
 async function deconnecterUtilisateur(req, res) {
   const optionsCookie = obtenirOptionsCookie(req);
   const utilisateurSession = req.session?.utilisateur || null;
+  const sessionId = String(req.sessionID || "").trim();
+
+  fermerFluxTempsReelSession(sessionId, { reason: "logout" });
 
   if (utilisateurSession) {
     await journaliserEvenementAuth(req, {
@@ -564,7 +569,9 @@ async function recupererUtilisateurConnecte(req, res) {
 
   res.setHeader("X-CSRF-Token", req.session.csrfToken);
 
-  return res.json({ utilisateur });
+  const scope = await construireScopeAcces(utilisateur);
+
+  return res.json({ utilisateur, scope });
 }
 
 module.exports = {

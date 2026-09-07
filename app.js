@@ -6,8 +6,12 @@ const path = require("path");
 const fs = require("fs");
 
 const authRoutes = require("./routes/auth.routes");
+const accountLifecycleRoutes = require("./routes/account-lifecycle.routes");
 const adminRoutes = require("./routes/admin.routes");
+const adminAnalyticsRoutes = require("./routes/admin-analytics.routes");
 const historiqueRoutes = require("./routes/historique.routes");
+const disponibilitesRoutes = require("./routes/disponibilites.routes");
+const equipeRoutes = require("./routes/equipe.routes");
 const indisponibilitesRoutes = require("./routes/indisponibilites.routes");
 const monetisationRoutes = require("./routes/monetisation.routes");
 const realtimeRoutes = require("./routes/realtime.routes");
@@ -15,6 +19,8 @@ const pushRoutes = require("./routes/push.routes");
 const seancesRoutes = require("./routes/seances.routes");
 const photosRoutes = require("./routes/photos.routes");
 const propositionsSeancesRoutes = require("./routes/propositions-seances.routes");
+const statistiquesRoutes = require("./routes/statistiques.routes");
+const workspaceSettingsRoutes = require("./routes/workspace-settings.routes");
 const {
   pageRouter: publicReservationPageRoutes,
   apiRouter: publicReservationApiRoutes,
@@ -182,14 +188,20 @@ app.use(
 );
 
 app.use("/api/auth", authRoutes);
+app.use("/api/account-lifecycle", accountLifecycleRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin-analytics", adminAnalyticsRoutes);
 app.use("/api/historique", historiqueRoutes);
+app.use("/api/disponibilites", disponibilitesRoutes);
+app.use("/api/equipe", equipeRoutes);
 app.use("/api/indisponibilites", indisponibilitesRoutes);
 app.use("/api/monetisation", monetisationRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/realtime", realtimeRoutes);
 app.use("/api/reservation-public", publicReservationApiRoutes);
 app.use("/api/propositions-seances", propositionsSeancesRoutes);
+app.use("/api/statistiques", statistiquesRoutes);
+app.use("/api/settings", workspaceSettingsRoutes);
 app.use("/api/seances", seancesRoutes);
 app.use("/api/photos", photosRoutes);
 app.use("/reservation", publicReservationPageRoutes);

@@ -53,6 +53,11 @@ const {
   supprimerAppareilsAutoLoginUtilisateur,
 } = require("../models/trusted-device.model");
 const { effacerCookieConnexionAutomatique } = require("../middleware/auth.middleware");
+const {
+  fermerFluxTempsReelUtilisateur,
+  fermerFluxTempsReelSession,
+} = require("../utils/realtime");
+const { ROLES, comptePossedeRole } = require("../models/access-scope.model");
 
 function obtenirUserAgent(req) {
   return String(req.headers["user-agent"] || "").slice(0, 400);
@@ -64,6 +69,10 @@ function normaliserTexte(valeur) {
 
 function estEmailValide(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
+}
+
+function compteEstSuperAdmin(compte) {
+  return comptePossedeRole(compte, ROLES.SUPER_ADMIN);
 }
 
 async function journaliserActionAdmin(req, actionType, resultat, details = null) {
@@ -409,7 +418,7 @@ async function supprimerUtilisateurAdministration(req, res) {
     });
   }
 
-  if (Number(compteCible.est_admin) === 1) {
+  if (compteEstSuperAdmin(compteCible)) {
     return res.status(400).json({
       message: "Un compte administrateur ne peut pas être supprimé ici.",
     });
@@ -463,7 +472,7 @@ async function reinitialiserMotDePasseCompte(req, res) {
     });
   }
 
-  if (Number(compteCible.est_admin) === 1 && Number(compteCible.id) !== Number(req.utilisateur.id)) {
+  if (compteEstSuperAdmin(compteCible) && Number(compteCible.id) !== Number(req.utilisateur.id)) {
     return res.status(400).json({
       message: "Le mot de passe d'un autre administrateur ne peut pas être réinitialisé ici.",
     });
@@ -473,6 +482,9 @@ async function reinitialiserMotDePasseCompte(req, res) {
   const motDePasseHash = await bcrypt.hash(motDePasseTemporaire, 12);
   await reinitialiserMotDePasseUtilisateur(compteCible.id, motDePasseHash);
   await supprimerAppareilsAutoLoginUtilisateur(compteCible.id);
+  fermerFluxTempsReelUtilisateur(compteCible.id, {
+    reason: "password_reset",
+  });
 
   const selfReset = Number(compteCible.id) === Number(req.utilisateur.id);
 
@@ -526,7 +538,7 @@ async function mettreAJourAccesUtilisateur(req, res) {
     });
   }
 
-  if (Number(compteCible.est_admin) === 1) {
+  if (compteEstSuperAdmin(compteCible)) {
     return res.status(400).json({
       message: "L'accès d'un administrateur ne peut pas être modifié ici.",
     });
@@ -536,6 +548,9 @@ async function mettreAJourAccesUtilisateur(req, res) {
 
   if (!accesActive) {
     await supprimerAppareilsAutoLoginUtilisateur(compteCible.id);
+    fermerFluxTempsReelUtilisateur(compteCible.id, {
+      reason: "account_suspended",
+    });
   }
 
   await journaliserActionAdmin(req, "admin_update_access", "success", {
@@ -585,7 +600,7 @@ async function mettreAJourLectureSeuleUtilisateur(req, res) {
     });
   }
 
-  if (Number(compteCible.est_admin) === 1) {
+  if (compteEstSuperAdmin(compteCible)) {
     return res.status(400).json({
       message: "Le mode lecture seule ne s'applique pas a un administrateur.",
     });
@@ -646,7 +661,7 @@ async function mettreAJourAccesMonetisationUtilisateur(req, res) {
     });
   }
 
-  if (Number(compteCible.est_admin) === 1) {
+  if (compteEstSuperAdmin(compteCible)) {
     return res.status(400).json({
       message: "La monétisation d'un administrateur n'est pas configurable ici.",
     });
@@ -768,7 +783,7 @@ async function mettreAJourAccesAujourdhuiUtilisateur(req, res) {
     });
   }
 
-  if (Number(compteCible.est_admin) === 1) {
+  if (compteEstSuperAdmin(compteCible)) {
     return res.status(400).json({
       message: "Le menu Aujourd'hui d'un administrateur n'est pas configurable ici.",
     });
@@ -829,7 +844,7 @@ async function mettreAJourAccesIndisponibilitesUtilisateur(req, res) {
     });
   }
 
-  if (Number(compteCible.est_admin) === 1) {
+  if (compteEstSuperAdmin(compteCible)) {
     return res.status(400).json({
       message: "Le menu Indisponibilites d'un administrateur n'est pas configurable ici.",
     });
@@ -876,10 +891,14 @@ async function revoquerSessionAdministration(req, res) {
   }
 
   const selfRevoke = normaliserTexte(sid) === String(req.sessionID || "");
+  const fluxTempsReelFermes = fermerFluxTempsReelSession(normaliserTexte(sid), {
+    reason: "session_revoked",
+  });
 
   await journaliserActionAdmin(req, "admin_revoke_session", "success", {
     sid: normaliserTexte(sid),
     self_revoke: selfRevoke,
+    flux_temps_reel_fermes: fluxTempsReelFermes,
   });
 
   return res.json({
@@ -925,11 +944,15 @@ async function revoquerSessionsUtilisateurAdministration(req, res) {
   }
 
   const totalSupprime = await revoquerSessionsUtilisateur(compteCible.id);
+  const fluxTempsReelFermes = fermerFluxTempsReelUtilisateur(compteCible.id, {
+    reason: "sessions_revoked",
+  });
 
   await journaliserActionAdmin(req, "admin_revoke_user_sessions", "success", {
     utilisateur_id: compteCible.id,
     nom: compteCible.nom,
     total_sessions_supprimees: totalSupprime,
+    flux_temps_reel_fermes: fluxTempsReelFermes,
   });
 
   return res.json({
@@ -1077,10 +1100,14 @@ async function revoquerSessionSpecifique(req, res) {
     }
 
     const selfRevoke = normaliserTexte(sid) === String(req.sessionID || "");
+    const fluxTempsReelFermes = fermerFluxTempsReelSession(normaliserTexte(sid), {
+      reason: "session_revoked",
+    });
 
     await journaliserActionAdmin(req, "admin_revoke_session", "success", {
       sid: normaliserTexte(sid),
       self_revoke: selfRevoke,
+      flux_temps_reel_fermes: fluxTempsReelFermes,
     });
 
     return res.json({

@@ -8,21 +8,26 @@ const {
 const {
   verifierAuthentification,
   verifierCompteSecurise,
-  verifierAccesAdministratifHossam,
 } = require("../middleware/auth.middleware");
-const { notifierMiseAJourApplication } = require("../utils/realtime-route");
+const {
+  chargerScopeAcces,
+  verifierRoleSuperAdmin,
+  verifierScopeHandlerCourant,
+} = require("../middleware/scope.middleware");
 
 const router = express.Router();
 
 router.use(verifierAuthentification);
 router.use(verifierCompteSecurise);
+router.use(chargerScopeAcces);
+router.use(verifierScopeHandlerCourant);
 
 router.get("/", recupererHistorique);
 router.get("/:id", recupererDetailHistorique);
 router.delete(
   "/:id",
-  verifierAccesAdministratifHossam,
-  notifierMiseAJourApplication(supprimerEntreeHistoriqueAdministration, "historique")
+  verifierRoleSuperAdmin,
+  supprimerEntreeHistoriqueAdministration
 );
 
 module.exports = router;
