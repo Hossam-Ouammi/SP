@@ -278,7 +278,7 @@ function mettreAJourHorodatageSynchronisation() {
     second: "2-digit",
   }).format(maintenant);
 
-  elements.updatedAt.textContent = `Mis a jour a ${heureLocale}`;
+  elements.updatedAt.textContent = `Mis à jour à ${heureLocale}`;
 }
 
 async function envoyerRequete(url, options = {}) {
@@ -493,7 +493,7 @@ function initialiserCalendrier(initialWeekStart) {
       synchroniserEtatVisuelCalendrier(elements.calendar, etat.calendrier?.view?.type);
     },
     eventDidMount(info) {
-      info.el.title = "Creneau occupe";
+      info.el.title = "Créneau occupé";
     },
     eventClick(info) {
       info.jsEvent?.preventDefault();

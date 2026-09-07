@@ -14,6 +14,7 @@ const realtimeRoutes = require("./routes/realtime.routes");
 const pushRoutes = require("./routes/push.routes");
 const seancesRoutes = require("./routes/seances.routes");
 const photosRoutes = require("./routes/photos.routes");
+const propositionsSeancesRoutes = require("./routes/propositions-seances.routes");
 const {
   pageRouter: publicReservationPageRoutes,
   apiRouter: publicReservationApiRoutes,
@@ -80,6 +81,25 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 app.use("/api/", apiLimiter);
+
+const authLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { message: "Trop de tentatives de connexion, veuillez réessayer plus tard." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const publicReservationLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 120,
+  message: { message: "Trop de consultations du planning public, veuillez réessayer plus tard." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/api/reservation-public", publicReservationLimiter);
+app.use("/api/auth/login", authLoginLimiter);
 app.use(appliquerEnTetesSecurite);
 app.use(desactiverCacheApi);
 app.use(express.json({ limit: "100kb" }));
@@ -142,6 +162,16 @@ app.use(
   })
 );
 
+app.get("/index.html", (req, res) => {
+  appliquerNoCacheStatic(res);
+  return res.redirect(301, "/");
+});
+
+app.use("/uploads", (req, res) => {
+  appliquerNoCacheStatic(res);
+  return res.status(404).send("Fichier introuvable.");
+});
+
 app.use(
   express.static(path.join(__dirname, "public"), {
     index: false,
@@ -159,6 +189,7 @@ app.use("/api/monetisation", monetisationRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/realtime", realtimeRoutes);
 app.use("/api/reservation-public", publicReservationApiRoutes);
+app.use("/api/propositions-seances", propositionsSeancesRoutes);
 app.use("/api/seances", seancesRoutes);
 app.use("/api/photos", photosRoutes);
 app.use("/reservation", publicReservationPageRoutes);
@@ -204,7 +235,7 @@ app.get("/", async (req, res) => {
     });
   }
 });
-app.post("/", connecterUtilisateurDepuisFormulaire);
+app.post("/", authLoginLimiter, connecterUtilisateurDepuisFormulaire);
 
 app.use((req, res) => {
   if (req.path.startsWith("/api/")) {
@@ -221,8 +252,14 @@ app.use((error, req, res, next) => {
     return next(error);
   }
 
-  return res.status(error.status || 500).json({
-    message: error.message || "Une erreur serveur est survenue.",
+  const status = Number(error.status || 500);
+  const message =
+    status >= 500 && process.env.NODE_ENV === "production"
+      ? "Une erreur serveur est survenue."
+      : error.message || "Une erreur serveur est survenue.";
+
+  return res.status(status).json({
+    message,
   });
 });
 

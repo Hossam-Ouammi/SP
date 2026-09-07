@@ -1,6 +1,8 @@
 const puppeteer = require("puppeteer");
 const { listerSeancesPourMonetisation } = require("../models/seance.model");
 const { listerCatalogueOptions } = require("../models/catalogue.model");
+const { convertirDateHeureZonneeEnInstant } = require("../utils/timezone");
+const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
 
 const TARIFS_HORAIRES_PAR_DEFAUT = {
   abdo: 90,
@@ -9,6 +11,23 @@ const TARIFS_HORAIRES_PAR_DEFAUT = {
 };
 const REGEX_MOIS_ISO = /^\d{4}-(0[1-9]|1[0-2])$/;
 const REGEX_ANNEE_ISO = /^\d{4}$/;
+const PDF_GENERATION_TIMEOUT_MS = Math.max(
+  Number(process.env.PDF_GENERATION_TIMEOUT_MS) || 30000,
+  5000
+);
+const PDF_GENERATION_MAX_CONCURRENT = Math.max(
+  Math.min(Number(process.env.PDF_GENERATION_MAX_CONCURRENT) || 1, 3),
+  1
+);
+const PDF_GENERATION_QUEUE_LIMIT = Math.max(
+  Math.min(Number(process.env.PDF_GENERATION_QUEUE_LIMIT) || 5, 20),
+  0
+);
+const PUPPETEER_DISABLE_SANDBOX = ["1", "true", "yes", "on"].includes(
+  String(process.env.PUPPETEER_DISABLE_SANDBOX || "").trim().toLowerCase()
+);
+let generationsPdfActives = 0;
+const fileAttentePdf = [];
 
 function estHeureValide(heure) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(heure || ""));
@@ -47,10 +66,7 @@ function construireDateHeureLocale(date, heure) {
     return null;
   }
 
-  const [heures, minutes] = heure.split(":").map(Number);
-  const dateLocale = new Date(`${date}T00:00:00`);
-  dateLocale.setHours(heures, minutes, 0, 0);
-  return dateLocale;
+  return convertirDateHeureZonneeEnInstant(date, heure, CENTRAL_CALENDAR_TIMEZONE);
 }
 
 function calculerStatutMonetisation(seance) {
@@ -469,7 +485,7 @@ function decrirePeriodeReleveMonetisation(periode) {
   }
 
   if (periode.mode === "annual") {
-    return `de l'annee ${periode.annee}`;
+    return `de l'année ${periode.annee}`;
   }
 
   return `du mois de ${formaterMoisReleve(periode.mois)}`;
@@ -497,34 +513,102 @@ function construireNomFichierReleveMonetisation(periode, suffixeComptes, extensi
   ].join("-") + `.${extension}`;
 }
 
-async function genererPdfDepuisHtml(html) {
-  const navigateur = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+function creerErreurHttp(status, message) {
+  const erreur = new Error(message);
+  erreur.status = status;
+  return erreur;
+}
+
+function acquerirJetonGenerationPdf() {
+  if (generationsPdfActives < PDF_GENERATION_MAX_CONCURRENT) {
+    generationsPdfActives += 1;
+    return Promise.resolve();
+  }
+
+  if (fileAttentePdf.length >= PDF_GENERATION_QUEUE_LIMIT) {
+    throw creerErreurHttp(
+      429,
+      "Trop de relevés PDF sont déjà en cours. Réessayez dans quelques instants."
+    );
+  }
+
+  return new Promise((resolve) => {
+    fileAttentePdf.push(resolve);
+  }).then(() => {
+    generationsPdfActives += 1;
+  });
+}
+
+function libererJetonGenerationPdf() {
+  generationsPdfActives = Math.max(generationsPdfActives - 1, 0);
+  const prochain = fileAttentePdf.shift();
+
+  if (prochain) {
+    prochain();
+  }
+}
+
+function executerAvecTimeout(promesse, delaiMs, message) {
+  let timeoutId = null;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(creerErreurHttp(504, message));
+    }, delaiMs);
   });
 
+  return Promise.race([promesse, timeout]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
+
+async function genererPdfDepuisHtml(html) {
+  await acquerirJetonGenerationPdf();
+  let navigateur = null;
+
   try {
+    navigateur = await executerAvecTimeout(
+      puppeteer.launch({
+        headless: true,
+        args: PUPPETEER_DISABLE_SANDBOX ? ["--no-sandbox", "--disable-setuid-sandbox"] : [],
+      }),
+      PDF_GENERATION_TIMEOUT_MS,
+      "Le lancement du générateur PDF a pris trop de temps."
+    );
     const page = await navigateur.newPage();
-    await page.setContent(html, {
-      waitUntil: "networkidle0",
-    });
+    page.setDefaultNavigationTimeout(PDF_GENERATION_TIMEOUT_MS);
+    await executerAvecTimeout(
+      page.setContent(html, {
+        waitUntil: "networkidle0",
+      }),
+      PDF_GENERATION_TIMEOUT_MS,
+      "La préparation du relevé PDF a pris trop de temps."
+    );
     await page.emulateMediaType("screen");
 
-    const pdf = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      preferCSSPageSize: true,
-      margin: {
-        top: "0",
-        right: "0",
-        bottom: "0",
-        left: "0",
-      },
-    });
+    const pdf = await executerAvecTimeout(
+      page.pdf({
+        format: "A4",
+        printBackground: true,
+        preferCSSPageSize: true,
+        margin: {
+          top: "0",
+          right: "0",
+          bottom: "0",
+          left: "0",
+        },
+      }),
+      PDF_GENERATION_TIMEOUT_MS,
+      "La génération du relevé PDF a pris trop de temps."
+    );
 
     return Buffer.from(pdf);
   } finally {
-    await navigateur.close().catch(() => {});
+    if (navigateur) {
+      await navigateur.close().catch(() => {});
+    }
+    libererJetonGenerationPdf();
   }
 }
 
@@ -589,7 +673,7 @@ function construireHtmlReleveMonetisation({
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
-    <title>Releve de monetisation ${echapperHtml(libellePeriode)}</title>
+    <title>Relevé de monétisation ${echapperHtml(libellePeriode)}</title>
     <style>
       :root {
         color-scheme: light;
@@ -872,9 +956,9 @@ function construireHtmlReleveMonetisation({
     <main class="report-page">
       <header class="header">
         <section>
-          <h1 class="title">Releve de monetisation</h1>
+          <h1 class="title">Relevé de monétisation</h1>
           <p class="subtitle">
-            Facture detaillee ${echapperHtml(descriptionPeriode)}.
+            Facture détaillée ${echapperHtml(descriptionPeriode)}.
           </p>
           <p class="meta">
             Comptes inclus : ${echapperHtml(comptesSelectionnes.map((compte) => compte.nom).join(", "))}
@@ -883,11 +967,11 @@ function construireHtmlReleveMonetisation({
 
         <aside class="meta-box">
           <div class="meta-item">
-            <span class="meta-label">Genere le</span>
+            <span class="meta-label">Généré le</span>
             <span class="meta-value">${echapperHtml(formaterDateHeureGeneration(dateGeneration))}</span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">Periode</span>
+            <span class="meta-label">Période</span>
             <span class="meta-value">${echapperHtml(libellePeriode)}</span>
           </div>
         </aside>
@@ -895,7 +979,7 @@ function construireHtmlReleveMonetisation({
 
       <section class="summary-grid">
         <article class="summary-card">
-          <span>Periode</span>
+          <span>Période</span>
           <strong>${echapperHtml(libellePeriode)}</strong>
         </article>
         <article class="summary-card">
@@ -909,13 +993,13 @@ function construireHtmlReleveMonetisation({
       </section>
 
       <section class="report-section">
-        <h2>Resume par compte</h2>
+        <h2>Résumé par compte</h2>
         <table class="summary-table">
           <thead>
             <tr>
               <th>Compte</th>
-              <th>Seances facturables</th>
-              <th>Seances gratuites</th>
+              <th>Séances facturables</th>
+              <th>Séances gratuites</th>
               <th class="amount-cell">Montant</th>
             </tr>
           </thead>
@@ -926,16 +1010,16 @@ function construireHtmlReleveMonetisation({
       </section>
 
       <section class="report-section">
-        <h2>Detail des seances</h2>
+        <h2>Détail des séances</h2>
         <table class="details-table">
           <thead>
             <tr>
               <th>Date</th>
               <th>Horaire</th>
               <th>Compte</th>
-              <th>Etudiant</th>
-              <th>Matiere</th>
-              <th>Duree</th>
+              <th>Étudiant</th>
+              <th>Matière</th>
+              <th>Durée</th>
               <th>Type</th>
               <th class="amount-cell">Prix</th>
             </tr>
@@ -952,7 +1036,7 @@ function construireHtmlReleveMonetisation({
 
       <footer class="footer">
         <p class="note">
-          Les seances gratuites sont affichees avec un prix de 0 dh. Les seances facturables
+          Les séances gratuites sont affichées avec un prix de 0 dh. Les séances facturables
           sont calculees selon la duree reelle et le tarif horaire du compte selectionne.
         </p>
       </footer>
@@ -969,19 +1053,19 @@ async function recupererMonetisation(req, res) {
 
     if (filtreMois.invalide) {
       return res.status(400).json({
-        message: "Le mois de monetisation doit etre au format YYYY-MM.",
+        message: "Le mois de monétisation doit être au format YYYY-MM.",
       });
     }
 
     if (modePeriode.invalide) {
       return res.status(400).json({
-        message: "Le mode de monetisation doit etre 'annual' ou 'global'.",
+        message: "Le mode de monétisation doit être 'annual' ou 'global'.",
       });
     }
 
     if (filtreAnnee.invalide) {
       return res.status(400).json({
-        message: "L'annee de monetisation doit etre au format YYYY.",
+        message: "L'année de monétisation doit être au format YYYY.",
       });
     }
 
@@ -1063,8 +1147,8 @@ async function recupererMonetisation(req, res) {
       },
     });
   } catch (error) {
-    console.error("Erreur monetisation:", error);
-    return res.status(500).json({ message: "Erreur lors du calcul de la monetisation." });
+    console.error("Erreur monétisation:", error);
+    return res.status(500).json({ message: "Erreur lors du calcul de la monétisation." });
   }
 }
 
@@ -1077,25 +1161,25 @@ async function telechargerReleveMonetisation(req, res) {
 
     if (filtreMois.invalide) {
       return res.status(400).json({
-        message: "Le mois du releve doit etre au format YYYY-MM.",
+        message: "Le mois du relevé doit être au format YYYY-MM.",
       });
     }
 
     if (!filtreMois.valeur && modePeriode.invalide) {
       return res.status(400).json({
-        message: "Le mode du releve doit etre 'annual' ou 'global'.",
+        message: "Le mode du relevé doit être 'annual' ou 'global'.",
       });
     }
 
     if (!filtreMois.valeur && filtreAnnee.invalide) {
       return res.status(400).json({
-        message: "L'annee du releve doit etre au format YYYY.",
+        message: "L'année du relevé doit être au format YYYY.",
       });
     }
 
     if (formatReleve.invalide) {
       return res.status(400).json({
-        message: "Le format du releve doit etre 'pdf' ou 'html'.",
+        message: "Le format du relevé doit être 'pdf' ou 'html'.",
       });
     }
 
@@ -1109,7 +1193,7 @@ async function telechargerReleveMonetisation(req, res) {
 
     if (comptesDemandes.length === 0) {
       return res.status(400).json({
-        message: "Selectionnez au moins un compte pour telecharger le releve.",
+        message: "Sélectionnez au moins un compte pour télécharger le relevé.",
       });
     }
 
@@ -1136,7 +1220,7 @@ async function telechargerReleveMonetisation(req, res) {
 
     if (comptesSelectionnes.length === 0) {
       return res.status(400).json({
-        message: "Aucun compte selectionne n'est disponible pour ce releve.",
+        message: "Aucun compte sélectionné n'est disponible pour ce relevé.",
       });
     }
 
@@ -1233,8 +1317,11 @@ async function telechargerReleveMonetisation(req, res) {
     res.setHeader("Content-Disposition", `attachment; filename="${nomFichierPdf}"`);
     return res.send(pdf);
   } catch (error) {
-    console.error("Erreur releve monetisation:", error);
-    return res.status(500).json({ message: "Erreur lors de la generation du releve." });
+    console.error("Erreur relevé monétisation:", error);
+    const status = Number(error.status || 500);
+    return res.status(status).json({
+      message: status >= 500 ? "Erreur lors de la génération du relevé." : error.message,
+    });
   }
 }
 

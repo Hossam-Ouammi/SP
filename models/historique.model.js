@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 
-const { all, get, run } = require("./db");
+const { all, get, run, executerTransactionImmediate } = require("./db");
 const { recupererSecretAudit } = require("./audit-secret");
 
 const secretHistorique = recupererSecretAudit();
@@ -233,6 +233,105 @@ async function detacherSeancesHistorique(seances = []) {
 
     previousHash = entryHash;
   }
+
+  return {
+    historiqueChanges: Number(resultatHistorique?.changes || 0),
+    historiqueActionsChanges,
+  };
+}
+
+async function rechainerHistoriqueActions(mutateur = null) {
+  const entrees = await all(
+    `
+      SELECT
+        id,
+        seance_id,
+        seance_libelle,
+        action_type,
+        action_label,
+        acteur_id,
+        acteur_nom,
+        details_json,
+        previous_hash,
+        entry_hash,
+        created_at
+      FROM historique_actions
+      ORDER BY id ASC
+    `
+  );
+
+  let previousHash = "";
+  let changements = 0;
+
+  for (const entree of entrees) {
+    const entreeMutee =
+      typeof mutateur === "function" ? mutateur({ ...entree }) || { ...entree } : { ...entree };
+    const entreeRechainee = {
+      ...entreeMutee,
+      previous_hash: previousHash,
+    };
+    const entryHash = calculerHashEntree(entreeRechainee);
+    const entreeModifiee =
+      Number(entree.seance_id || 0) !== Number(entreeRechainee.seance_id || 0) ||
+      Number(entree.acteur_id || 0) !== Number(entreeRechainee.acteur_id || 0) ||
+      String(entree.details_json || "") !== String(entreeRechainee.details_json || "") ||
+      String(entree.previous_hash || "") !== previousHash ||
+      String(entree.entry_hash || "") !== entryHash;
+
+    if (entreeModifiee) {
+      const resultat = await run(
+        `
+          UPDATE historique_actions
+          SET
+            seance_id = ?,
+            acteur_id = ?,
+            details_json = ?,
+            previous_hash = ?,
+            entry_hash = ?
+          WHERE id = ?
+        `,
+        [
+          entreeRechainee.seance_id,
+          entreeRechainee.acteur_id,
+          entreeRechainee.details_json,
+          previousHash,
+          entryHash,
+          entree.id,
+        ]
+      );
+      changements += Number(resultat?.changes || 0);
+    }
+
+    previousHash = entryHash;
+  }
+
+  return changements;
+}
+
+async function detacherUtilisateurHistorique(utilisateurId) {
+  const id = Number(utilisateurId);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return {
+      historiqueChanges: 0,
+      historiqueActionsChanges: 0,
+    };
+  }
+
+  const resultatHistorique = await run(
+    "UPDATE historique SET acteur_id = NULL WHERE acteur_id = ?",
+    [id]
+  ).catch(() => ({ changes: 0 }));
+  const historiqueActionsChanges = await rechainerHistoriqueActions((entree) => {
+    if (Number(entree.acteur_id) === id) {
+      return {
+        ...entree,
+        acteur_id: null,
+      };
+    }
+
+    return entree;
+  });
 
   return {
     historiqueChanges: Number(resultatHistorique?.changes || 0),
@@ -482,9 +581,7 @@ async function supprimerEntreeHistoriqueParId(id) {
 
   let hashPrecedent = String(entreeCible.previous_hash || "");
 
-  await run("BEGIN IMMEDIATE TRANSACTION");
-
-  try {
+  return executerTransactionImmediate(async () => {
     const resultatSuppression = await run(
       "DELETE FROM historique_actions WHERE id = ?",
       [id]
@@ -509,21 +606,17 @@ async function supprimerEntreeHistoriqueParId(id) {
       hashPrecedent = nouvelHash;
     }
 
-    await run("COMMIT");
-
     return {
       deletedEntry: entreeCible,
       changes: Number(resultatSuppression?.changes || 0),
     };
-  } catch (error) {
-    await run("ROLLBACK").catch(() => {});
-    throw error;
-  }
+  });
 }
 
 module.exports = {
   creerEntreeHistorique,
   detacherSeancesHistorique,
+  detacherUtilisateurHistorique,
   listerEntreesHistorique,
   recupererEntreeHistoriqueDetail,
   supprimerEntreeHistoriqueParId,

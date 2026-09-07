@@ -23,7 +23,7 @@ self.addEventListener("push", (event) => {
     };
   }
 
-  const title = payload.title || "Gestion des seances";
+  const title = payload.title || "Gestion des séances";
   const options = {
     body: payload.body || "Nouvelle notification.",
     icon: payload.icon || "/icons/icon-192.png",
@@ -42,7 +42,20 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const url = (event.notification.data && event.notification.data.url) || "/";
+  let url = "/";
+
+  try {
+    const urlCandidate = new URL(
+      (event.notification.data && event.notification.data.url) || "/",
+      self.location.origin
+    );
+
+    if (urlCandidate.origin === self.location.origin) {
+      url = `${urlCandidate.pathname}${urlCandidate.search}${urlCandidate.hash}`;
+    }
+  } catch (error) {
+    url = "/";
+  }
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {

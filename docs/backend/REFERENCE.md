@@ -651,7 +651,7 @@ Sessions et securite:
 Purge:
 
 - `supprimerToutesLesSeancesAdmin(req, res)`: vide les seances et nettoie les anciens fichiers associes en conservant l'historique detache.
-- `supprimerToutHistoriqueAdmin(req, res)`: vide historique et journal auth.
+- `supprimerToutHistoriqueAdmin(req, res)`: vide l'historique d'actions et conserve le journal auth.
 
 IP bloquees:
 
@@ -921,7 +921,7 @@ Purge:
 
 - `supprimerTousLesScreenshotsStockes()`: vide `storage/uploads` pour nettoyer les anciens fichiers associes.
 - `supprimerToutesLesSeances()`: detache l'historique, supprime les seances, puis supprime physiquement les anciens fichiers associes.
-- `supprimerToutHistorique()`: vide historique et audit auth.
+- `supprimerToutHistorique()`: vide l'historique d'actions et conserve l'audit auth.
 
 Catalogue:
 

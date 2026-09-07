@@ -15,10 +15,13 @@ function lireNombreEnv(nom, valeurParDefaut) {
   return Number.isFinite(valeur) ? valeur : valeurParDefaut;
 }
 
+const backupSeancesExplicitementActive =
+  lireBooleenEnv("BACKUP_SEANCES_ENABLED", false) &&
+  !lireBooleenEnv("BACKUP_SEANCES_DISABLED", false);
+
 module.exports = {
-  BACKUP_SEANCES_ENABLED: !lireBooleenEnv("BACKUP_SEANCES_DISABLED", false),
-  BACKUP_SEANCES_EMAIL_TO:
-    process.env.BACKUP_SEANCES_EMAIL_TO || "ouammi.hossam.bsn@gmail.com",
+  BACKUP_SEANCES_ENABLED: backupSeancesExplicitementActive,
+  BACKUP_SEANCES_EMAIL_TO: process.env.BACKUP_SEANCES_EMAIL_TO || "",
   BACKUP_SEANCES_EMAIL_FROM: process.env.BACKUP_SEANCES_EMAIL_FROM || "",
   BACKUP_SEANCES_TIMEZONE: process.env.BACKUP_SEANCES_TIMEZONE || "Africa/Casablanca",
   BACKUP_SEANCES_DAILY_HOUR: Math.min(

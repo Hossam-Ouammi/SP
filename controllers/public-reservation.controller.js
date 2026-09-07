@@ -12,17 +12,26 @@ const {
   convertirInstantEnDateHeureZonnee,
 } = require("../utils/timezone");
 const {
+  autoriserNouveauClientTempsReel,
   ajouterClientTempsReel,
   retirerClientTempsReel,
   configurerHeartbeatClient,
 } = require("../utils/realtime");
+const { normaliserIpClient } = require("../middleware/security.middleware");
 
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
 }
 
 function estDateIsoValide(date) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(date || ""));
+  const valeur = String(date || "");
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(valeur)) {
+    return false;
+  }
+
+  const dateObjet = new Date(`${valeur}T12:00:00Z`);
+  return !Number.isNaN(dateObjet.getTime()) && dateObjet.toISOString().startsWith(valeur);
 }
 
 function ajouterJoursIso(dateIso, nombreJours) {
@@ -237,6 +246,16 @@ function reserverCreneauPublic(req, res) {
 }
 
 function ouvrirFluxPlanningPublic(req, res) {
+  const clientKey = `public:${normaliserIpClient(req)}`;
+  const autorisation = autoriserNouveauClientTempsReel({
+    public: true,
+    clientKey,
+  });
+
+  if (!autorisation.ok) {
+    return res.status(autorisation.status).json({ message: autorisation.message });
+  }
+
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, private");
   res.setHeader("Connection", "keep-alive");
@@ -253,6 +272,7 @@ function ouvrirFluxPlanningPublic(req, res) {
     utilisateurId: null,
     public: true,
     scopes: ["seances", "indisponibilites"],
+    clientKey,
   });
 
   configurerHeartbeatClient(client);

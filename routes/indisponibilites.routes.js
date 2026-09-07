@@ -3,12 +3,12 @@ const express = require("express");
 const {
   recupererIndisponibilites,
   ajouterIndisponibilite,
+  modifierUneIndisponibilite,
   supprimerUneIndisponibilite,
 } = require("../controllers/indisponibilites.controller");
 const {
   verifierAuthentification,
   verifierCompteSecurise,
-  verifierAccesIndisponibilites,
   verifierAccesHossamUniquement,
 } = require("../middleware/auth.middleware");
 const { notifierMiseAJourApplication } = require("../utils/realtime-route");
@@ -17,11 +17,16 @@ const router = express.Router();
 
 router.use(verifierAuthentification, verifierCompteSecurise);
 
-router.get("/", verifierAccesIndisponibilites, recupererIndisponibilites);
+router.get("/", recupererIndisponibilites);
 router.post(
   "/",
   verifierAccesHossamUniquement,
   notifierMiseAJourApplication(ajouterIndisponibilite, "indisponibilites")
+);
+router.put(
+  "/:id",
+  verifierAccesHossamUniquement,
+  notifierMiseAJourApplication(modifierUneIndisponibilite, "indisponibilites")
 );
 router.delete(
   "/:id",

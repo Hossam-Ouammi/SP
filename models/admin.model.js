@@ -1,6 +1,6 @@
 const fsPromises = require("fs/promises");
 
-const { all, get, run } = require("./db");
+const { all, get, run, executerTransactionImmediate } = require("./db");
 const {
   listerCatalogueOptions,
   trouverValeurCatalogue,
@@ -10,12 +10,17 @@ const {
   mettreAJourTarifHoraireCompteCatalogue,
   compterUtilisationValeurCatalogue,
   supprimerValeurCatalogueParId,
+  restaurerValeurCatalogueSupprimeeParId,
 } = require("./catalogue.model");
 const {
   storageUploadsDirectory,
   assurerDossiersScreenshots,
 } = require("../utils/screenshot-storage");
-const { detacherSeancesHistorique } = require("./historique.model");
+const {
+  detacherSeancesHistorique,
+  detacherUtilisateurHistorique,
+} = require("./historique.model");
+const { detacherSeancesPropositions } = require("./proposition-seance.model");
 
 function normaliserCleCompte(utilisateur) {
   const email = String(utilisateur?.email || "").trim().toLowerCase();
@@ -328,16 +333,11 @@ async function supprimerToutesLesSeances() {
     FROM seances
   `);
 
-  await run("BEGIN IMMEDIATE TRANSACTION");
-
-  try {
+  await executerTransactionImmediate(async () => {
     await detacherSeancesHistorique(seances);
+    await detacherSeancesPropositions(seances);
     await run("DELETE FROM seances");
-    await run("COMMIT");
-  } catch (error) {
-    await run("ROLLBACK").catch(() => {});
-    throw error;
-  }
+  });
 
   await supprimerTousLesScreenshotsStockes();
 
@@ -355,11 +355,11 @@ async function supprimerToutHistorique() {
   `);
 
   await run("DELETE FROM historique_actions");
-  await run("DELETE FROM journal_auth");
 
   return {
     totalHistorique: Number(resume?.total_historique || 0),
-    totalJournalAuth: Number(resume?.total_journal_auth || 0),
+    totalJournalAuth: 0,
+    totalJournalAuthConserves: Number(resume?.total_journal_auth || 0),
   };
 }
 
@@ -391,10 +391,12 @@ async function trouverElementCatalogueSupprimeParId(elementId) {
   return trouverValeurCatalogueSupprimeeParId(elementId);
 }
 
-async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemplacementId) {
-  await run("BEGIN IMMEDIATE TRANSACTION");
+async function restaurerElementCatalogueSupprime(elementId) {
+  return restaurerValeurCatalogueSupprimeeParId(elementId);
+}
 
-  try {
+async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemplacementId) {
+  return executerTransactionImmediate(async () => {
     const totalSessionsSupprimees = await revoquerSessionsUtilisateur(utilisateurId);
     const seancesCreees = await run(
       `
@@ -420,14 +422,7 @@ async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemp
       `,
       [utilisateurId]
     );
-    await run(
-      `
-        UPDATE historique_actions
-        SET acteur_id = NULL
-        WHERE acteur_id = ?
-      `,
-      [utilisateurId]
-    );
+    const historiqueDetache = await detacherUtilisateurHistorique(utilisateurId);
     await run(
       `
         UPDATE journal_auth
@@ -438,19 +433,15 @@ async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemp
     );
     const suppression = await run("DELETE FROM utilisateurs WHERE id = ?", [utilisateurId]);
 
-    await run("COMMIT");
-
     return {
       totalSessionsSupprimees,
       totalSeancesCreeesReattribuees: Number(seancesCreees?.changes || 0),
       totalSeancesModifieesReattribuees: Number(seancesModifiees?.changes || 0),
       totalSeancesLegacyDetachees: Number(seancesLegacyDetachees?.changes || 0),
+      totalHistoriqueDetache: Number(historiqueDetache?.historiqueActionsChanges || 0),
       totalUtilisateursSupprimes: Number(suppression?.changes || 0),
     };
-  } catch (erreur) {
-    await run("ROLLBACK").catch(() => {});
-    throw erreur;
-  }
+  });
 }
 
 module.exports = {
@@ -475,5 +466,6 @@ module.exports = {
   ajouterElementCatalogue,
   compterUtilisationElementCatalogue,
   supprimerElementCatalogue,
+  restaurerElementCatalogueSupprime,
   supprimerUtilisateurAdministration,
 };

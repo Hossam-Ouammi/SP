@@ -1,4 +1,4 @@
-const { all, get, run } = require("./db");
+const { all, get, run, executerTransactionImmediate } = require("./db");
 
 const typesCatalogueAutorises = new Set(["matiere", "compte"]);
 const tarifsHorairesParDefautComptes = {
@@ -135,11 +135,7 @@ async function ajouterValeurCatalogue(type, valeur) {
     throw new Error("Type ou valeur de catalogue invalide.");
   }
 
-  await run("BEGIN IMMEDIATE TRANSACTION");
-
-  let resultat;
-
-  try {
+  const resultat = await executerTransactionImmediate(async () => {
     await run(
       `
         DELETE FROM catalogue_options_supprimees
@@ -147,18 +143,14 @@ async function ajouterValeurCatalogue(type, valeur) {
       `,
       [typeNormalise, valeurSuppression]
     );
-    resultat = await run(
+    return run(
       `
         INSERT INTO catalogue_options (type, valeur, tarif_horaire)
         VALUES (?, ?, ?)
       `,
       [typeNormalise, valeurNormalisee, tarifHoraire]
     );
-    await run("COMMIT");
-  } catch (error) {
-    await run("ROLLBACK").catch(() => {});
-    throw error;
-  }
+  });
 
   return get(
     `
@@ -209,9 +201,7 @@ async function supprimerValeurCatalogueParId(id) {
     return { changes: 0 };
   }
 
-  await run("BEGIN IMMEDIATE TRANSACTION");
-
-  try {
+  return executerTransactionImmediate(async () => {
     await run(
       `
         INSERT INTO catalogue_options_supprimees (
@@ -238,12 +228,49 @@ async function supprimerValeurCatalogueParId(id) {
       `,
       [id]
     );
-    await run("COMMIT");
     return resultat;
-  } catch (error) {
-    await run("ROLLBACK").catch(() => {});
-    throw error;
+  });
+}
+
+async function restaurerValeurCatalogueSupprimeeParId(id) {
+  const elementSupprime = await trouverValeurCatalogueSupprimeeParId(id);
+
+  if (!elementSupprime) {
+    return null;
   }
+
+  return executerTransactionImmediate(async () => {
+    const elementExistant = await trouverValeurCatalogue(
+      elementSupprime.type,
+      elementSupprime.valeur
+    );
+
+    await run(
+      `
+        DELETE FROM catalogue_options_supprimees
+        WHERE id = ?
+      `,
+      [id]
+    );
+
+    if (elementExistant) {
+      return elementExistant;
+    }
+
+    const resultat = await run(
+      `
+        INSERT INTO catalogue_options (type, valeur, tarif_horaire)
+        VALUES (?, ?, ?)
+      `,
+      [
+        elementSupprime.type,
+        elementSupprime.valeur,
+        obtenirTarifHoraireCatalogueParDefaut(elementSupprime.type, elementSupprime.valeur),
+      ]
+    );
+
+    return trouverValeurCatalogueParId(resultat.id);
+  });
 }
 
 module.exports = {
@@ -257,4 +284,5 @@ module.exports = {
   mettreAJourTarifHoraireCompteCatalogue,
   compterUtilisationValeurCatalogue,
   supprimerValeurCatalogueParId,
+  restaurerValeurCatalogueSupprimeeParId,
 };

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gestion des seances</title>
+    <title>Gestion des séances</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -14,13 +14,13 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Seances" />
+    <meta name="apple-mobile-web-app-title" content="Séances" />
     <link rel="manifest" href="/manifest.webmanifest?v=20260403a" />
     <link rel="icon" type="image/x-icon" href="/icons/favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/css/style.css?v=20260327a" />
+    <link rel="stylesheet" href="/css/style.css?v=20260611d" />
   </head>
   <body>
     <main>
@@ -28,14 +28,14 @@
         <div class="login-shell">
           <div class="panel login-card">
             <div class="login-header">
-              <div class="login-brand">Gestion des seances</div>
+              <div class="login-brand">Gestion des séances</div>
               <h1>Connexion</h1>
-              <p>Acces partage pour les deux utilisateurs.</p>
+              <p>Accès partagé pour les deux utilisateurs.</p>
             </div>
 
             <noscript>
               <p class="form-error">
-                JavaScript est requis pour utiliser l'application apres la connexion.
+                JavaScript est requis pour utiliser l'application après la connexion.
               </p>
             </noscript>
 
@@ -93,7 +93,7 @@
       <section id="app-view" class="page app-page<%= user ? "" : " hidden" %>">
         <header class="topbar panel">
           <div class="topbar-left">
-            <h1 class="brand-title">Gestion des seances</h1>
+            <h1 class="brand-title">Gestion des séances</h1>
             <div class="topbar-meta">
               <span class="user-pill" id="current-user-name">Utilisateur</span>
             </div>
@@ -104,7 +104,7 @@
               Ajouter
             </button>
             <button id="logout-button" class="button secondary" type="button">
-              Deconnexion
+              Déconnexion
             </button>
           </div>
         </header>
@@ -117,13 +117,13 @@
             Dashboard
           </button>
           <button class="nav-tab hidden" type="button" data-section-target="indisponibilites">
-            Indisponibilites
+            Indisponibilités
           </button>
           <button class="nav-tab" type="button" data-section-target="statistiques">
             Statistiques
           </button>
           <button class="nav-tab hidden" type="button" data-section-target="monetisation">
-            Monetisation
+            Monétisation
           </button>
           <button class="nav-tab" type="button" data-section-target="historique">
             Historique
@@ -161,98 +161,64 @@
           <section class="panel admin-panel-shell">
             <div class="section-heading section-heading-stack">
               <div>
-                <h2>Indisponibilites</h2>
+                <h2>Indisponibilités</h2>
                 <p class="section-note">
-                  Declare ici les creneaux non disponibles. Aucune seance ne pourra etre ajoutee sur
+                  Déclare ici les créneaux non disponibles. Aucune séance ne pourra être ajoutée sur
                   ces horaires.
                 </p>
               </div>
             </div>
 
-            <div class="admin-panel-layout">
-              <form
-                id="admin-unavailability-form"
-                class="stack-form user-password-form user-admin-form admin-action-card"
-                novalidate
+            <nav class="unavailability-workbench-nav" aria-label="Vues des indisponibilités">
+              <button
+                class="admin-workbench-tab is-active"
+                type="button"
+                data-unavailability-view="declaration"
               >
+                Déclaration
+              </button>
+              <button
+                id="unavailability-propositions-tab"
+                class="admin-workbench-tab"
+                type="button"
+                data-unavailability-view="propositions"
+              >
+                <span>Propositions</span>
+                <span
+                  id="unavailability-propositions-badge"
+                  class="menu-notification-badge hidden"
+                  aria-hidden="true"
+                ></span>
+              </button>
+            </nav>
+
+            <div
+              id="unavailability-declaration-panel"
+              class="unavailability-workbench-panel"
+              data-unavailability-panel="declaration"
+            >
+              <section class="admin-card unavailability-calendar-card">
                 <div class="admin-card-head">
                   <div>
-                    <h3 class="user-form-title">Declarer une indisponibilite</h3>
-                    <p class="section-note">
-                      Bloque un creneau precis pour empecher toute planification.
-                    </p>
+                    <h3 class="user-form-title">Déclaration</h3>
                   </div>
                 </div>
 
-                <label class="field">
-                  <span>Date</span>
-                  <input id="admin-unavailability-date" type="date" />
-                </label>
+                <div id="unavailability-calendar"></div>
+              </section>
+            </div>
 
-                <fieldset class="field checkbox-field">
-                  <span>Portee</span>
-                  <div class="checkbox-options">
-                    <label class="checkbox-option">
-                      <input id="admin-unavailability-full-day" type="checkbox" />
-                      <span>Jour complet indisponible</span>
-                    </label>
-                  </div>
-                </fieldset>
-
-                <p id="admin-unavailability-full-day-note" class="section-note hidden">
-                  Cette date sera entierement bloquee dans le calendrier et ne pourra plus etre
-                  cliquee pour ajouter une seance.
-                </p>
-
-                <div id="admin-unavailability-time-fields" class="form-grid">
-                  <label class="field">
-                    <span>Heure de debut</span>
-                    <input
-                      id="admin-unavailability-start"
-                      type="time"
-                      step="1800"
-                    />
-                  </label>
-
-                  <label class="field">
-                    <span>Heure de fin</span>
-                    <input
-                      id="admin-unavailability-end"
-                      type="time"
-                      step="1800"
-                    />
-                  </label>
-                </div>
-
-                <label class="field">
-                  <span>Raison</span>
-                  <input
-                    id="admin-unavailability-reason"
-                    type="text"
-                    maxlength="200"
-                    placeholder="Optionnel"
-                  />
-                </label>
-
-                <p id="admin-unavailability-error" class="form-error hidden"></p>
-
-                <div class="form-actions">
-                  <button
-                    id="admin-unavailability-button"
-                    class="button secondary"
-                    type="submit"
-                  >
-                    Ajouter le creneau
-                  </button>
-                </div>
-              </form>
-
+            <div
+              id="unavailability-propositions-panel"
+              class="unavailability-workbench-panel hidden"
+              data-unavailability-panel="propositions"
+            >
               <article class="admin-card admin-directory-card">
                 <div class="admin-card-head">
                   <div>
-                    <h3 class="user-form-title">Creneaux deja bloques</h3>
+                    <h3 class="user-form-title">Propositions</h3>
                     <p class="section-note">
-                      Supprime un creneau si tu veux le rendre a nouveau disponible.
+                      Valide, refuse ou ajuste les demandes qui tombent sur un créneau bloqué.
                     </p>
                   </div>
                 </div>
@@ -285,7 +251,7 @@
             <div class="section-heading section-heading-stack">
               <div>
                 <h2>Comparatif direct</h2>
-                <p class="section-note">Les indicateurs essentiels, separes par compte.</p>
+                <p class="section-note">Les indicateurs essentiels, séparés par compte.</p>
               </div>
             </div>
 
@@ -297,7 +263,7 @@
               </div>
 
               <div class="stats-table-row">
-                <span>Planifiees</span>
+                <span>Planifiées</span>
                 <strong id="stats-yassine-planned">0</strong>
                 <strong id="stats-abdo-planned">0</strong>
               </div>
@@ -309,25 +275,25 @@
               </div>
 
               <div class="stats-table-row stats-table-row-muted stats-table-row-sub">
-                <span class="stats-table-label-sub">Seances d'essai</span>
+                <span class="stats-table-label-sub">Séances d'essai</span>
                 <strong id="stats-yassine-completed-trial">0</strong>
                 <strong id="stats-abdo-completed-trial">0</strong>
               </div>
 
               <div class="stats-table-row stats-table-row-muted stats-table-row-sub">
-                <span class="stats-table-label-sub">Seances standards</span>
+                <span class="stats-table-label-sub">Séances standard</span>
                 <strong id="stats-yassine-completed-regular">0</strong>
                 <strong id="stats-abdo-completed-regular">0</strong>
               </div>
 
               <div class="stats-table-row">
-                <span>Reportees</span>
+                <span>Reportées</span>
                 <strong id="stats-yassine-postponed">0</strong>
                 <strong id="stats-abdo-postponed">0</strong>
               </div>
 
               <div class="stats-table-row">
-                <span>Annulees</span>
+                <span>Annulées</span>
                 <strong id="stats-yassine-cancelled">0</strong>
                 <strong id="stats-abdo-cancelled">0</strong>
               </div>
@@ -341,7 +307,7 @@
               <div>
                 <h2 id="admin-panel-title">User admin</h2>
                 <p id="admin-panel-note" class="section-note">
-                  Securite du compte et outils user.
+                  Sécurité du compte et outils utilisateur.
                 </p>
               </div>
             </div>
@@ -350,7 +316,7 @@
               <article class="admin-identity-card">
                 <div class="admin-identity-head">
                   <div>
-                    <span class="summary-label">Compte connecte</span>
+                    <span class="summary-label">Compte connecté</span>
                     <strong id="user-username" class="summary-value user-summary-value">-</strong>
                   </div>
 
@@ -367,7 +333,7 @@
                   </div>
                 </div>
 
-                <p id="user-security-status" class="user-security-status">Compte securise.</p>
+                <p id="user-security-status" class="user-security-status">Compte sécurisé.</p>
 
                 <div class="admin-identity-stats">
                   <div class="admin-identity-stat">
@@ -375,7 +341,7 @@
                     <strong id="user-admin-access">Non</strong>
                   </div>
                   <div class="admin-identity-stat">
-                    <span>Derniere connexion</span>
+                    <span>Dernière connexion</span>
                     <strong id="user-last-login">-</strong>
                   </div>
                 </div>
@@ -383,9 +349,9 @@
 
               <article class="admin-guide-card">
                 <span class="summary-label">Vue rapide</span>
-                <strong id="admin-guide-title" class="admin-guide-title">Securite et controle</strong>
+                <strong id="admin-guide-title" class="admin-guide-title">Sécurité et contrôle</strong>
                 <p id="admin-guide-note" class="section-note">
-                  Le mot de passe se modifie ici. Les actions avancees sont reservees a
+                  Le mot de passe se modifie ici. Les actions avancées sont réservées à
                   Hossam et demandent toujours son mot de passe actuel.
                 </p>
               </article>
@@ -399,7 +365,7 @@
               >
                 <div class="admin-card-head">
                   <div>
-                    <h3 class="user-form-title">Securite du compte</h3>
+                    <h3 class="user-form-title">Sécurité du compte</h3>
                     <p class="section-note">
                       Modifiez votre mot de passe depuis cet espace.
                     </p>
@@ -408,7 +374,7 @@
 
                 <div class="admin-card-body stack-form">
                   <div id="password-security-notice" class="security-notice hidden">
-                    Changez le mot de passe maintenant pour debloquer l'application.
+                    Changez le mot de passe maintenant pour débloquer l'application.
                   </div>
 
                   <label class="field">
@@ -447,7 +413,7 @@
                   </label>
 
                   <p class="user-password-help">
-                    12 caracteres minimum avec minuscule, majuscule, chiffre et caractere special.
+                    12 caractères minimum avec minuscule, majuscule, chiffre et caractère spécial.
                   </p>
 
                   <p id="user-password-error" class="form-error hidden"></p>
@@ -474,10 +440,10 @@
                     Catalogue
                   </button>
                   <button class="admin-workbench-tab" type="button" data-admin-view="access">
-                    Acces
+                    Accès
                   </button>
                   <button class="admin-workbench-tab" type="button" data-admin-view="security">
-                    Securite
+                    Sécurité
                   </button>
                   <button class="admin-workbench-tab" type="button" data-admin-view="password">
                     MDP
@@ -498,7 +464,7 @@
                     <div>
                       <h3 class="user-form-title">Utilisateurs</h3>
                       <p class="section-note">
-                        Ajoutez des comptes et suivez leur etat en un seul endroit.
+                        Ajoutez des comptes et suivez leur état en un seul endroit.
                       </p>
                     </div>
                   </div>
@@ -544,7 +510,7 @@
                       <div>
                         <h3 class="user-form-title">Ajouter un compte</h3>
                         <p class="section-note">
-                          Ajoute un compte de travail disponible dans les seances.
+                          Ajoute un compte de travail disponible dans les séances.
                         </p>
                       </div>
 
@@ -673,9 +639,9 @@
                       data-admin-group="accounts"
                     >
                       <div>
-                        <h3 class="user-form-title">Reinitialiser un mot de passe</h3>
+                        <h3 class="user-form-title">Réinitialiser un mot de passe</h3>
                         <p class="section-note">
-                          Genere un code temporaire unique. Pense a le copier: il ne sera pas stocke en clair.
+                          Génère un code temporaire unique. Pense à le copier : il ne sera pas stocké en clair.
                         </p>
                       </div>
 
@@ -706,7 +672,7 @@
                           class="button danger"
                           type="submit"
                         >
-                          Reinitialiser le mot de passe
+                          Réinitialiser le mot de passe
                         </button>
                       </div>
                     </form>
@@ -717,9 +683,9 @@
                       data-admin-group="access"
                     >
                       <div>
-                        <h3 class="user-form-title">Gerer l'acces</h3>
+                        <h3 class="user-form-title">Gérer l'accès</h3>
                         <p class="section-note">
-                          Suspendez ou reactivez un compte collaborateur.
+                          Suspendez ou réactivez un compte collaborateur.
                         </p>
                       </div>
 
@@ -729,7 +695,7 @@
                       </label>
 
                       <div class="security-notice security-notice-subtle">
-                        Etat actuel : <strong id="admin-toggle-access-status">-</strong>
+                        État actuel : <strong id="admin-toggle-access-status">-</strong>
                       </div>
 
                       <label class="field">
@@ -750,7 +716,7 @@
                           class="button secondary"
                           type="submit"
                         >
-                          Mettre a jour l'acces
+                          Mettre à jour l'accès
                         </button>
                       </div>
                     </form>
@@ -773,7 +739,7 @@
                       </label>
 
                       <div class="security-notice security-notice-subtle">
-                        Etat actuel : <strong id="admin-readonly-status">-</strong>
+                        État actuel : <strong id="admin-readonly-status">-</strong>
                       </div>
 
                       <label class="field">
@@ -790,7 +756,7 @@
 
                       <div class="form-actions">
                         <button id="admin-readonly-button" class="button secondary" type="submit">
-                          Mettre a jour le mode
+                          Mettre à jour le mode
                         </button>
                       </div>
                     </form>
@@ -813,7 +779,7 @@
                       </label>
 
                       <div class="security-notice security-notice-subtle">
-                        Etat actuel : <strong id="admin-today-status">-</strong>
+                        État actuel : <strong id="admin-today-status">-</strong>
                       </div>
 
                       <label class="field">
@@ -830,7 +796,7 @@
 
                       <div class="form-actions">
                         <button id="admin-today-button" class="button secondary" type="submit">
-                          Mettre a jour Aujourd'hui
+                          Mettre à jour Aujourd'hui
                         </button>
                       </div>
                     </form>
@@ -841,9 +807,9 @@
                       data-admin-group="access"
                     >
                       <div>
-                        <h3 class="user-form-title">Afficher Indisponibilites</h3>
+                        <h3 class="user-form-title">Afficher Indisponibilités</h3>
                         <p class="section-note">
-                          Autorise ou masque le menu Indisponibilites pour le compte cible.
+                          Autorise ou masque le menu Indisponibilités pour le compte cible.
                         </p>
                       </div>
 
@@ -853,7 +819,7 @@
                       </label>
 
                       <div class="security-notice security-notice-subtle">
-                        Etat actuel : <strong id="admin-unavailability-access-status">-</strong>
+                        État actuel : <strong id="admin-unavailability-access-status">-</strong>
                       </div>
 
                       <label class="field">
@@ -874,7 +840,7 @@
                           class="button secondary"
                           type="submit"
                         >
-                          Mettre a jour Indisponibilites
+                          Mettre à jour Indisponibilités
                         </button>
                       </div>
                     </form>
@@ -885,9 +851,9 @@
                       data-admin-group="access"
                     >
                       <div>
-                        <h3 class="user-form-title">Afficher Monetisation</h3>
+                        <h3 class="user-form-title">Afficher Monétisation</h3>
                         <p class="section-note">
-                          Autorise ou masque le menu Monetisation pour le compte cible.
+                          Autorise ou masque le menu Monétisation pour le compte cible.
                         </p>
                       </div>
 
@@ -897,7 +863,7 @@
                       </label>
 
                       <div class="security-notice security-notice-subtle">
-                        Etat actuel : <strong id="admin-monetisation-status">-</strong>
+                        État actuel : <strong id="admin-monetisation-status">-</strong>
                       </div>
 
                       <label class="field">
@@ -914,7 +880,7 @@
 
                       <div class="form-actions">
                         <button id="admin-monetisation-button" class="button secondary" type="submit">
-                          Mettre a jour Monetisation
+                          Mettre à jour Monétisation
                         </button>
                       </div>
                     </form>
@@ -927,12 +893,12 @@
                       <div>
                         <h3 class="user-form-title">Tarif horaire</h3>
                         <p class="section-note">
-                          Definissez le tarif applique a chaque compte de seance pour la monetisation.
+                          Définissez le tarif appliqué à chaque compte de séance pour la monétisation.
                         </p>
                       </div>
 
                       <label class="field">
-                        <span>Compte de seance</span>
+                        <span>Compte de séance</span>
                         <select id="admin-rate-user-id" required></select>
                       </label>
 
@@ -967,7 +933,7 @@
 
                       <div class="form-actions">
                         <button id="admin-rate-button" class="button secondary" type="submit">
-                          Mettre a jour le tarif
+                          Mettre à jour le tarif
                         </button>
                       </div>
                     </form>
@@ -980,7 +946,7 @@
                       <div>
                         <h3 class="user-form-title">Couper les sessions d'un compte</h3>
                         <p class="section-note">
-                          Force la deconnexion de toutes les sessions actives du compte cible.
+                          Force la déconnexion de toutes les sessions actives du compte cible.
                         </p>
                       </div>
 
@@ -1016,12 +982,12 @@
                       <div>
                         <h3 class="user-form-title">Maintenance SQLite</h3>
                         <p class="section-note">
-                          Verifie la base, libere le journal WAL et applique les optimisations legeres.
+                          Vérifie la base, libère le journal WAL et applique les optimisations légères.
                         </p>
                       </div>
 
                       <div class="security-notice security-notice-subtle">
-                        Dernier etat : <strong id="admin-maintenance-sqlite-status">Non verifie</strong>
+                        Dernier état : <strong id="admin-maintenance-sqlite-status">Non vérifié</strong>
                       </div>
 
                       <label class="field">
@@ -1046,7 +1012,7 @@
                           class="button secondary"
                           type="submit"
                         >
-                          Verifier SQLite
+                          Vérifier SQLite
                         </button>
                       </div>
                     </form>
@@ -1057,9 +1023,9 @@
                       data-admin-group="danger"
                     >
                       <div>
-                        <h3 class="user-form-title">Supprimer toutes les seances</h3>
+                        <h3 class="user-form-title">Supprimer toutes les séances</h3>
                         <p class="section-note">
-                          Efface toutes les seances.
+                          Efface toutes les séances.
                         </p>
                       </div>
 
@@ -1081,7 +1047,7 @@
                           class="button danger"
                           type="submit"
                         >
-                          Supprimer toutes les seances
+                          Supprimer toutes les séances
                         </button>
                       </div>
                     </form>
@@ -1094,7 +1060,7 @@
                       <div>
                         <h3 class="user-form-title">Supprimer tout l'historique</h3>
                         <p class="section-note">
-                          Vide l'historique des actions sans toucher aux seances.
+                          Vide l'historique des actions sans toucher aux séances.
                         </p>
                       </div>
 
@@ -1154,7 +1120,7 @@
                     <div>
                       <h3 class="user-form-title">Appareils auto-login</h3>
                       <p class="section-note">
-                        Gere les telephones et ordinateurs qui peuvent entrer directement sans login.
+                        Gère les téléphones et ordinateurs qui peuvent entrer directement sans identifiant.
                       </p>
                     </div>
                   </div>
@@ -1193,7 +1159,7 @@
                     <div>
                       <h3 class="user-form-title">Blacklist IP</h3>
                       <p class="section-note">
-                        Bloquez une adresse IP et gerer les blocages existants.
+                        Bloquez une adresse IP et gérez les blocages existants.
                       </p>
                     </div>
                   </div>
@@ -1242,8 +1208,8 @@
                 <div>
                   <h3 class="user-form-title">Notifications push</h3>
                   <p class="section-note">
-                    Activez les notifications sur cet appareil pour recevoir les mises a jour en temps reel
-                    et un rappel des seances du jour toutes les 2 heures.
+                    Activez les notifications sur cet appareil pour recevoir les mises à jour en temps réel
+                    et un rappel des séances du jour toutes les 2 heures.
                   </p>
                 </div>
               </div>
@@ -1251,7 +1217,7 @@
               <div class="admin-card-body stack-form">
                 <div class="admin-identity-stats">
                   <div class="admin-identity-stat">
-                    <span>Etat</span>
+                    <span>État</span>
                     <strong id="push-status-label">-</strong>
                   </div>
                   <div class="admin-identity-stat">
@@ -1264,7 +1230,7 @@
                   id="push-settings-info"
                   class="security-notice security-notice-subtle"
                 >
-                  Les notifications sont desactivees sur cet appareil.
+                  Les notifications sont désactivées sur cet appareil.
                 </div>
 
                 <p id="push-settings-error" class="form-error hidden"></p>
@@ -1274,7 +1240,7 @@
                     Activer sur cet appareil
                   </button>
                   <button id="push-disable-button" class="button secondary" type="button">
-                    Desactiver
+                    Désactiver
                   </button>
                   <button id="push-test-button" class="button secondary" type="button">
                     Envoyer un test
@@ -1288,7 +1254,7 @@
         <section id="monetisation-section" class="app-section hidden">
           <section class="panel stats-compare-panel monetisation-period-panel">
             <div class="monetisation-period-bar">
-              <div class="monetisation-period-nav" aria-label="Navigation de periode">
+              <div class="monetisation-period-nav" aria-label="Navigation de période">
                 <button
                   id="monetisation-previous-month-button"
                   class="button secondary monetisation-period-nav-button"
@@ -1314,7 +1280,7 @@
                 </strong>
               </div>
 
-              <div class="monetisation-period-modes" aria-label="Mode de periode">
+              <div class="monetisation-period-modes" aria-label="Mode de période">
                 <button
                   id="monetisation-mode-option-one-button"
                   class="button secondary monetisation-period-mode-button"
@@ -1338,14 +1304,14 @@
                 class="button primary monetisation-download-button"
                 type="button"
               >
-                Telecharger releve mensuel
+                Télécharger le relevé mensuel
               </button>
             </div>
           </section>
 
           <section class="statistics-overview-grid monetisation-overview-grid">
             <article class="panel stat-overview-card monetisation-card-primary">
-              <span class="stat-overview-label">Monetisation totale</span>
+              <span class="stat-overview-label">Monétisation totale</span>
               <strong id="monetisation-total-amount" class="stat-overview-value">0 dh</strong>
             </article>
 
@@ -1363,7 +1329,7 @@
           <section class="panel stats-compare-panel monetisation-details-panel">
             <div class="section-heading section-heading-stack">
               <div>
-                <h2>Details par compte</h2>
+                <h2>Détails par compte</h2>
               </div>
             </div>
 
@@ -1382,11 +1348,11 @@
                     <strong id="monetisation-yassine-rate">130 dh</strong>
                   </div>
                   <div class="stats-list-row">
-                    <span>Seances facturables</span>
+                    <span>Séances facturables</span>
                     <strong id="monetisation-yassine-billable-count">0</strong>
                   </div>
                   <div class="stats-list-row">
-                    <span>Seances d'essai faites</span>
+                    <span>Séances d'essai faites</span>
                     <strong id="monetisation-yassine-trial-count">0</strong>
                   </div>
                 </div>
@@ -1406,11 +1372,11 @@
                     <strong id="monetisation-abdo-rate">90 dh</strong>
                   </div>
                   <div class="stats-list-row">
-                    <span>Seances facturables</span>
+                    <span>Séances facturables</span>
                     <strong id="monetisation-abdo-billable-count">0</strong>
                   </div>
                   <div class="stats-list-row">
-                    <span>Seances d'essai faites</span>
+                    <span>Séances d'essai faites</span>
                     <strong id="monetisation-abdo-trial-count">0</strong>
                   </div>
                 </div>
@@ -1437,9 +1403,9 @@
           >
             <div class="section-heading section-heading-stack">
               <div>
-                <h2>Comptes du releve</h2>
+                <h2>Comptes du relevé</h2>
                 <p id="monetisation-report-accounts-note" class="section-note">
-                  Choisis les comptes a inclure dans le releve.
+                  Choisis les comptes à inclure dans le relevé.
                 </p>
               </div>
             </div>
@@ -1464,11 +1430,11 @@
 
             <article class="panel history-panel history-panel-detail">
               <div class="section-heading">
-                <h2>Detail</h2>
+                <h2>Détail</h2>
               </div>
 
               <div id="history-detail-empty" class="empty-state">
-                Selectionnez une action pour voir les details enregistres.
+                Sélectionnez une action pour voir les détails enregistrés.
               </div>
 
               <div id="history-detail" class="history-detail hidden">
@@ -1478,7 +1444,7 @@
                     <strong id="history-detail-action">-</strong>
                   </div>
                   <div class="detail-row">
-                    <span>Seance</span>
+                    <span>Séance</span>
                     <strong id="history-detail-seance">-</strong>
                   </div>
                   <div class="detail-row">
@@ -1492,7 +1458,7 @@
                 </div>
 
                 <div class="history-changes">
-                  <h3 id="history-changes-title">Details</h3>
+                  <h3 id="history-changes-title">Détails</h3>
                   <div id="history-changes-list" class="history-changes-list"></div>
                 </div>
 
@@ -1500,7 +1466,7 @@
                   <div class="history-admin-actions-header">
                     <h3>Supprimer cette action</h3>
                     <p class="section-note">
-                      Reserve a l'admin. Le mot de passe actuel est obligatoire.
+                      Réservé à l'administrateur. Le mot de passe actuel est obligatoire.
                     </p>
                   </div>
 
@@ -1578,7 +1544,7 @@
           </div>
 
           <div class="history-changes">
-            <h3>Details</h3>
+            <h3>Détails</h3>
             <div id="audit-log-modal-details-list" class="history-changes-list"></div>
           </div>
         </div>
@@ -1590,7 +1556,7 @@
       <div class="modal-panel modal-large">
         <div class="modal-header">
           <div class="modal-heading">
-            <h3>Detail</h3>
+            <h3>Détail</h3>
             <p id="history-detail-modal-subtitle" class="modal-subtitle hidden"></p>
           </div>
           <button class="icon-button" type="button" data-close-modal="history-detail-modal">
@@ -1605,7 +1571,7 @@
               <strong id="history-detail-modal-action">-</strong>
             </div>
             <div class="detail-row">
-              <span>Seance</span>
+              <span>Séance</span>
               <strong id="history-detail-modal-seance">-</strong>
             </div>
             <div class="detail-row">
@@ -1619,7 +1585,7 @@
           </div>
 
           <div class="history-changes">
-            <h3 id="history-detail-modal-changes-title">Details</h3>
+            <h3 id="history-detail-modal-changes-title">Détails</h3>
             <div id="history-detail-modal-changes-list" class="history-changes-list"></div>
           </div>
 
@@ -1627,7 +1593,7 @@
             <div class="history-admin-actions-header">
               <h3>Supprimer cette action</h3>
               <p class="section-note">
-                Reserve a l'admin. Le mot de passe actuel est obligatoire.
+                Réservé à l'administrateur. Le mot de passe actuel est obligatoire.
               </p>
             </div>
 
@@ -1661,7 +1627,7 @@
       <div class="modal-panel modal-large">
         <div class="modal-header">
           <div class="modal-heading">
-            <h3 id="seance-modal-title">Nouvelle seance</h3>
+            <h3 id="seance-modal-title">Nouvelle séance</h3>
             <p id="seance-modal-subtitle" class="modal-subtitle hidden"></p>
           </div>
           <button class="icon-button" type="button" data-close-modal="seance-modal">
@@ -1677,19 +1643,19 @@
               <div class="form-section-header">
                 <div>
                   <h4>Informations</h4>
-                  <p>Identite eleve, parent et matiere.</p>
+                  <p>Identité élève, parent et matière.</p>
                 </div>
               </div>
 
               <div class="form-grid form-grid-profile">
                 <div class="identity-stack">
                   <label class="field field-student">
-                    <span>Etudiant</span>
+                    <span>Étudiant</span>
                     <input
                       id="etudiant"
                       name="etudiant"
                       type="text"
-                      placeholder="Nom de l'etudiant"
+                      placeholder="Nom de l'étudiant"
                       required
                     />
                   </label>
@@ -1701,7 +1667,7 @@
                 </div>
 
                 <fieldset class="field checkbox-field subject-fieldset">
-                  <span>Matiere</span>
+                  <span>Matière</span>
                   <div id="matiere-options" class="checkbox-options checkbox-options-2"></div>
                 </fieldset>
 
@@ -1712,7 +1678,7 @@
               <div class="form-section-header">
                 <div>
                   <h4>Planification</h4>
-                  <p>Date, heure, duree et compte de travail.</p>
+                  <p>Date, heure, durée et compte de travail.</p>
                 </div>
               </div>
 
@@ -1724,11 +1690,11 @@
             </label>
 
             <fieldset class="field checkbox-field">
-              <span>Heure de debut</span>
+              <span>Heure de début</span>
               <input id="heure_debut" name="heure_debut" type="hidden" required />
               <div class="time-select-row">
-                <select id="heure-debut-hour-select" aria-label="Heure de debut - heure"></select>
-                <select id="heure-debut-minute-select" aria-label="Heure de debut - minutes"></select>
+                <select id="heure-debut-hour-select" aria-label="Heure de début - heure"></select>
+                <select id="heure-debut-minute-select" aria-label="Heure de début - minutes"></select>
               </div>
             </fieldset>
 
@@ -1738,7 +1704,7 @@
             </fieldset>
 
             <fieldset class="field checkbox-field duration-field">
-              <span>Duree</span>
+              <span>Durée</span>
               <div class="checkbox-options checkbox-options-3">
                 <label class="checkbox-option">
                   <input
@@ -1772,12 +1738,12 @@
 
             <input id="heure_fin_calculee" type="hidden" />
 
-            <fieldset class="field field-full checkbox-field">
+            <fieldset id="status-section" class="field field-full checkbox-field">
               <span>Statut</span>
               <div class="checkbox-options checkbox-options-2">
                 <label class="checkbox-option status-option">
                   <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="planifiee" />
-                  <span>Planifiee</span>
+                  <span>Planifiée</span>
                 </label>
                 <label class="checkbox-option status-option">
                   <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="faite" />
@@ -1785,17 +1751,17 @@
                 </label>
                 <label class="checkbox-option status-option status-option-edit-only">
                   <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="reportee" />
-                  <span>Reportee</span>
+                  <span>Reportée</span>
                 </label>
                 <label class="checkbox-option status-option status-option-edit-only">
                   <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="annulee" />
-                  <span>Annulee</span>
+                  <span>Annulée</span>
                 </label>
               </div>
             </fieldset>
 
             <fieldset class="field field-full checkbox-field">
-              <span>Seance d'essai</span>
+              <span>Séance d'essai</span>
               <div class="checkbox-options checkbox-options-2">
                 <label class="checkbox-option">
                   <input class="single-checkbox essai-checkbox" name="est_essai" type="checkbox" value="0" />
@@ -1811,7 +1777,7 @@
               </div>
             </section>
 
-            <section class="form-section">
+            <section id="description-section" class="form-section">
               <div class="form-section-header">
                 <div>
                   <h4>Description</h4>
@@ -1826,7 +1792,7 @@
                     id="description"
                     name="description"
                     rows="4"
-                    placeholder="Notes, remarques, points a revoir..."
+                    placeholder="Notes, remarques, points à revoir..."
                   ></textarea>
                 </label>
               </div>
@@ -1851,7 +1817,7 @@
       <div class="modal-backdrop" data-close-modal="detail-modal"></div>
       <div class="modal-panel">
         <div class="modal-header">
-          <h3 id="detail-title">Seance</h3>
+          <h3 id="detail-title">Séance</h3>
           <button class="icon-button" type="button" data-close-modal="detail-modal">
             x
           </button>
@@ -1865,7 +1831,7 @@
 
             <div class="detail-list">
               <div class="detail-row">
-                <span>Etudiant</span>
+                <span>?tudiant</span>
                 <strong id="detail-student">-</strong>
               </div>
               <div class="detail-row">
@@ -1873,7 +1839,7 @@
                 <strong id="detail-parent">-</strong>
               </div>
               <div class="detail-row">
-                <span>Matiere</span>
+                <span>Matière</span>
                 <strong id="detail-subject">-</strong>
               </div>
               <div class="detail-row">
@@ -1889,27 +1855,27 @@
                 <strong id="detail-time">-</strong>
               </div>
               <div class="detail-row">
-                <span>Duree</span>
+                <span>Durée</span>
                 <strong id="detail-duration">-</strong>
               </div>
               <div class="detail-row">
-                <span>Seance d'essai</span>
+                <span>Séance d'essai</span>
                 <strong id="detail-trial">-</strong>
               </div>
               <div class="detail-row">
-                <span>Creee par</span>
+                <span>Cr??e par</span>
                 <strong id="detail-created-by">-</strong>
               </div>
               <div class="detail-row">
-                <span>Modifiee par</span>
+                <span>Modifiée par</span>
                 <strong id="detail-updated-by">-</strong>
               </div>
               <div class="detail-row">
-                <span>Creee le</span>
+                <span>Cr??e le</span>
                 <strong id="detail-created-at">-</strong>
               </div>
               <div class="detail-row">
-                <span>Mis a jour le</span>
+                <span>Mis ? jour le</span>
                 <strong id="detail-updated-at">-</strong>
               </div>
             </div>
@@ -1953,6 +1919,125 @@
       </div>
     </div>
 
+    <div id="unavailability-detail-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="unavailability-detail-modal"></div>
+      <div class="modal-panel">
+        <div class="modal-header">
+          <div class="modal-heading">
+            <h3 id="unavailability-detail-title">Indisponibilit?</h3>
+            <p id="unavailability-detail-subtitle" class="modal-subtitle hidden"></p>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="unavailability-detail-modal">
+            x
+          </button>
+        </div>
+
+        <div class="detail-layout">
+          <section class="detail-card">
+            <div class="detail-badges">
+              <span id="unavailability-detail-badge" class="status-badge">Indisponible</span>
+            </div>
+
+            <div class="detail-list">
+              <div class="detail-row">
+                <span>Date</span>
+                <strong id="unavailability-detail-date">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Plage</span>
+                <strong id="unavailability-detail-time">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Cr??e par</span>
+                <strong id="unavailability-detail-created-by">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Cr??e le</span>
+                <strong id="unavailability-detail-created-at">-</strong>
+              </div>
+            </div>
+
+            <div class="detail-actions">
+              <button id="edit-unavailability-button" class="button primary" type="button">
+                Modifier
+              </button>
+              <button id="duplicate-unavailability-button" class="button secondary" type="button">
+                Dupliquer
+              </button>
+              <button id="delete-unavailability-button" class="button danger" type="button">
+                Supprimer
+              </button>
+            </div>
+          </section>
+
+          <section id="unavailability-form-panel" class="detail-card hidden">
+            <h4 id="unavailability-form-title">Modifier</h4>
+            <form id="unavailability-modal-form" class="stack-form" novalidate>
+              <label class="field">
+                <span>Date</span>
+                <input id="unavailability-modal-date" type="date" />
+              </label>
+
+              <fieldset class="field checkbox-field">
+                <span>Portée</span>
+                <div class="checkbox-options">
+                  <label class="checkbox-option">
+                    <input id="unavailability-modal-full-day" type="checkbox" />
+                    <span>Jour complet indisponible</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <p id="unavailability-modal-full-day-note" class="section-note hidden">
+                Cette date sera entièrement bloquée dans le calendrier.
+              </p>
+
+              <div id="unavailability-modal-time-fields" class="form-grid">
+                <fieldset class="field checkbox-field">
+                  <span>Heure de début</span>
+                  <div class="time-select-row">
+                    <select
+                      id="unavailability-modal-start-hour-select"
+                      aria-label="Heure de début - heure"
+                    ></select>
+                    <select
+                      id="unavailability-modal-start-minute-select"
+                      aria-label="Heure de début - minutes"
+                    ></select>
+                  </div>
+                </fieldset>
+
+                <fieldset class="field checkbox-field">
+                  <span>Heure de fin</span>
+                  <div class="time-select-row">
+                    <select
+                      id="unavailability-modal-end-hour-select"
+                      aria-label="Heure de fin - heure"
+                    ></select>
+                    <select
+                      id="unavailability-modal-end-minute-select"
+                      aria-label="Heure de fin - minutes"
+                    ></select>
+                  </div>
+                </fieldset>
+              </div>
+
+              <p id="unavailability-modal-error" class="form-error hidden"></p>
+
+              <div class="form-actions">
+                <button id="cancel-unavailability-form-button" class="button secondary" type="button">
+                  Annuler
+                </button>
+                <button id="save-unavailability-button" class="button primary" type="submit">
+                  Sauvegarder
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <script src="/vendor/@fullcalendar/core/index.global.js"></script>
@@ -1960,6 +2045,6 @@
     <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
-    <script type="module" src="/js/ui.js?v=20260327a"></script>
+    <script type="module" src="/js/ui.js?v=20260611d"></script>
   </body>
 </html>

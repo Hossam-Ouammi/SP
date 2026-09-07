@@ -51,17 +51,57 @@ export async function recupererIndisponibilites() {
 }
 
 export async function creerIndisponibilite(donneesIndisponibilite) {
-  const resultat = await envoyerRequete("/api/indisponibilites", {
+  return envoyerRequete("/api/indisponibilites", {
     method: "POST",
     body: JSON.stringify(donneesIndisponibilite),
   });
+}
 
-  return resultat.indisponibilite;
+export async function modifierIndisponibilite(indisponibiliteId, donneesIndisponibilite) {
+  return envoyerRequete(`/api/indisponibilites/${indisponibiliteId}`, {
+    method: "PUT",
+    body: JSON.stringify(donneesIndisponibilite),
+  });
 }
 
 export async function supprimerIndisponibilite(indisponibiliteId) {
   return envoyerRequete(`/api/indisponibilites/${indisponibiliteId}`, {
     method: "DELETE",
+  });
+}
+
+export async function recupererPropositionsSeances() {
+  const resultat = await envoyerRequete("/api/propositions-seances");
+  return resultat.propositions;
+}
+
+export async function creerPropositionSeance(donneesSeance) {
+  const resultat = await envoyerRequete("/api/propositions-seances", {
+    method: "POST",
+    body: JSON.stringify(donneesSeance),
+  });
+
+  return resultat.proposition;
+}
+
+export async function modifierPropositionSeance(propositionId, donneesSeance) {
+  const resultat = await envoyerRequete(`/api/propositions-seances/${propositionId}`, {
+    method: "PUT",
+    body: JSON.stringify(donneesSeance),
+  });
+
+  return resultat.proposition;
+}
+
+export async function accepterPropositionSeance(propositionId) {
+  return envoyerRequete(`/api/propositions-seances/${propositionId}/accepter`, {
+    method: "POST",
+  });
+}
+
+export async function refuserPropositionSeance(propositionId) {
+  return envoyerRequete(`/api/propositions-seances/${propositionId}/refuser`, {
+    method: "POST",
   });
 }
 

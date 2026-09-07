@@ -40,8 +40,30 @@ function determinerActionTempsReel(req, scope, reponseJson = null) {
         : "unavailability_added";
     }
 
+    if (methode === "PUT") {
+      return "unavailability_updated";
+    }
+
     if (methode === "DELETE") {
       return "unavailability_deleted";
+    }
+  }
+
+  if (scope === "propositions") {
+    if (methode === "POST" && chemin.includes("/accepter")) {
+      return "proposal_accepted";
+    }
+
+    if (methode === "POST" && chemin.includes("/refuser")) {
+      return "proposal_refused";
+    }
+
+    if (methode === "POST") {
+      return "proposal_added";
+    }
+
+    if (methode === "PUT") {
+      return "proposal_updated";
     }
   }
 

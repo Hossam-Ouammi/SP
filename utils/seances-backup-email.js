@@ -57,7 +57,8 @@ const colonnesBackupSeances = [
 ];
 
 function echapperCsv(valeur) {
-  const texte = String(valeur ?? "");
+  const texteBrut = String(valeur ?? "");
+  const texte = /^[=+\-@]/.test(texteBrut) ? `'${texteBrut}` : texteBrut;
 
   if (!/[",\n\r]/.test(texte)) {
     return texte;
@@ -99,8 +100,8 @@ async function genererFichierBackupSeances(options = {}) {
   const nomFichier = obtenirNomFichierBackup(maintenant);
   const chemin = path.join(dossier, nomFichier);
 
-  await fs.mkdir(dossier, { recursive: true });
-  await fs.writeFile(chemin, csv, "utf8");
+  await fs.mkdir(dossier, { recursive: true, mode: 0o700 });
+  await fs.writeFile(chemin, csv, { encoding: "utf8", mode: 0o600 });
 
   return {
     chemin,
@@ -192,6 +193,13 @@ function creerTransportSmtp() {
 async function envoyerBackupSeancesParEmail(backup) {
   const transport = creerTransportSmtp();
 
+  if (!BACKUP_SEANCES_EMAIL_TO) {
+    return {
+      envoye: false,
+      raison: "destinataire-non-configure",
+    };
+  }
+
   if (!transport || BACKUP_SEANCES_EMAIL_DRY_RUN) {
     return {
       envoye: false,
@@ -203,10 +211,10 @@ async function envoyerBackupSeancesParEmail(backup) {
   const info = await transport.sendMail({
     from,
     to: BACKUP_SEANCES_EMAIL_TO,
-    subject: `Backup seances - ${backup.date}`,
+    subject: `Backup séances - ${backup.date}`,
     text:
-      `Backup automatique des seances du ${backup.date}.\n` +
-      `Nombre de seances exportees : ${backup.nombreSeances}.\n`,
+      `Backup automatique des séances du ${backup.date}.\n` +
+      `Nombre de séances exportées : ${backup.nombreSeances}.\n`,
     attachments: [
       {
         filename: backup.nomFichier,
@@ -229,17 +237,17 @@ async function executerBackupSeancesEmailSansVerrou(options = {}) {
 
   if (!email.envoye) {
     console.warn(
-      `Backup seances cree sans envoi email (${email.raison}) : ${backup.chemin}`
+      `Backup séances cree sans envoi email (${email.raison}) : ${backup.chemin}`
     );
   } else {
     console.log(
-      `Backup seances envoye a ${BACKUP_SEANCES_EMAIL_TO} : ${backup.nomFichier}`
+      `Backup séances envoye a ${BACKUP_SEANCES_EMAIL_TO} : ${backup.nomFichier}`
     );
   }
 
   if (nettoyage.fichiersSupprimes > 0) {
     console.log(
-      `${nettoyage.fichiersSupprimes} ancien(s) backup(s) seances supprime(s).`
+      `${nettoyage.fichiersSupprimes} ancien(s) backup(s) séances supprimé(s).`
     );
   }
 
@@ -258,7 +266,7 @@ async function executerBackupSeancesEmail(options = {}) {
   );
 
   if (execution.skipped) {
-    console.warn("Backup seances deja en cours, execution ignoree.");
+    console.warn("Backup séances déjà en cours, execution ignoree.");
     return {
       skipped: true,
       backup: null,
@@ -324,7 +332,7 @@ function planifierProchainBackupSeances() {
     try {
       await executerBackupSeancesEmail();
     } catch (error) {
-      console.error("Backup automatique des seances impossible :", error);
+      console.error("Backup automatique des séances impossible :", error);
     } finally {
       backupEnCours = false;
       planifierProchainBackupSeances();
@@ -336,7 +344,7 @@ function planifierProchainBackupSeances() {
   }
 
   console.log(
-    `Backup seances planifie pour ${prochaineExecution.toISOString()} (${BACKUP_SEANCES_TIMEZONE}).`
+    `Backup séances planifie pour ${prochaineExecution.toISOString()} (${BACKUP_SEANCES_TIMEZONE}).`
   );
 }
 

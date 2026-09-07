@@ -202,7 +202,7 @@ async function supprimerEntreeHistoriqueAdministration(req, res) {
   });
 
   return res.json({
-    message: "L'entree d'historique a ete supprimee.",
+    message: "L'entrée d'historique a été supprimée.",
   });
 }
 

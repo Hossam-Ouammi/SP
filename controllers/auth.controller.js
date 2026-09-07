@@ -267,7 +267,7 @@ async function authentifierConnexion(req, res, options = {}) {
     });
     throw creerErreurConnexion(
       429,
-      "Trop de tentatives de connexion. Reessayez dans quelques minutes.",
+      "Trop de tentatives de connexion. Réessayez dans quelques minutes.",
       {
         retryAfter: blocageIpSecondes,
       }
@@ -301,7 +301,7 @@ async function authentifierConnexion(req, res, options = {}) {
       actionType: "login",
       resultat: "blocked_disabled_account",
     });
-    throw creerErreurConnexion(403, "Votre acces est actuellement suspendu.");
+    throw creerErreurConnexion(403, "Votre accès est actuellement suspendu.");
   }
 
   const blocageCompteSecondes = recupererBlocageCompteActif(utilisateur);
@@ -314,7 +314,7 @@ async function authentifierConnexion(req, res, options = {}) {
       resultat: "blocked_account",
       details: { retry_after_seconds: blocageCompteSecondes },
     });
-    throw creerErreurConnexion(429, "Compte temporairement bloque. Reessayez plus tard.", {
+    throw creerErreurConnexion(429, "Compte temporairement bloque. Réessayez plus tard.", {
       retryAfter: blocageCompteSecondes,
     });
   }
@@ -337,7 +337,7 @@ async function authentifierConnexion(req, res, options = {}) {
       const blocageSecondes = calculerSecondesRestantes(nouvelEtatEchec.bloqueJusqua);
       throw creerErreurConnexion(
         429,
-        "Compte temporairement bloque apres plusieurs tentatives. Reessayez plus tard.",
+        "Compte temporairement bloque apres plusieurs tentatives. Réessayez plus tard.",
         {
           retryAfter: blocageSecondes,
         }
@@ -400,7 +400,7 @@ async function connecterUtilisateur(req, res) {
     }
 
     return res.status(error.status || 500).json({
-      message: error.message || "La connexion a echoue.",
+      message: error.message || "La connexion a échoué.",
     });
   }
 }
@@ -425,7 +425,7 @@ async function connecterUtilisateurDepuisFormulaire(req, res) {
     return res.redirect(303, "/");
   } catch (error) {
     if (req.session) {
-      req.session.login_error = error.message || "La connexion a echoue.";
+      req.session.login_error = error.message || "La connexion a échoué.";
       req.session.login_username = identifiantSaisi;
       await sauvegarderSession(req).catch(() => {});
     }
@@ -485,7 +485,7 @@ async function modifierMotDePasse(req, res) {
 
   if (nouveauMotDePasseIdentique) {
     return res.status(400).json({
-      message: "Le nouveau mot de passe doit etre different de l'ancien.",
+      message: "Le nouveau mot de passe doit être différent de l'ancien.",
     });
   }
 
@@ -510,7 +510,7 @@ async function modifierMotDePasse(req, res) {
   });
 
   return res.json({
-    message: "Mot de passe modifie avec succes.",
+    message: "Mot de passe modifié avec succès.",
     utilisateur: utilisateurActualise,
   });
 }
@@ -543,7 +543,7 @@ async function deconnecterUtilisateur(req, res) {
     return res.json({ message: "Deconnexion reussie." });
   } catch (error) {
     return res.status(500).json({
-      message: "La deconnexion a echoue.",
+      message: "La déconnexion a échoué.",
     });
   }
 }

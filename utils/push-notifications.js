@@ -21,6 +21,7 @@ const {
 } = require("../models/push-subscription.model");
 const { listerToutesLesSeances } = require("../models/seance.model");
 const { listerToutesLesIndisponibilites } = require("../models/indisponibilite.model");
+const { executerAvecVerrou } = require("./job-lock");
 const {
   utilisateurEstAdministrateur,
   utilisateurEstHossam,
@@ -28,6 +29,39 @@ const {
 
 let webPushConfigure = false;
 let rappelInterval = null;
+const PUSH_SEND_CONCURRENCY = Math.min(
+  lireNombreEntierEnv("PUSH_SEND_CONCURRENCY", 8),
+  25
+);
+
+function lireNombreEntierEnv(nom, valeurParDefaut) {
+  const valeur = Number(process.env[nom]);
+
+  if (!Number.isFinite(valeur)) {
+    return valeurParDefaut;
+  }
+
+  return Math.max(Math.floor(valeur), 1);
+}
+
+async function executerAvecConcurrence(elements, worker, limite = PUSH_SEND_CONCURRENCY) {
+  if (!Array.isArray(elements) || elements.length === 0) {
+    return;
+  }
+
+  let index = 0;
+  const nombreTravailleurs = Math.min(Math.max(Number(limite) || 1, 1), elements.length);
+
+  await Promise.all(
+    Array.from({ length: nombreTravailleurs }, async () => {
+      while (index < elements.length) {
+        const element = elements[index];
+        index += 1;
+        await worker(element);
+      }
+    })
+  );
+}
 
 function configurerWebPush() {
   if (webPushConfigure) {
@@ -126,19 +160,24 @@ function construireDateMilieuJour(partiesDate) {
 function construireMessagePushEvenement(payload = {}) {
   const acteur = normaliserTexte(payload.actorName) || "Quelqu'un";
   const messagesParAction = {
-    seance_added: `${acteur} a ajoute une seance.`,
-    seance_updated: `${acteur} a modifie une seance.`,
-    seance_status_updated: `${acteur} a modifie le statut d'une seance.`,
-    seance_deleted: `${acteur} a supprime une seance.`,
-    unavailability_added: `${acteur} a ajoute une indisponibilite.`,
-    full_day_unavailability_added: `${acteur} a bloque une journee complete.`,
-    unavailability_deleted: `${acteur} a supprime une indisponibilite.`,
+    seance_added: `${acteur} a ajouté une séance.`,
+    seance_updated: `${acteur} a modifié une séance.`,
+    seance_status_updated: `${acteur} a modifié le statut d'une séance.`,
+    seance_deleted: `${acteur} a supprimé une séance.`,
+    unavailability_added: `${acteur} a ajouté une indisponibilité.`,
+    full_day_unavailability_added: `${acteur} a bloqué une journée complète.`,
+    unavailability_updated: `${acteur} a modifié une indisponibilité.`,
+    unavailability_deleted: `${acteur} a supprimé une indisponibilité.`,
+    proposal_added: `${acteur} a envoyé une proposition de séance.`,
+    proposal_updated: `${acteur} a modifié une proposition de séance.`,
+    proposal_accepted: `${acteur} a accepté une proposition de séance.`,
+    proposal_refused: `${acteur} a refusé une proposition de séance.`,
   };
 
   return (
     messagesParAction[payload.action] ||
     normaliserTexte(payload.message) ||
-    "L'application a ete mise a jour."
+    "L'application a été mise à jour."
   );
 }
 
@@ -150,8 +189,47 @@ function evenementDoitDeclencherPush(payload = {}) {
     "seance_deleted",
     "unavailability_added",
     "full_day_unavailability_added",
+    "unavailability_updated",
     "unavailability_deleted",
+    "proposal_added",
+    "proposal_updated",
+    "proposal_accepted",
+    "proposal_refused",
   ]).has(payload.action);
+}
+
+function utilisateurEstActifPourPush(utilisateur) {
+  if (Number(utilisateur?.acces_active) !== 1) {
+    return false;
+  }
+
+  if (Number(utilisateur?.doit_changer_mot_de_passe) === 1) {
+    return false;
+  }
+
+  return true;
+}
+
+function utilisateurPeutRecevoirEvenementApplication(utilisateur, payload = {}) {
+  if (!utilisateurEstActifPourPush(utilisateur)) {
+    return false;
+  }
+
+  if (utilisateurEstAdministrateur(utilisateur) || utilisateurEstHossam(utilisateur)) {
+    return true;
+  }
+
+  const scope = normaliserTexte(payload.scope).toLowerCase();
+
+  if (scope === "indisponibilites") {
+    return Number(utilisateur?.peut_voir_indisponibilites) === 1;
+  }
+
+  if (scope === "seances" || scope === "propositions") {
+    return true;
+  }
+
+  return false;
 }
 
 async function envoyerNotificationAbonnement(abonnementLigne, notification, options = {}) {
@@ -199,7 +277,7 @@ async function notifierEvenementApplicationPush(payload = {}) {
 
   const message = construireMessagePushEvenement(payload);
   const notification = {
-    title: "Gestion des seances",
+    title: "Gestion des séances",
     body: message,
     icon: "/icons/icon-192.png",
     badge: "/icons/badge-96.png",
@@ -213,8 +291,9 @@ async function notifierEvenementApplicationPush(payload = {}) {
 
   const acteurId = Number(payload.actorId || 0);
 
-  await Promise.all(
-    abonnements.map(async (abonnement) => {
+  await executerAvecConcurrence(
+    abonnements,
+    async (abonnement) => {
       if (
         acteurId > 0 &&
         Number(abonnement.utilisateur_id) === acteurId
@@ -222,11 +301,7 @@ async function notifierEvenementApplicationPush(payload = {}) {
         return;
       }
 
-      if (Number(abonnement.acces_active) !== 1) {
-        return;
-      }
-
-      if (Number(abonnement.doit_changer_mot_de_passe) === 1) {
+      if (!utilisateurPeutRecevoirEvenementApplication(abonnement, payload)) {
         return;
       }
 
@@ -235,7 +310,7 @@ async function notifierEvenementApplicationPush(payload = {}) {
         urgency: "high",
         topic: `evt-${String(payload.action || "app").slice(0, 28)}`,
       });
-    })
+    }
   );
 }
 
@@ -346,11 +421,11 @@ function construireNotificationRappel(seances, partiesDate) {
   const libelleDate = formaterDateLocale(construireDateMilieuJour(partiesDate));
   const corps =
     nombreSeances === 1
-      ? `Rappel : 1 seance restante aujourd'hui (${libelleDate}). Prochaine a ${prochaineSeance.heure_debut}.`
-      : `Rappel : ${nombreSeances} seances restantes aujourd'hui (${libelleDate}). Prochaine a ${prochaineSeance.heure_debut}.`;
+      ? `Rappel : 1 séance restante aujourd'hui (${libelleDate}). Prochaine à ${prochaineSeance.heure_debut}.`
+      : `Rappel : ${nombreSeances} séances restantes aujourd'hui (${libelleDate}). Prochaine à ${prochaineSeance.heure_debut}.`;
 
   return {
-    title: "Gestion des seances",
+    title: "Gestion des séances",
     body: corps,
     icon: "/icons/icon-192.png",
     badge: "/icons/badge-96.png",
@@ -369,11 +444,11 @@ function construireNotificationResumeMinuit(seances, partiesDate) {
   const libelleDate = formaterDateLocale(construireDateMilieuJour(partiesDate));
   const corps =
     nombreSeances === 1
-      ? `1 seance programmee aujourd'hui (${libelleDate}).`
-      : `${nombreSeances} seances programmees aujourd'hui (${libelleDate}).`;
+      ? `1 séance programmée aujourd'hui (${libelleDate}).`
+      : `${nombreSeances} séances programmées aujourd'hui (${libelleDate}).`;
 
   return {
-    title: "Gestion des seances",
+    title: "Gestion des séances",
     body: corps,
     icon: "/icons/icon-192.png",
     badge: "/icons/badge-96.png",
@@ -409,8 +484,9 @@ async function envoyerResumeMinuitSiNecessaire() {
     return;
   }
 
-  await Promise.all(
-    abonnements.map(async (abonnement) => {
+  await executerAvecConcurrence(
+    abonnements,
+    async (abonnement) => {
       if (String(abonnement.last_today_reminder_key || "") === cleRappel) {
         return;
       }
@@ -421,6 +497,10 @@ async function envoyerResumeMinuitSiNecessaire() {
         indisponibilites,
         partiesDate.dateKey
       );
+
+      if (seancesVisibles.length === 0) {
+        return;
+      }
 
       const notification = construireNotificationResumeMinuit(
         seancesVisibles,
@@ -435,7 +515,7 @@ async function envoyerResumeMinuitSiNecessaire() {
       if (succes) {
         await marquerRappelJourEnvoye(abonnement.id, cleRappel).catch(() => {});
       }
-    })
+    }
   );
 }
 
@@ -465,8 +545,9 @@ async function envoyerRappelsSeancesDuJourSiNecessaire() {
     return;
   }
 
-  await Promise.all(
-    abonnements.map(async (abonnement) => {
+  await executerAvecConcurrence(
+    abonnements,
+    async (abonnement) => {
       if (String(abonnement.last_today_reminder_key || "") === cleRappel) {
         return;
       }
@@ -492,13 +573,13 @@ async function envoyerRappelsSeancesDuJourSiNecessaire() {
       if (succes) {
         await marquerRappelJourEnvoye(abonnement.id, cleRappel).catch(() => {});
       }
-    })
+    }
   );
 }
 
 async function envoyerNotificationTestAbonnement(abonnementLigne) {
   const notification = {
-    title: "Gestion des seances",
+    title: "Gestion des séances",
     body: "Test reussi : les notifications push sont actives sur cet appareil.",
     icon: "/icons/icon-192.png",
     badge: "/icons/badge-96.png",
@@ -523,9 +604,30 @@ async function envoyerNotificationTestAbonnement(abonnementLigne) {
   }
 }
 
-async function executerRappelsPushDus() {
+async function executerRappelsPushDusSansVerrou() {
   await envoyerResumeMinuitSiNecessaire();
   await envoyerRappelsSeancesDuJourSiNecessaire();
+}
+
+async function executerRappelsPushDus(options = {}) {
+  if (options.sansVerrou) {
+    return executerRappelsPushDusSansVerrou();
+  }
+
+  const execution = await executerAvecVerrou(
+    "push-due",
+    executerRappelsPushDusSansVerrou,
+    { staleMs: 20 * 60 * 1000 }
+  );
+
+  if (execution.skipped) {
+    return { skipped: true };
+  }
+
+  return {
+    result: execution.result ?? null,
+    skipped: false,
+  };
 }
 
 function demarrerPlanificateurRappelsPush() {

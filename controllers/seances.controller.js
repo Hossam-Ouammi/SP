@@ -4,20 +4,33 @@ const {
   listerToutesLesSeances,
   trouverSeanceParId,
   trouverSeanceCompteChevauchante,
+  trouverSeanceChevauchante,
   creerSeance,
   mettreAJourSeance,
   mettreAJourStatutSeance,
   supprimerSeance,
 } = require("../models/seance.model");
-const { run } = require("../models/db");
+const { executerTransactionImmediate } = require("../models/db");
 const { listerCatalogueOptions } = require("../models/catalogue.model");
-const { trouverIndisponibiliteChevauchante } = require("../models/indisponibilite.model");
+const {
+  creerIndisponibilite,
+  listerIndisponibilitesInclusesDansPlage,
+  listerIndisponibilitesTouchantPlage,
+  supprimerIndisponibilite,
+  trouverIndisponibiliteChevauchante,
+} = require("../models/indisponibilite.model");
 const { recupererPhotosParSeance } = require("../models/photo.model");
 const {
   creerEntreeHistorique,
   detacherSeancesHistorique,
 } = require("../models/historique.model");
+const {
+  detacherSeancesPropositions,
+  trouverPropositionAccepteeParSeanceId,
+} = require("../models/proposition-seance.model");
 const { resoudreCheminScreenshot } = require("../utils/screenshot-storage");
+const { convertirDateHeureZonneeEnInstant } = require("../utils/timezone");
+const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
 
 const statutsSeanceValides = ["planifiee", "faite", "annulee", "reportee"];
 const statutsCreationValides = ["planifiee", "faite"];
@@ -190,14 +203,20 @@ function masquerSeanceConfidentiellePourClient(seance) {
 function construireMessageIndisponibilite(indisponibilite) {
   const raison = normaliserTexte(indisponibilite?.raison);
   const base = estIndisponibiliteJourComplet(indisponibilite)
-    ? `Cette journee est marquee comme indisponible par Hossam le ${indisponibilite.date}.`
-    : `Ce creneau est marque comme indisponible par Hossam le ${indisponibilite.date} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin}.`;
+    ? `Cette journée est marquée comme indisponible par Hossam le ${indisponibilite.date}.`
+    : `Ce créneau est marqué comme indisponible par Hossam le ${indisponibilite.date} de ${indisponibilite.heure_debut} à ${indisponibilite.heure_fin}.`;
 
   if (!raison) {
     return base;
   }
 
   return `${base} Raison : ${raison}.`;
+}
+
+function creerErreurHttp(status, message) {
+  const erreur = new Error(message);
+  erreur.status = status;
+  return erreur;
 }
 
 function creneauSeanceEquivalent(seance, donneesSeance) {
@@ -227,6 +246,142 @@ async function recupererConflitSeancePriveeHossam(donneesSeance, options = {}) {
     heureFin: donneesSeance.heure_fin,
     compte: "Hossam",
     exclureSeanceId: options.exclureSeanceId || null,
+  });
+}
+
+async function recupererConflitSeance(donneesSeance, options = {}) {
+  return trouverSeanceChevauchante({
+    date: donneesSeance.date,
+    heureDebut: donneesSeance.heure_debut,
+    heureFin: donneesSeance.heure_fin,
+    exclureSeanceId: options.exclureSeanceId || null,
+  });
+}
+
+function construireMessageConflitSeance(seance, utilisateur) {
+  if (!utilisateurPeutVoirCompteHossam(utilisateur) && seanceEstCompteHossam(seance)) {
+    return "Ce créneau est réservé et visible uniquement par l'administrateur.";
+  }
+
+  const etudiant = normaliserTexte(seance?.etudiant);
+  const matiere = normaliserTexte(seance?.matiere);
+  const details = [etudiant, matiere].filter(Boolean).join(" - ");
+
+  return details
+    ? `Ce créneau chevauche déjà une séance (${details}).`
+    : "Ce créneau chevauche déjà une séance.";
+}
+
+async function verifierAbsenceConflitSeance(donneesSeance, utilisateur, options = {}) {
+  const conflitSeance = await recupererConflitSeance(donneesSeance, options);
+
+  if (conflitSeance) {
+    throw creerErreurHttp(400, construireMessageConflitSeance(conflitSeance, utilisateur));
+  }
+}
+
+function construirePlageIndisponibiliteRestaurable(seance, fragments) {
+  const debutSeance = convertirHeureEnMinutes(seance.heure_debut);
+  const finSeance = convertirHeureEnMinutes(seance.heure_fin);
+  let debut = debutSeance;
+  let fin = finSeance;
+
+  for (const fragment of fragments) {
+    debut = Math.min(debut, convertirHeureEnMinutes(fragment.heure_debut));
+    fin = Math.max(fin, convertirHeureEnMinutes(fragment.heure_fin));
+  }
+
+  return {
+    heureDebut: convertirMinutesEnHeure(debut),
+    heureFin: convertirMinutesEnHeure(fin),
+    jourComplet: debut === 0 && fin === convertirHeureEnMinutes("23:59"),
+  };
+}
+
+function extrairePlageIndisponibiliteOriginale(proposition) {
+  const date = normaliserTexte(proposition?.indisponibilite_date_originale);
+  const heureDebut = normaliserTexte(proposition?.indisponibilite_heure_debut_originale);
+  const heureFin = normaliserTexte(proposition?.indisponibilite_heure_fin_originale);
+
+  if (!estDateIsoValide(date) || !estHeureValide(heureDebut) || !estHeureFinLegacyValide(heureFin)) {
+    return null;
+  }
+
+  if (convertirHeureEnMinutes(heureFin) <= convertirHeureEnMinutes(heureDebut)) {
+    return null;
+  }
+
+  return {
+    date,
+    heureDebut,
+    heureFin,
+    jourComplet: Number(proposition?.indisponibilite_jour_complet_original) === 1,
+  };
+}
+
+async function restaurerIndisponibiliteDepuisPropositionAcceptee({
+  seance,
+  proposition,
+  acteur,
+}) {
+  if (!proposition || proposition.statut !== "acceptee") {
+    return;
+  }
+
+  const plageOriginale = extrairePlageIndisponibiliteOriginale(proposition);
+
+  if (plageOriginale) {
+    const fragments = await listerIndisponibilitesInclusesDansPlage({
+      date: plageOriginale.date,
+      heureDebut: plageOriginale.heureDebut,
+      heureFin: plageOriginale.heureFin,
+    });
+    const createur =
+      fragments.find((fragment) => Number(fragment.cree_par) > 0)?.cree_par ||
+      proposition.traitee_par ||
+      acteur?.id ||
+      seance.cree_par ||
+      null;
+
+    for (const fragment of fragments) {
+      await supprimerIndisponibilite(fragment.id);
+    }
+
+    await creerIndisponibilite({
+      date: plageOriginale.date,
+      heureDebut: plageOriginale.heureDebut,
+      heureFin: plageOriginale.heureFin,
+      jourComplet: plageOriginale.jourComplet,
+      raison: "",
+      creePar: createur,
+    });
+    return;
+  }
+
+  const fragments = await listerIndisponibilitesTouchantPlage({
+    date: seance.date,
+    heureDebut: seance.heure_debut,
+    heureFin: seance.heure_fin,
+  });
+  const plage = construirePlageIndisponibiliteRestaurable(seance, fragments);
+  const createur =
+    fragments.find((fragment) => Number(fragment.cree_par) > 0)?.cree_par ||
+    proposition.traitee_par ||
+    acteur?.id ||
+    seance.cree_par ||
+    null;
+
+  for (const fragment of fragments) {
+    await supprimerIndisponibilite(fragment.id);
+  }
+
+  await creerIndisponibilite({
+    date: seance.date,
+    heureDebut: plage.heureDebut,
+    heureFin: plage.heureFin,
+    jourComplet: plage.jourComplet,
+    raison: "",
+    creePar: createur,
   });
 }
 
@@ -362,10 +517,7 @@ function construireDateHeureLocale(date, heure) {
     return null;
   }
 
-  const [heures, minutes] = heure.split(":").map(Number);
-  const dateLocale = new Date(`${date}T00:00:00`);
-  dateLocale.setHours(heures, minutes, 0, 0);
-  return dateLocale;
+  return convertirDateHeureZonneeEnInstant(date, heure, CENTRAL_CALENDAR_TIMEZONE);
 }
 
 function calculerStatutSeanceAffiche(seance) {
@@ -414,7 +566,7 @@ async function validerDonneesSeance(donneesSeance, utilisateur, options = {}) {
   const dureeMinutes = Number(donneesSeance.duree_minutes);
   const heureValide = estHeureDebutSeanceValide(donneesSeance.heure_debut);
   const dureeValide = dureesValides.includes(dureeMinutes);
-  const nomEtudiant = normaliserTexte(donneesSeance.etudiant);
+  const nomÉtudiant = normaliserTexte(donneesSeance.etudiant);
   const nomParent = normaliserTexte(donneesSeance.parent);
   const description = normaliserTexte(donneesSeance.description);
   const catalogue = await recupererCatalogueSeances();
@@ -428,9 +580,9 @@ async function validerDonneesSeance(donneesSeance, utilisateur, options = {}) {
     seanceExistante &&
     valeurCatalogueInchangee(donneesSeance.compte, seanceExistante.compte);
 
-  if (!nomEtudiant) {
+  if (!nomÉtudiant) {
     erreurs.push("Le nom de l'étudiant est obligatoire.");
-  } else if (nomEtudiant.length > 120) {
+  } else if (nomÉtudiant.length > 120) {
     erreurs.push("Le nom de l'étudiant est trop long.");
   }
 
@@ -612,6 +764,136 @@ async function recupererUneSeance(req, res) {
   return res.json({ seance: transformerSeancePourClientSelonUtilisateur(seance, req.utilisateur) });
 }
 
+async function creerSeanceDepuisDonneesValidees({
+  donneesSeance,
+  acteur,
+  verifierIndisponibilite = true,
+  exclureSeanceId = null,
+  utiliserTransaction = true,
+}) {
+  const operation = async () => {
+  await verifierAbsenceConflitSeance(donneesSeance, acteur, {
+    exclureSeanceId,
+  });
+
+  if (verifierIndisponibilite) {
+    const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesSeance);
+
+    if (conflitIndisponibilite) {
+      throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite));
+    }
+  }
+
+  if (!utilisateurPeutVoirCompteHossam(acteur)) {
+    const conflitSeancePrivee = await recupererConflitSeancePriveeHossam(donneesSeance);
+
+    if (conflitSeancePrivee) {
+      throw creerErreurHttp(
+        400,
+        "Ce créneau est réservé et visible uniquement par l'administrateur."
+      );
+    }
+  }
+
+  const nouvelleSeance = await creerSeance({
+    ...donneesSeance,
+    cree_par: acteur.id,
+    modifie_par: acteur.id,
+    utilisateur_id: acteur.id,
+  });
+
+  await journaliserActionSeance({
+    actionType: "seance_creee",
+    actionLabel: "Création de la séance",
+    acteur,
+    seanceId: nouvelleSeance.id,
+    seanceLibelle: construireLibelleSeance(nouvelleSeance),
+    details: construireDetailsCreation(extraireEtatAuditSeance(nouvelleSeance)),
+  });
+
+  return nouvelleSeance;
+  };
+
+  return utiliserTransaction ? executerTransactionImmediate(operation) : operation();
+}
+
+async function modifierSeanceDepuisDonneesValidees({
+  seanceExistante,
+  donneesSeance,
+  acteur,
+  verifierIndisponibilite = true,
+  utiliserTransaction = true,
+}) {
+  const operation = async () => {
+  if (!seanceExistante || !estIdentifiantValide(seanceExistante.id)) {
+    throw creerErreurHttp(404, "Seance introuvable.");
+  }
+
+  if (!utilisateurPeutVoirCompteHossam(acteur) && seanceEstCompteHossam(seanceExistante)) {
+    throw creerErreurHttp(
+      403,
+      "Seul l'administrateur peut modifier les séances du compte Hossam."
+    );
+  }
+
+  const seanceId = Number(seanceExistante.id);
+  const creneauInchange = creneauSeanceEquivalent(seanceExistante, donneesSeance);
+
+  const conflitSeance = await recupererConflitSeance(donneesSeance, {
+    exclureSeanceId: seanceId,
+  });
+
+  if (conflitSeance && !creneauInchange) {
+    throw creerErreurHttp(400, construireMessageConflitSeance(conflitSeance, acteur));
+  }
+
+  if (verifierIndisponibilite) {
+    const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesSeance);
+
+    if (conflitIndisponibilite && !creneauInchange) {
+      throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite));
+    }
+  }
+
+  if (!utilisateurPeutVoirCompteHossam(acteur)) {
+    const conflitSeancePrivee = await recupererConflitSeancePriveeHossam(donneesSeance, {
+      exclureSeanceId: seanceId,
+    });
+
+    if (conflitSeancePrivee && !creneauInchange) {
+      throw creerErreurHttp(
+        400,
+        "Ce créneau est réservé et visible uniquement par l'administrateur."
+      );
+    }
+  }
+
+  const seanceMiseAJour = await mettreAJourSeance(seanceId, {
+    ...donneesSeance,
+    modifie_par: acteur.id,
+  });
+
+  await journaliserActionSeance({
+    actionType: "seance_modifiee",
+    actionLabel: "Modification de la séance",
+    acteur,
+    seanceId: seanceMiseAJour.id,
+    seanceLibelle: construireLibelleSeance(seanceMiseAJour),
+    details: {
+      type: "modification",
+      changements: construireListeChangements(
+        extraireEtatAuditSeance(seanceExistante),
+        extraireEtatAuditSeance(seanceMiseAJour)
+      ),
+    },
+  });
+
+  return seanceMiseAJour;
+  };
+
+  return utiliserTransaction ? executerTransactionImmediate(operation) : operation();
+}
+
 async function ajouterSeance(req, res) {
   const donneesSeance = preparerDonneesSeance(req.body);
   const erreurs = await validerDonneesSeance(donneesSeance, req.utilisateur);
@@ -626,38 +908,10 @@ async function ajouterSeance(req, res) {
     });
   }
 
-  const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesSeance);
-
-  if (conflitIndisponibilite) {
-    return res.status(400).json({
-      message: construireMessageIndisponibilite(conflitIndisponibilite),
-    });
-  }
-
-  if (!utilisateurPeutVoirCompteHossam(req.utilisateur)) {
-    const conflitSeancePrivee = await recupererConflitSeancePriveeHossam(donneesSeance);
-
-    if (conflitSeancePrivee) {
-      return res.status(400).json({
-        message: "Ce créneau est réservé et visible uniquement par l'administrateur.",
-      });
-    }
-  }
-
-  const nouvelleSeance = await creerSeance({
-    ...donneesSeance,
-    cree_par: req.utilisateur.id,
-    modifie_par: req.utilisateur.id,
-    utilisateur_id: req.utilisateur.id,
-  });
-
-  await journaliserActionSeance({
-    actionType: "seance_creee",
-    actionLabel: "Création de la séance",
+  const nouvelleSeance = await creerSeanceDepuisDonneesValidees({
+    donneesSeance,
     acteur: req.utilisateur,
-    seanceId: nouvelleSeance.id,
-    seanceLibelle: construireLibelleSeance(nouvelleSeance),
-    details: construireDetailsCreation(extraireEtatAuditSeance(nouvelleSeance)),
+    verifierIndisponibilite: true,
   });
 
   return res.status(201).json({
@@ -692,49 +946,16 @@ async function modifierSeance(req, res) {
     return res.status(400).json({ message: erreurs.join(" ") });
   }
 
-  const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesSeance);
-
-  if (conflitIndisponibilite && !creneauSeanceEquivalent(seanceExistante, donneesSeance)) {
-    return res.status(400).json({
-      message: construireMessageIndisponibilite(conflitIndisponibilite),
-    });
-  }
-
-  if (!utilisateurPeutVoirCompteHossam(req.utilisateur)) {
-    const conflitSeancePrivee = await recupererConflitSeancePriveeHossam(donneesSeance, {
-      exclureSeanceId: req.params.id,
-    });
-
-    if (conflitSeancePrivee && !creneauSeanceEquivalent(seanceExistante, donneesSeance)) {
-      return res.status(400).json({
-        message: "Ce créneau est réservé et visible uniquement par l'administrateur.",
-      });
-    }
-  }
-
-  const seanceMiseAJour = await mettreAJourSeance(req.params.id, {
-    ...donneesSeance,
-    modifie_par: req.utilisateur.id,
-  });
-
-  await journaliserActionSeance({
-    actionType: "seance_modifiee",
-    actionLabel: "Modification de la séance",
+  const seanceTransactionnelle = await modifierSeanceDepuisDonneesValidees({
+    seanceExistante,
+    donneesSeance,
     acteur: req.utilisateur,
-    seanceId: seanceMiseAJour.id,
-    seanceLibelle: construireLibelleSeance(seanceMiseAJour),
-    details: {
-      type: "modification",
-      changements: construireListeChangements(
-        extraireEtatAuditSeance(seanceExistante),
-        extraireEtatAuditSeance(seanceMiseAJour)
-      ),
-    },
+    verifierIndisponibilite: true,
   });
 
   return res.json({
     message: "Séance modifiée avec succès.",
-    seance: transformerSeancePourClientSelonUtilisateur(seanceMiseAJour, req.utilisateur),
+    seance: transformerSeancePourClientSelonUtilisateur(seanceTransactionnelle, req.utilisateur),
   });
 }
 
@@ -806,9 +1027,16 @@ async function supprimerUneSeance(req, res) {
 
   const photos = await recupererPhotosParSeance(req.params.id);
   const etatAvantSuppression = extraireEtatAuditSeance(seance);
-  await run("BEGIN IMMEDIATE TRANSACTION");
-  try {
+  await executerTransactionImmediate(async () => {
+    const propositionAcceptee = await trouverPropositionAccepteeParSeanceId(seance.id);
+
+    await restaurerIndisponibiliteDepuisPropositionAcceptee({
+      seance,
+      proposition: propositionAcceptee,
+      acteur: req.utilisateur,
+    });
     await detacherSeancesHistorique([seance]);
+    await detacherSeancesPropositions([seance]);
     await supprimerSeance(req.params.id);
 
   await journaliserActionSeance({
@@ -819,12 +1047,7 @@ async function supprimerUneSeance(req, res) {
     seanceLibelle: construireLibelleSeance(seance),
     details: construireDetailsSuppression(etatAvantSuppression),
     });
-
-    await run("COMMIT");
-  } catch (error) {
-    await run("ROLLBACK").catch(() => {});
-    throw error;
-  }
+  });
 
   await Promise.all(
     photos.map(async (photo) => {
@@ -838,7 +1061,7 @@ async function supprimerUneSeance(req, res) {
         await fs.unlink(cheminComplet);
       } catch (error) {
         if (error.code !== "ENOENT") {
-          console.error("Suppression d'un ancien fichier associe impossible :", error);
+          console.error("Suppression d'un ancien fichier associé impossible :", error);
         }
       }
     })
@@ -855,4 +1078,14 @@ module.exports = {
   modifierSeance,
   changerStatutSeance,
   supprimerUneSeance,
+  preparerDonneesSeance,
+  validerDonneesSeance,
+  transformerSeancePourClientSelonUtilisateur,
+  utilisateurPeutVoirCompteHossam,
+  recupererConflitSeancePriveeHossam,
+  recupererConflitSeance,
+  verifierAbsenceConflitSeance,
+  creerSeanceDepuisDonneesValidees,
+  modifierSeanceDepuisDonneesValidees,
+  statutsCreationValides,
 };

@@ -8,7 +8,7 @@ async function verifierIpBlocklist(req, res, next) {
 
     if (bloquee) {
       return res.status(403).json({
-        message: "Votre adresse IP a ete bloquee par l'administrateur.",
+        message: "Votre adresse IP a été bloquée par l'administrateur.",
         code: "IP_BLOCKED",
       });
     }

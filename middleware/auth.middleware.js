@@ -254,7 +254,7 @@ async function verifierAuthentification(req, res, next) {
 
     if (!utilisateur) {
       return res.status(401).json({
-        message: "Vous devez vous connecter pour acceder a cette ressource.",
+        message: "Vous devez vous connecter pour accéder à cette ressource.",
       });
     }
 
@@ -270,7 +270,7 @@ function verifierCompteSecurise(req, res, next) {
     return res.status(403).json({
       code: "PASSWORD_CHANGE_REQUIRED",
       message:
-        "Le mot de passe initial doit etre remplace avant d'acceder aux donnees.",
+        "Le mot de passe initial doit être remplace avant d'accéder aux données.",
     });
   }
 
@@ -292,7 +292,7 @@ function utilisateurEstHossam(utilisateur) {
 function verifierAccesAdministratifHossam(req, res, next) {
   if (!utilisateurEstAdministrateur(req.utilisateur)) {
     return res.status(403).json({
-      message: "Vous n'avez pas acces a cette ressource.",
+      message: "Vous n'avez pas accès à cette ressource.",
     });
   }
 
@@ -302,7 +302,7 @@ function verifierAccesAdministratifHossam(req, res, next) {
 function verifierAccesHossamUniquement(req, res, next) {
   if (!utilisateurEstHossam(req.utilisateur)) {
     return res.status(403).json({
-      message: "Seul Hossam peut gerer les indisponibilites.",
+      message: "Seul Hossam peut gérer les indisponibilités.",
     });
   }
 
@@ -318,7 +318,7 @@ function verifierModeEcritureAutorise(req, res, next) {
     return res.status(403).json({
       code: "READ_ONLY_ACCOUNT",
       message:
-        "Votre compte est actuellement en lecture seule. Les modifications sont reservees a Hossam.",
+        "Votre compte est actuellement en lecture seule. Les modifications sont réservées à Hossam.",
     });
   }
 
@@ -331,7 +331,7 @@ function verifierAccesMonetisation(req, res, next) {
     Number(req.utilisateur?.peut_voir_monetisation) !== 1
   ) {
     return res.status(403).json({
-      message: "Vous n'avez pas acces a cette ressource.",
+      message: "Vous n'avez pas accès à cette ressource.",
     });
   }
 
@@ -344,7 +344,7 @@ function verifierAccesIndisponibilites(req, res, next) {
     Number(req.utilisateur?.peut_voir_indisponibilites) !== 1
   ) {
     return res.status(403).json({
-      message: "Vous n'avez pas acces a cette ressource.",
+      message: "Vous n'avez pas accès à cette ressource.",
     });
   }
 

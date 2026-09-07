@@ -308,6 +308,57 @@ function extraireDateIsoDepuisClicCalendrier(info) {
   );
 }
 
+function formaterHeureLocale(dateObjet) {
+  if (!(dateObjet instanceof Date) || Number.isNaN(dateObjet.getTime())) {
+    return "";
+  }
+
+  const heures = String(dateObjet.getHours()).padStart(2, "0");
+  const minutes = String(dateObjet.getMinutes()).padStart(2, "0");
+  return `${heures}:${minutes}`;
+}
+
+function extraireHeureDepuisValeurCalendrier(valeur) {
+  const correspondance = String(valeur || "").match(/T(\d{2}):(\d{2})/);
+  return correspondance ? `${correspondance[1]}:${correspondance[2]}` : "";
+}
+
+function extraireCreneauDepuisClicCalendrier(info) {
+  const date = extraireDateIsoDepuisClicCalendrier(info);
+  const heureDebut = info?.allDay
+    ? ""
+    : formaterHeureLocale(info?.date) || extraireHeureDepuisValeurCalendrier(info?.dateStr);
+
+  return {
+    date,
+    date_fin: date,
+    heure_debut: heureDebut,
+    heure_fin: "",
+    toute_la_journee: Boolean(info?.allDay),
+  };
+}
+
+function extraireSelectionCalendrier(info) {
+  const dateDebut =
+    formaterDateIsoLocale(info?.start) || extraireDateIsoDepuisValeurCalendrier(info?.startStr);
+  const dateFin =
+    formaterDateIsoLocale(info?.end) || extraireDateIsoDepuisValeurCalendrier(info?.endStr);
+  const heureDebut = info?.allDay
+    ? ""
+    : formaterHeureLocale(info?.start) || extraireHeureDepuisValeurCalendrier(info?.startStr);
+  const heureFin = info?.allDay
+    ? ""
+    : formaterHeureLocale(info?.end) || extraireHeureDepuisValeurCalendrier(info?.endStr);
+
+  return {
+    date: dateDebut,
+    date_fin: dateFin,
+    heure_debut: heureDebut,
+    heure_fin: heureFin,
+    toute_la_journee: Boolean(info?.allDay),
+  };
+}
+
 function calculerDateSuivante(dateIso) {
   const dateObjet = new Date(`${dateIso}T12:00:00`);
 
@@ -456,6 +507,7 @@ function transformerSeanceEnEvenement(seance) {
       borderColor: "#475569",
       textColor: "#f8fafc",
       classNames: ["indisponibilite-event", "seance-confidentielle-event"],
+      typeOrder: 10,
       extendedProps: {
         seance,
         type: "indisponibilite",
@@ -474,7 +526,7 @@ function transformerSeanceEnEvenement(seance) {
 
   const paletteCompte = obtenirPaletteCompte(seance);
   const palette = paletteCompte || palettesStatut[seance.statut_seance] || palettesStatut.planifiee;
-  const titreEvenement = extrairePrenomEtudiant(seance.etudiant) || seance.libelle || "Seance";
+  const titreEvenement = extrairePrenomEtudiant(seance.etudiant) || seance.libelle || "Séance";
   const compteNormalise = normaliserCompte(seance.compte);
   const classeCompte = creerClasseCompte(compteNormalise);
   const classesEvenement = [palette.className];
@@ -493,6 +545,7 @@ function transformerSeanceEnEvenement(seance) {
     borderColor: palette.borderColor,
     textColor: palette.textColor,
     classNames: classesEvenement,
+    typeOrder: 20,
     extendedProps: {
       seance,
       type: "seance",
@@ -523,6 +576,7 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
       display: "background",
       backgroundColor: "rgba(148, 163, 184, 0.22)",
       classNames: ["indisponibilite-event", "indisponibilite-full-day-event"],
+      typeOrder: 0,
       extendedProps: {
         indisponibilite,
         type: "indisponibilite",
@@ -536,13 +590,50 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
     start: `${indisponibilite.date}T${indisponibilite.heure_debut}`,
     end: `${indisponibilite.date}T${indisponibilite.heure_fin}`,
     display: estCalendrierMobile() ? "block" : "auto",
-    backgroundColor: "#4b5563",
-    borderColor: "#374151",
-    textColor: "#f8fafc",
+    backgroundColor: "rgba(148, 163, 184, 0.16)",
+    borderColor: "rgba(148, 163, 184, 0.44)",
+    textColor: "transparent",
     classNames: ["indisponibilite-event"],
+    typeOrder: 10,
     extendedProps: {
       indisponibilite,
       type: "indisponibilite",
+    },
+  };
+}
+
+function transformerPropositionEnEvenement(proposition) {
+  if (
+    !estDateIsoValide(proposition.date) ||
+    !estHeureValide(proposition.heure_debut) ||
+    !estHeureValide(proposition.heure_fin)
+  ) {
+    console.warn(
+      "Proposition ignoree dans le calendrier car date/heure invalide :",
+      proposition.id
+    );
+    return null;
+  }
+
+  const titreEvenement =
+    extrairePrenomEtudiant(proposition.etudiant) ||
+    proposition.matiere ||
+    "Proposition";
+
+  return {
+    id: `proposition-${proposition.id}`,
+    title: `Prop. ${titreEvenement}`,
+    start: `${proposition.date}T${proposition.heure_debut}`,
+    end: `${proposition.date}T${proposition.heure_fin}`,
+    display: estCalendrierMobile() ? "block" : "auto",
+    backgroundColor: "rgba(22, 163, 74, 0.42)",
+    borderColor: "rgba(21, 128, 61, 0.72)",
+    textColor: "#14532d",
+    classNames: ["proposition-event"],
+    typeOrder: 30,
+    extendedProps: {
+      proposition,
+      type: "proposition",
     },
   };
 }
@@ -570,14 +661,20 @@ function adapterPresentationEvenement(info) {
   const typeEvenement = info.event.extendedProps?.type;
   const estVueMoisMobile = info.view.type === "dayGridMonth" && estCalendrierMobile();
   const estVueSemaineMobile = info.view.type === "timeGridWeek" && estCalendrierMobile();
+  const conteneurEvenement = info.el.closest(
+    ".fc-timegrid-event-harness, .fc-daygrid-event-harness, .fc-daygrid-event-harness-abs"
+  );
 
   info.el.classList.remove(
     "calendar-mobile-month-seance",
     "calendar-mobile-month-indisponibilite",
+    "calendar-mobile-month-proposition",
     "calendar-mobile-week-seance",
-    "calendar-mobile-week-indisponibilite"
+    "calendar-mobile-week-indisponibilite",
+    "calendar-mobile-week-proposition"
   );
   info.el.style.removeProperty("--calendar-name-length");
+  conteneurEvenement?.style.removeProperty("z-index");
 
   if (typeEvenement === "seance") {
     const prenom = String(info.event.title || "").trim();
@@ -590,6 +687,25 @@ function adapterPresentationEvenement(info) {
 
     if (estVueSemaineMobile) {
       info.el.classList.add("calendar-mobile-week-seance");
+    }
+
+    return;
+  }
+
+  if (typeEvenement === "proposition") {
+    conteneurEvenement?.style.setProperty("z-index", "8");
+    conteneurEvenement?.style.setProperty("left", "3px", "important");
+    conteneurEvenement?.style.setProperty("right", "3px", "important");
+    conteneurEvenement?.style.setProperty("width", "auto", "important");
+    conteneurEvenement?.style.setProperty("max-width", "calc(100% - 6px)", "important");
+
+    if (estVueMoisMobile) {
+      info.el.classList.add("calendar-mobile-month-proposition");
+      return;
+    }
+
+    if (estVueSemaineMobile) {
+      info.el.classList.add("calendar-mobile-week-proposition");
     }
 
     return;
@@ -611,7 +727,15 @@ function adapterPresentationEvenement(info) {
 
 export function initialiserCalendrier(
   element,
-  { onDateClick, onEventClick, onIndisponibiliteClick }
+  {
+    onDateClick,
+    onSlotClick,
+    onSelect,
+    onEventClick,
+    onIndisponibiliteClick,
+    onPropositionClick,
+    selectionMobileRapide = false,
+  }
 ) {
   const plugins = recupererPluginsCalendrier();
 
@@ -637,8 +761,17 @@ export function initialiserCalendrier(
     height: "auto",
     expandRows: true,
     selectable: true,
-    slotEventOverlap: false,
+    selectMirror: true,
+    unselectAuto: true,
+    selectLongPressDelay: selectionMobileRapide ? 120 : 1000,
+    eventLongPressDelay: selectionMobileRapide ? 360 : 1000,
+    longPressDelay: selectionMobileRapide ? 120 : 1000,
+    selectMinDistance: selectionMobileRapide ? 0 : 5,
+    slotDuration: "00:30:00",
+    snapDuration: "00:30:00",
+    slotEventOverlap: true,
     eventMinHeight: 34,
+    eventOrder: "typeOrder,start,-duration,title",
     fixedWeekCount: Boolean(optionsResponsive.fixedWeekCount),
     allDaySlot: false,
     nowIndicator: true,
@@ -674,13 +807,27 @@ export function initialiserCalendrier(
       synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
     },
     dateClick(info) {
-      onDateClick(extraireDateIsoDepuisClicCalendrier(info));
+      if (typeof onSlotClick === "function") {
+        onSlotClick(extraireCreneauDepuisClicCalendrier(info));
+        return;
+      }
+
+      onDateClick?.(extraireDateIsoDepuisClicCalendrier(info));
+    },
+    select(info) {
+      onSelect?.(extraireSelectionCalendrier(info));
+      info.view?.calendar?.unselect?.();
     },
     eventClick(info) {
       const typeEvenement = info.event.extendedProps?.type;
 
       if (typeEvenement === "indisponibilite") {
         onIndisponibiliteClick?.(info.event.extendedProps.indisponibilite);
+        return;
+      }
+
+      if (typeEvenement === "proposition") {
+        onPropositionClick?.(info.event.extendedProps.proposition);
         return;
       }
 
@@ -695,7 +842,12 @@ export function initialiserCalendrier(
   return calendrier;
 }
 
-export function mettreAJourEvenements(calendrier, seances = [], indisponibilites = []) {
+export function mettreAJourEvenements(
+  calendrier,
+  seances = [],
+  indisponibilites = [],
+  propositions = []
+) {
   if (!calendrier) {
     return;
   }
@@ -705,6 +857,7 @@ export function mettreAJourEvenements(calendrier, seances = [], indisponibilites
     [
       ...seances.map(transformerSeanceEnEvenement),
       ...indisponibilites.map(transformerIndisponibiliteEnEvenement),
+      ...propositions.map(transformerPropositionEnEvenement),
     ].filter(Boolean)
   );
 }

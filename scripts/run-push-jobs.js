@@ -5,7 +5,7 @@ const { executerAvecVerrou } = require("../utils/job-lock");
 async function executerJobPush() {
   try {
     await initialiserBaseDeDonnees();
-    await executerRappelsPushDus();
+    await executerRappelsPushDus({ sansVerrou: true });
   } finally {
     await fermerBaseDeDonnees().catch(() => {});
   }

@@ -6,8 +6,7 @@ const storageUploadsDirectory = path.join(__dirname, "..", "storage", "uploads")
 const legacyPublicUploadsDirectory = path.join(__dirname, "..", "public", "uploads");
 
 function assurerDossiersScreenshots() {
-  fs.mkdirSync(storageUploadsDirectory, { recursive: true });
-  fs.mkdirSync(legacyPublicUploadsDirectory, { recursive: true });
+  fs.mkdirSync(storageUploadsDirectory, { recursive: true, mode: 0o700 });
 }
 
 function extraireNomFichierScreenshot(photoOuChemin) {
@@ -87,13 +86,7 @@ async function resoudreCheminScreenshot(photo) {
     return cheminPrive;
   }
 
-  const cheminLegacy = construireCheminPublicLegacyDepuisNom(nomFichier);
-
-  if (await fichierExiste(cheminLegacy)) {
-    return cheminLegacy;
-  }
-
-  return null;
+  return migrerScreenshotVersStockagePrive(photo);
 }
 
 module.exports = {

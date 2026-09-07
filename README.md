@@ -60,16 +60,18 @@ npm test
 Variables utiles derriere Caddy ou un autre reverse proxy :
 
 ```bash
-HOST=0.0.0.0
+HOST=127.0.0.1
 PORT=3000
 TRUST_PROXY=true
 PUBLIC_RESERVATION_TIMEZONE=Europe/Paris
 PUBLIC_RESERVATION_TIMEZONE_LABEL="heure de France"
 CENTRAL_CALENDAR_TIMEZONE=Africa/Casablanca
 CENTRAL_CALENDAR_TIMEZONE_LABEL="heure du Maroc"
+PUSH_VAPID_SUBJECT=mailto:votre-adresse@example.com
 
 # Backup quotidien des seances par email
-BACKUP_SEANCES_EMAIL_TO=ouammi.hossam.bsn@gmail.com
+BACKUP_SEANCES_ENABLED=true
+BACKUP_SEANCES_EMAIL_TO=votre-adresse@example.com
 BACKUP_SEANCES_TIMEZONE=Africa/Casablanca
 BACKUP_SEANCES_RETENTION_DAYS=60
 SMTP_HOST=smtp.gmail.com
@@ -79,7 +81,7 @@ SMTP_USER=ton-adresse-gmail@gmail.com
 SMTP_PASS=ton-app-password-gmail
 ```
 
-Le serveur Node doit ecouter en local sur le port `3000`, puis Caddy expose le site en HTTPS sur les ports `80` et `443`.
+Le serveur Node doit ecouter uniquement en local sur `127.0.0.1:3000`, puis Caddy expose le site en HTTPS sur les ports `80` et `443`.
 Sur Oracle Linux, reconstruire `sqlite3` apres `npm install` pour eviter les binaires precompiles incompatibles avec la version GLIBC du systeme :
 
 ```bash

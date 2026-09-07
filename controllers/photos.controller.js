@@ -58,7 +58,7 @@ async function recupererPhotosDuneSeance(req, res) {
 
   if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seance)) {
     return res.status(403).json({
-      message: "Ce creneau est reserve et visible uniquement par l'administrateur.",
+      message: "Ce créneau est réservé et visible uniquement par l'administrateur.",
     });
   }
 
@@ -72,7 +72,7 @@ async function recupererFichierPhoto(req, res) {
 
   if (!estIdentifiantValide(photoId)) {
     return res.status(400).json({
-      message: "Identifiant de screenshot invalide.",
+      message: "Identifiant de capture d’écran invalide.",
     });
   }
 
@@ -80,7 +80,7 @@ async function recupererFichierPhoto(req, res) {
 
   if (!photo) {
     return res.status(404).json({
-      message: "Screenshot introuvable.",
+      message: "Capture d’écran introuvable.",
     });
   }
 
@@ -94,7 +94,7 @@ async function recupererFichierPhoto(req, res) {
 
   if (!utilisateurPeutVoirCompteHossam(req.utilisateur) && seanceEstCompteHossam(seance)) {
     return res.status(403).json({
-      message: "Ce creneau est reserve et visible uniquement par l'administrateur.",
+      message: "Ce créneau est réservé et visible uniquement par l'administrateur.",
     });
   }
 
@@ -102,7 +102,7 @@ async function recupererFichierPhoto(req, res) {
 
   if (!cheminPhoto) {
     return res.status(404).json({
-      message: "Le fichier screenshot est introuvable sur le serveur.",
+      message: "Le fichier de capture d’écran est introuvable sur le serveur.",
     });
   }
 

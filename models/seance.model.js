@@ -83,10 +83,37 @@ async function trouverSeanceCompteChevauchante({
       ${requeteSeanceComplete}
       WHERE seances.date = ?
         AND lower(seances.compte) = lower(?)
+        AND COALESCE(seances.statut_seance, 'planifiee') <> 'annulee'
         AND seances.heure_debut < ?
         AND seances.heure_fin > ?
         ${clauseExclusion}
       ORDER BY seances.heure_debut ASC
+      LIMIT 1
+    `,
+    parametres
+  );
+}
+
+async function trouverSeanceChevauchante({
+  date,
+  heureDebut,
+  heureFin,
+  exclureSeanceId = null,
+}) {
+  const clauseExclusion = exclureSeanceId ? "AND seances.id <> ?" : "";
+  const parametres = exclureSeanceId
+    ? [date, heureFin, heureDebut, exclureSeanceId]
+    : [date, heureFin, heureDebut];
+
+  return get(
+    `
+      ${requeteSeanceComplete}
+      WHERE seances.date = ?
+        AND COALESCE(seances.statut_seance, 'planifiee') <> 'annulee'
+        AND seances.heure_debut < ?
+        AND seances.heure_fin > ?
+        ${clauseExclusion}
+      ORDER BY seances.heure_debut ASC, seances.id ASC
       LIMIT 1
     `,
     parametres
@@ -219,6 +246,7 @@ module.exports = {
   listerSeancesPourMonetisation,
   trouverSeanceParId,
   trouverSeanceCompteChevauchante,
+  trouverSeanceChevauchante,
   creerSeance,
   mettreAJourSeance,
   mettreAJourStatutSeance,

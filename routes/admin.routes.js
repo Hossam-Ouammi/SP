@@ -4,6 +4,7 @@ const {
   recupererVueAdministration,
   ajouterElementCatalogueAdministration,
   supprimerElementCatalogueAdministration,
+  restaurerElementCatalogueAdministration,
   creerUtilisateurAdministration,
   supprimerUtilisateurAdministration,
   reinitialiserMotDePasseCompte,
@@ -45,6 +46,10 @@ router.post(
 router.delete(
   "/catalogue-items/:id",
   notifierMiseAJourApplication(supprimerElementCatalogueAdministration, "catalogue")
+);
+router.post(
+  "/catalogue-items/:id/restore",
+  notifierMiseAJourApplication(restaurerElementCatalogueAdministration, "catalogue")
 );
 router.post("/users", notifierMiseAJourApplication(creerUtilisateurAdministration, "administration"));
 router.delete(

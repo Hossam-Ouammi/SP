@@ -54,6 +54,7 @@ assurerDossiersScreenshots();
 
 const db = new sqlite3.Database(databasePath);
 let initialisationBaseEnCours = null;
+let fileTransaction = Promise.resolve();
 
 db.serialize(() => {
   db.run("PRAGMA busy_timeout = 5000");
@@ -99,6 +100,24 @@ function all(sql, params = []) {
       }
     });
   });
+}
+
+function executerTransactionImmediate(callback) {
+  const execution = fileTransaction.then(async () => {
+    await run("BEGIN IMMEDIATE TRANSACTION");
+
+    try {
+      const resultat = await callback();
+      await run("COMMIT");
+      return resultat;
+    } catch (error) {
+      await run("ROLLBACK").catch(() => {});
+      throw error;
+    }
+  });
+
+  fileTransaction = execution.catch(() => {});
+  return execution;
 }
 
 function fermerBaseDeDonnees() {
@@ -494,6 +513,46 @@ async function ajouterColonnesIndisponibilitesSystemeSiNecessaire() {
       created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
       updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
   `);
+}
+
+async function ajouterColonnesPropositionsSeancesSiNecessaire() {
+  const colonnes = await all("PRAGMA table_info(propositions_seances)");
+  const colonnesExistantes = new Set(colonnes.map((colonne) => colonne.name));
+
+  if (colonnesExistantes.size === 0) {
+    return;
+  }
+
+  if (!colonnesExistantes.has("seance_source_id")) {
+    await run(
+      "ALTER TABLE propositions_seances ADD COLUMN seance_source_id INTEGER REFERENCES seances(id)"
+    );
+  }
+
+  const migrations = [
+    {
+      nom: "indisponibilite_date_originale",
+      sql: "ALTER TABLE propositions_seances ADD COLUMN indisponibilite_date_originale TEXT",
+    },
+    {
+      nom: "indisponibilite_heure_debut_originale",
+      sql: "ALTER TABLE propositions_seances ADD COLUMN indisponibilite_heure_debut_originale TEXT",
+    },
+    {
+      nom: "indisponibilite_heure_fin_originale",
+      sql: "ALTER TABLE propositions_seances ADD COLUMN indisponibilite_heure_fin_originale TEXT",
+    },
+    {
+      nom: "indisponibilite_jour_complet_original",
+      sql: "ALTER TABLE propositions_seances ADD COLUMN indisponibilite_jour_complet_original INTEGER DEFAULT 0",
+    },
+  ];
+
+  for (const migration of migrations) {
+    if (!colonnesExistantes.has(migration.nom)) {
+      await run(migration.sql);
+    }
+  }
 }
 
 async function ajouterColonneCreatedAtCatalogueSiNecessaire() {
@@ -1180,6 +1239,40 @@ async function initialiserBaseDeDonneesInterne() {
   `);
 
   await run(`
+    CREATE TABLE IF NOT EXISTS propositions_seances (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      titre TEXT,
+      etudiant TEXT NOT NULL,
+      parent TEXT DEFAULT '',
+      matiere TEXT NOT NULL,
+      compte TEXT DEFAULT 'Abdo',
+      est_essai INTEGER DEFAULT 0,
+      date TEXT NOT NULL,
+      heure_debut TEXT NOT NULL,
+      heure_fin TEXT NOT NULL,
+      duree_minutes INTEGER NOT NULL,
+      statut_seance TEXT NOT NULL DEFAULT 'planifiee',
+      prix REAL DEFAULT 0,
+      statut_paiement TEXT DEFAULT 'non_payee',
+      description TEXT,
+      indisponibilite_id INTEGER REFERENCES indisponibilites(id) ON DELETE SET NULL,
+      indisponibilite_date_originale TEXT,
+      indisponibilite_heure_debut_originale TEXT,
+      indisponibilite_heure_fin_originale TEXT,
+      indisponibilite_jour_complet_original INTEGER DEFAULT 0,
+      statut TEXT NOT NULL DEFAULT 'en_attente',
+      proposee_par INTEGER REFERENCES utilisateurs(id),
+      traitee_par INTEGER REFERENCES utilisateurs(id),
+      seance_source_id INTEGER REFERENCES seances(id),
+      seance_id INTEGER REFERENCES seances(id),
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      traitee_at TEXT
+    )
+  `);
+  await ajouterColonnesPropositionsSeancesSiNecessaire();
+
+  await run(`
     CREATE TABLE IF NOT EXISTS historique (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       seance_id INTEGER REFERENCES seances(id),
@@ -1330,6 +1423,18 @@ async function initialiserBaseDeDonneesInterne() {
     CREATE INDEX IF NOT EXISTS idx_indisponibilites_date_heure ON indisponibilites(date, heure_debut, heure_fin)
   `);
   await run(`
+    CREATE INDEX IF NOT EXISTS idx_propositions_seances_statut_id ON propositions_seances(statut, id)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_propositions_seances_indisponibilite ON propositions_seances(indisponibilite_id)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_propositions_seances_proposee_par ON propositions_seances(proposee_par)
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_propositions_seances_source ON propositions_seances(seance_source_id)
+  `);
+  await run(`
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)
   `);
   await run(`
@@ -1361,6 +1466,7 @@ async function initialiserBaseDeDonneesInterne() {
   await ajouterColonnesReservationPubliqueSiNecessaire();
   await ajouterColonneJourCompletIndisponibilitesSiNecessaire();
   await ajouterColonnesIndisponibilitesSystemeSiNecessaire();
+  await ajouterColonnesPropositionsSeancesSiNecessaire();
   await ajouterColonneCreatedAtCatalogueSiNecessaire();
   await ajouterColonneTarifHoraireCatalogueSiNecessaire();
   await ajouterColonnesPushSubscriptionsSiNecessaire();
@@ -1433,6 +1539,7 @@ module.exports = {
   run,
   get,
   all,
+  executerTransactionImmediate,
   fermerBaseDeDonnees,
   initialiserBaseDeDonnees,
   executerMaintenanceBaseDeDonnees,

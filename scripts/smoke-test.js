@@ -273,6 +273,22 @@ async function run() {
     );
 
     response = await admin.request(
+      "POST",
+      "/api/indisponibilites",
+      {
+        date: "2026-04-07",
+        heure_debut: "08:00",
+        heure_fin: "09:00",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(
+      response.status === 201,
+      `create indispo calendrier masque attendu=201 recu=${response.status}`
+    );
+    const indisponibiliteCalendrierMasqueId = Number(response.json.indisponibilite.id);
+
+    response = await admin.request(
       "PATCH",
       "/api/admin/unavailability-access",
       {
@@ -284,7 +300,15 @@ async function run() {
     );
     assert(response.status === 200, `disable indispo attendu=200 recu=${response.status}`);
     response = await user.request("GET", "/api/indisponibilites");
-    assert(response.status === 403, `indispo 403 attendu recu=${response.status}`);
+    assert(response.status === 200, `indispo lecture calendrier attendu=200 recu=${response.status}`);
+    assert(
+      response.json.indisponibilites.some(
+        (indisponibilite) =>
+          Number(indisponibilite.id) === indisponibiliteCalendrierMasqueId &&
+          indisponibilite.date === "2026-04-07"
+      ),
+      "Le calendrier doit recevoir les indisponibilites meme si le menu est masque."
+    );
     response = await admin.request(
       "PATCH",
       "/api/admin/unavailability-access",
@@ -298,16 +322,428 @@ async function run() {
     assert(response.status === 200, `enable indispo attendu=200 recu=${response.status}`);
     response = await admin.request(
       "POST",
+      "/api/seances",
+      {
+        etudiant: "Jour Complet Fragment",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-04-14",
+        heure_debut: "15:00",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 201, `create seance jour complet attendu=201 recu=${response.status}`);
+    response = await admin.request(
+      "POST",
+      "/api/indisponibilites",
+      {
+        date: "2026-04-14",
+        jour_complet: true,
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(
+      response.status === 201,
+      `create jour complet fragmente attendu=201 recu=${response.status}`
+    );
+    assert(
+      Number(response.json.creation_partielle) === 1,
+      "Le jour complet avec seance existante doit etre cree en fragments."
+    );
+    assert(
+      response.json.indisponibilites.some(
+        (indisponibilite) =>
+          indisponibilite.date === "2026-04-14" &&
+          indisponibilite.heure_debut === "00:00" &&
+          indisponibilite.heure_fin === "15:00"
+      ),
+      "Le fragment libre avant la seance doit etre cree."
+    );
+    assert(
+      response.json.indisponibilites.some(
+        (indisponibilite) =>
+          indisponibilite.date === "2026-04-14" &&
+          indisponibilite.heure_debut === "16:00" &&
+          indisponibilite.heure_fin === "23:59"
+      ),
+      "Le fragment libre apres la seance doit etre cree."
+    );
+    response = await admin.request(
+      "POST",
       "/api/indisponibilites",
       {
         date: "2026-04-08",
         heure_debut: "12:00",
         heure_fin: "13:00",
-        raison: "Smoke test",
       },
       { "x-csrf-token": admin.csrfToken }
     );
     assert(response.status === 201, `create indispo attendu=201 recu=${response.status}`);
+    const indisponibiliteId = response.json.indisponibilite.id;
+    response = await admin.request(
+      "PUT",
+      `/api/indisponibilites/${indisponibiliteId}`,
+      {
+        date: "2026-04-08",
+        heure_debut: "13:00",
+        heure_fin: "14:00",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `update indispo attendu=200 recu=${response.status}`);
+    assert(
+      response.json.indisponibilite.heure_debut === "13:00",
+      "L'heure de debut de l'indisponibilite modifiee est incorrecte."
+    );
+    response = await admin.request(
+      "POST",
+      "/api/seances",
+      {
+        etudiant: "Jour Complet Edition",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-04-15",
+        heure_debut: "10:00",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 201, `create seance edition jour complet attendu=201 recu=${response.status}`);
+    response = await admin.request(
+      "POST",
+      "/api/indisponibilites",
+      {
+        date: "2026-04-15",
+        heure_debut: "12:00",
+        heure_fin: "13:00",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 201, `create indispo edition jour complet attendu=201 recu=${response.status}`);
+    const indisponibiliteEditionJourCompletId = response.json.indisponibilite.id;
+    response = await admin.request(
+      "PUT",
+      `/api/indisponibilites/${indisponibiliteEditionJourCompletId}`,
+      {
+        date: "2026-04-15",
+        jour_complet: true,
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(
+      response.status === 200,
+      `update indispo en jour complet fragmente attendu=200 recu=${response.status}`
+    );
+    assert(
+      Number(response.json.creation_partielle) === 1,
+      "La modification en jour complet doit bloquer seulement les creneaux libres."
+    );
+    assert(
+      response.json.indisponibilites.some(
+        (indisponibilite) =>
+          indisponibilite.date === "2026-04-15" &&
+          indisponibilite.heure_debut === "00:00" &&
+          indisponibilite.heure_fin === "10:00"
+      ),
+      "La modification en jour complet doit creer le fragment libre avant la seance."
+    );
+    assert(
+      response.json.indisponibilites.some(
+        (indisponibilite) =>
+          indisponibilite.date === "2026-04-15" &&
+          indisponibilite.heure_debut === "11:00" &&
+          indisponibilite.heure_fin === "23:59"
+      ),
+      "La modification en jour complet doit creer le fragment libre apres la seance."
+    );
+    response = await user.request(
+      "POST",
+      "/api/propositions-seances",
+      {
+        etudiant: "Proposal Test",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-04-08",
+        heure_debut: "13:30",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 201, `create proposition attendu=201 recu=${response.status}`);
+    const propositionId = Number(response.json.proposition.id);
+    response = await admin.request("GET", "/api/propositions-seances");
+    assert(response.status === 200, `list propositions attendu=200 recu=${response.status}`);
+    assert(
+      response.json.propositions.some((proposition) => Number(proposition.id) === propositionId),
+      "La proposition doit apparaitre dans la file admin."
+    );
+    response = await user.request("GET", "/api/propositions-seances");
+    assert(response.status === 200, `list propositions user attendu=200 recu=${response.status}`);
+    assert(
+      response.json.propositions.some((proposition) => Number(proposition.id) === propositionId),
+      "Les propositions en attente doivent etre visibles dans le calendrier de tous les utilisateurs."
+    );
+    response = await admin.request(
+      "PUT",
+      `/api/propositions-seances/${propositionId}`,
+      {
+        date: "2026-04-08",
+        heure_debut: "15:00",
+        duree_minutes: 60,
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(
+      response.status === 400,
+      `update proposition hors indispo attendu=400 recu=${response.status}`
+    );
+    response = await admin.request(
+      "PUT",
+      `/api/propositions-seances/${propositionId}`,
+      {
+        date: "2026-04-08",
+        heure_debut: "13:00",
+        duree_minutes: 60,
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `update proposition attendu=200 recu=${response.status}`);
+    assert(
+      response.json.proposition.heure_debut === "13:00",
+      "La proposition modifiee doit conserver la nouvelle heure."
+    );
+    response = await admin.request(
+      "POST",
+      `/api/propositions-seances/${propositionId}/accepter`,
+      undefined,
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `accept proposition attendu=200 recu=${response.status}`);
+    assert(
+      response.json.seance?.etudiant === "Proposal Test",
+      "L'acceptation doit creer la seance meme sur le creneau bloque."
+    );
+    const seancePropositionAccepteeId = Number(response.json.seance.id);
+    response = await user.request(
+      "POST",
+      "/api/propositions-seances",
+      {
+        etudiant: "Proposal Overlap",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-04-08",
+        heure_debut: "13:30",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(
+      response.status === 400,
+      `proposition sur seance existante attendu=400 recu=${response.status}`
+    );
+    response = await admin.request(
+      "DELETE",
+      `/api/seances/${seancePropositionAccepteeId}`,
+      undefined,
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(
+      response.status === 200,
+      `delete seance issue proposition attendu=200 recu=${response.status}`
+    );
+    response = await admin.request("GET", "/api/indisponibilites");
+    assert(response.status === 200, `list indispo restored attendu=200 recu=${response.status}`);
+    assert(
+      response.json.indisponibilites.some(
+        (indisponibilite) =>
+          indisponibilite.date === "2026-04-08" &&
+          indisponibilite.heure_debut === "13:00" &&
+          indisponibilite.heure_fin === "14:00"
+      ),
+      "La suppression d'une seance acceptee doit restaurer l'indisponibilite d'origine."
+    );
+    response = await admin.request(
+      "POST",
+      "/api/indisponibilites",
+      {
+        date: "2026-04-12",
+        heure_debut: "08:00",
+        heure_fin: "14:00",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 201, `create indispo split attendu=201 recu=${response.status}`);
+    response = await user.request(
+      "POST",
+      "/api/propositions-seances",
+      {
+        etudiant: "Proposal Split",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-04-12",
+        heure_debut: "11:00",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 201, `create proposition split attendu=201 recu=${response.status}`);
+    const propositionSplitId = Number(response.json.proposition.id);
+    response = await admin.request(
+      "POST",
+      `/api/propositions-seances/${propositionSplitId}/accepter`,
+      undefined,
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `accept proposition split attendu=200 recu=${response.status}`);
+    const seanceSplitId = Number(response.json.seance.id);
+    response = await admin.request("GET", "/api/indisponibilites");
+    assert(response.status === 200, `list indispo split attendu=200 recu=${response.status}`);
+    const indisposSplit = response.json.indisponibilites.filter(
+      (indisponibilite) => indisponibilite.date === "2026-04-12"
+    );
+    assert(
+      indisposSplit.some(
+        (indisponibilite) =>
+          indisponibilite.heure_debut === "08:00" && indisponibilite.heure_fin === "11:00"
+      ),
+      "L'indisponibilite doit etre decoupee avant la seance acceptee."
+    );
+    assert(
+      indisposSplit.some(
+        (indisponibilite) =>
+          indisponibilite.heure_debut === "12:00" && indisponibilite.heure_fin === "14:00"
+      ),
+      "L'indisponibilite doit etre decoupee apres la seance acceptee."
+    );
+    assert(
+      !indisposSplit.some(
+        (indisponibilite) =>
+          indisponibilite.heure_debut === "08:00" && indisponibilite.heure_fin === "14:00"
+      ),
+      "L'ancien grand creneau indisponible ne doit plus rester sur la seance acceptee."
+    );
+    response = await admin.request(
+      "DELETE",
+      `/api/seances/${seanceSplitId}`,
+      undefined,
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `delete seance split attendu=200 recu=${response.status}`);
+    response = await admin.request("GET", "/api/indisponibilites");
+    assert(response.status === 200, `list indispo split restored attendu=200 recu=${response.status}`);
+    const indisposSplitRestaurees = response.json.indisponibilites.filter(
+      (indisponibilite) => indisponibilite.date === "2026-04-12"
+    );
+    assert(
+      indisposSplitRestaurees.some(
+        (indisponibilite) =>
+          indisponibilite.heure_debut === "08:00" && indisponibilite.heure_fin === "14:00"
+      ),
+      "La suppression doit restaurer le grand creneau indisponible d'origine."
+    );
+    assert(
+      !indisposSplitRestaurees.some(
+        (indisponibilite) =>
+          (indisponibilite.heure_debut === "08:00" &&
+            indisponibilite.heure_fin === "11:00") ||
+          (indisponibilite.heure_debut === "12:00" &&
+            indisponibilite.heure_fin === "14:00")
+      ),
+      "Les fragments ne doivent pas rester apres restauration de l'indisponibilite."
+    );
+    response = await user.request(
+      "POST",
+      "/api/seances",
+      {
+        etudiant: "Move Proposal Source",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-04-13",
+        heure_debut: "09:00",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 201, `create source move attendu=201 recu=${response.status}`);
+    const seanceSourceId = Number(response.json.seance.id);
+    response = await admin.request(
+      "POST",
+      "/api/indisponibilites",
+      {
+        date: "2026-04-13",
+        heure_debut: "11:00",
+        heure_fin: "12:00",
+      },
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 201, `create indispo move attendu=201 recu=${response.status}`);
+    response = await user.request(
+      "POST",
+      "/api/propositions-seances",
+      {
+        etudiant: "Move Proposal Source",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-04-13",
+        heure_debut: "11:00",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+        seance_source_id: seanceSourceId,
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 201, `create proposition move attendu=201 recu=${response.status}`);
+    assert(
+      Number(response.json.proposition.seance_source_id) === seanceSourceId,
+      "La proposition de modification doit garder l'id de la seance source."
+    );
+    const propositionMoveId = Number(response.json.proposition.id);
+    response = await admin.request(
+      "POST",
+      `/api/propositions-seances/${propositionMoveId}/accepter`,
+      undefined,
+      { "x-csrf-token": admin.csrfToken }
+    );
+    assert(response.status === 200, `accept proposition move attendu=200 recu=${response.status}`);
+    assert(
+      Number(response.json.seance?.id) === seanceSourceId,
+      "L'acceptation doit deplacer la seance source au lieu de creer un doublon."
+    );
+    assert(
+      response.json.seance?.heure_debut === "11:00",
+      "La seance source doit etre deplacee sur l'heure proposee."
+    );
+    response = await admin.request("GET", "/api/seances");
+    assert(response.status === 200, `list seances move attendu=200 recu=${response.status}`);
+    const seancesMove = response.json.seances.filter(
+      (seance) => seance.etudiant === "Move Proposal Source"
+    );
+    assert(seancesMove.length === 1, "La proposition acceptee ne doit pas creer de doublon.");
+    assert(
+      seancesMove[0].date === "2026-04-13" && seancesMove[0].heure_debut === "11:00",
+      "La seule seance conservee doit etre la seance deplacee."
+    );
     console.log("OK indisponibilites permissions");
 
     response = await admin.request(
@@ -366,6 +802,70 @@ async function run() {
     );
     assert(response.status === 201, `seance facturable attendu=201 recu=${response.status}`);
     const billableSeanceId = Number(response.json.seance.id);
+    response = await user.request(
+      "POST",
+      "/api/seances",
+      {
+        etudiant: "Sara conflit",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-04-10",
+        heure_debut: "10:30",
+        duree_minutes: 60,
+        statut_seance: "faite",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 400, `seance chevauchante attendu=400 recu=${response.status}`);
+    response = await user.request(
+      "POST",
+      "/api/seances",
+      {
+        etudiant: "Annulee libre",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-04-16",
+        heure_debut: "09:00",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 201, `create seance a annuler attendu=201 recu=${response.status}`);
+    const seanceAnnuleeId = Number(response.json.seance.id);
+    response = await user.request(
+      "PATCH",
+      `/api/seances/${seanceAnnuleeId}/statut`,
+      {
+        statut_seance: "annulee",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(response.status === 200, `annulation seance attendu=200 recu=${response.status}`);
+    response = await user.request(
+      "POST",
+      "/api/seances",
+      {
+        etudiant: "Creneau libere",
+        parent: "",
+        matiere: "Maths",
+        compte: "Abdo",
+        est_essai: false,
+        date: "2026-04-16",
+        heure_debut: "09:00",
+        duree_minutes: 60,
+        statut_seance: "planifiee",
+      },
+      { "x-csrf-token": user.csrfToken }
+    );
+    assert(
+      response.status === 201,
+      `creation sur seance annulee attendu=201 recu=${response.status}`
+    );
 
     response = await user.request(
       "POST",
@@ -594,7 +1094,7 @@ async function run() {
       },
       { "x-csrf-token": admin.csrfToken }
     );
-    assert(response.status === 404, `restore compte desactive attendu=404 recu=${response.status}`);
+    assert(response.status === 200, `restore compte attendu=200 recu=${response.status}`);
     response = await user.request("GET", "/api/seances/options");
     const matieresApresRestauration = response.json.options.matieres.map((matiere) =>
       typeof matiere === "string" ? matiere : matiere.valeur
@@ -607,8 +1107,8 @@ async function run() {
       "La matiere doit rester disponible dans les options."
     );
     assert(
-      !comptesApresRestauration.includes("Yassine"),
-      "Le compte supprime ne devrait pas revenir dans les options sans restauration."
+      comptesApresRestauration.includes("Yassine"),
+      "Le compte restaure doit revenir dans les options."
     );
     console.log("OK suppression catalogue conserve seances");
 

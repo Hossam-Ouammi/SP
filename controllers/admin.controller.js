@@ -34,6 +34,7 @@ const {
   ajouterElementCatalogue,
   compterUtilisationElementCatalogue,
   supprimerElementCatalogue,
+  restaurerElementCatalogueSupprime,
   supprimerUtilisateurAdministration: supprimerUtilisateurAdministrationModele,
 } = require("../models/admin.model");
 const {
@@ -178,7 +179,7 @@ async function ajouterElementCatalogueAdministration(req, res) {
 
   if (valeurExistante) {
     return res.status(400).json({
-      message: "Ce compte existe deja.",
+      message: "Ce compte existe déjà.",
     });
   }
 
@@ -191,7 +192,7 @@ async function ajouterElementCatalogueAdministration(req, res) {
   });
 
   return res.status(201).json({
-    message: `Le compte ${elementCatalogue.valeur} a ete ajoute.`,
+    message: `Le compte ${elementCatalogue.valeur} a été ajouté.`,
     element: elementCatalogue,
   });
 }
@@ -224,7 +225,7 @@ async function supprimerElementCatalogueAdministration(req, res) {
 
   if (elementCatalogue.type === "matiere") {
     return res.status(400).json({
-      message: "La gestion admin des matieres n'est plus disponible.",
+      message: "La gestion admin des matières n'est plus disponible.",
     });
   }
 
@@ -243,7 +244,45 @@ async function supprimerElementCatalogueAdministration(req, res) {
   });
 
   return res.json({
-    message: `Le compte ${elementCatalogue.valeur} a ete supprime du catalogue. Les seances existantes restent conservees.`,
+    message: `Le compte ${elementCatalogue.valeur} a été supprimé du catalogue. Les séances existantes restent conservées.`,
+  });
+}
+
+async function restaurerElementCatalogueAdministration(req, res) {
+  const elementId = Number(req.params.id);
+  const { mot_de_passe_actuel: motDePasseActuel } = req.body;
+
+  if (!Number.isInteger(elementId) || elementId <= 0 || !motDePasseActuel) {
+    return res.status(400).json({
+      message: "Element archive et mot de passe actuel obligatoires.",
+    });
+  }
+
+  const verification = await verifierMotDePasseAdministrateur(req, motDePasseActuel);
+
+  if (!verification.ok) {
+    return repondreErreurVerification(req, res, verification, "admin_restore_catalog_item", {
+      element_archive_id: elementId,
+    });
+  }
+
+  const elementCatalogue = await restaurerElementCatalogueSupprime(elementId);
+
+  if (!elementCatalogue) {
+    return res.status(404).json({
+      message: "Element archive introuvable.",
+    });
+  }
+
+  await journaliserActionAdmin(req, "admin_restore_catalog_item", "success", {
+    element_id: elementCatalogue.id,
+    type: elementCatalogue.type,
+    valeur: elementCatalogue.valeur,
+  });
+
+  return res.json({
+    message: `Le compte ${elementCatalogue.valeur} a été restauré dans le catalogue.`,
+    element: elementCatalogue,
   });
 }
 
@@ -288,7 +327,7 @@ async function creerUtilisateurAdministration(req, res) {
 
   if (utilisateurParNom) {
     return res.status(400).json({
-      message: "Ce nom d'utilisateur existe deja.",
+      message: "Ce nom d'utilisateur existe déjà.",
     });
   }
 
@@ -296,7 +335,7 @@ async function creerUtilisateurAdministration(req, res) {
 
   if (utilisateurParEmail) {
     return res.status(400).json({
-      message: "Cet email existe deja.",
+      message: "Cet email existe déjà.",
     });
   }
 
@@ -306,7 +345,7 @@ async function creerUtilisateurAdministration(req, res) {
   if (collisionNomEmail || collisionEmailNom) {
     return res.status(400).json({
       message:
-        "Le nom d'utilisateur et l'email doivent rester distincts des identifiants deja utilises.",
+        "Le nom d'utilisateur et l'email doivent rester distincts des identifiants déjà utilises.",
     });
   }
 
@@ -332,7 +371,7 @@ async function creerUtilisateurAdministration(req, res) {
   });
 
   return res.status(201).json({
-    message: `Le compte ${utilisateurCree.nom} a ete cree. Mot de passe initial : ${motDePasseTemporaire}.`,
+    message: `Le compte ${utilisateurCree.nom} a été créé. Mot de passe initial : ${motDePasseTemporaire}.`,
     mot_de_passe_temporaire: motDePasseTemporaire,
     utilisateur: utilisateurCree,
   });
@@ -372,7 +411,7 @@ async function supprimerUtilisateurAdministration(req, res) {
 
   if (Number(compteCible.est_admin) === 1) {
     return res.status(400).json({
-      message: "Un compte administrateur ne peut pas etre supprime ici.",
+      message: "Un compte administrateur ne peut pas être supprimé ici.",
     });
   }
 
@@ -392,7 +431,7 @@ async function supprimerUtilisateurAdministration(req, res) {
   });
 
   return res.json({
-    message: `Le compte ${compteCible.nom} a ete supprime.`,
+    message: `Le compte ${compteCible.nom} a été supprimé.`,
   });
 }
 
@@ -426,7 +465,7 @@ async function reinitialiserMotDePasseCompte(req, res) {
 
   if (Number(compteCible.est_admin) === 1 && Number(compteCible.id) !== Number(req.utilisateur.id)) {
     return res.status(400).json({
-      message: "Le mot de passe d'un autre administrateur ne peut pas etre reinitialise ici.",
+      message: "Le mot de passe d'un autre administrateur ne peut pas être réinitialisé ici.",
     });
   }
 
@@ -445,7 +484,7 @@ async function reinitialiserMotDePasseCompte(req, res) {
   });
 
   return res.json({
-    message: `Le mot de passe de ${compteCible.nom} a ete reinitialise.`,
+    message: `Le mot de passe de ${compteCible.nom} a été réinitialisé.`,
     mot_de_passe_temporaire: motDePasseTemporaire,
     must_reauthenticate: selfReset,
   });
@@ -460,7 +499,7 @@ async function mettreAJourAccesUtilisateur(req, res) {
 
   if (!Number.isInteger(Number(utilisateurId)) || typeof accesActive !== "boolean" || !motDePasseActuel) {
     return res.status(400).json({
-      message: "Compte cible, etat d'acces et mot de passe actuel obligatoires.",
+      message: "Compte cible, état d'accès et mot de passe actuel obligatoires.",
     });
   }
 
@@ -483,13 +522,13 @@ async function mettreAJourAccesUtilisateur(req, res) {
 
   if (Number(compteCible.id) === Number(req.utilisateur.id)) {
     return res.status(400).json({
-      message: "Vous ne pouvez pas suspendre votre propre acces.",
+      message: "Vous ne pouvez pas suspendre votre propre accès.",
     });
   }
 
   if (Number(compteCible.est_admin) === 1) {
     return res.status(400).json({
-      message: "L'acces d'un administrateur ne peut pas etre modifie ici.",
+      message: "L'accès d'un administrateur ne peut pas être modifié ici.",
     });
   }
 
@@ -507,8 +546,8 @@ async function mettreAJourAccesUtilisateur(req, res) {
 
   return res.json({
     message: accesActive
-      ? `L'acces de ${compteCible.nom} a ete reactive.`
-      : `L'acces de ${compteCible.nom} a ete suspendu.`,
+      ? `L'accès de ${compteCible.nom} a été réactivé.`
+      : `L'accès de ${compteCible.nom} a été suspendu.`,
   });
 }
 
@@ -563,7 +602,7 @@ async function mettreAJourLectureSeuleUtilisateur(req, res) {
   return res.json({
     message: modeLectureSeule
       ? `${compteCible.nom} est maintenant en lecture seule.`
-      : `${compteCible.nom} peut de nouveau modifier les donnees.`,
+      : `${compteCible.nom} peut de nouveau modifier les données.`,
   });
 }
 
@@ -580,7 +619,7 @@ async function mettreAJourAccesMonetisationUtilisateur(req, res) {
     !motDePasseActuel
   ) {
     return res.status(400).json({
-      message: "Compte cible, acces monetisation et mot de passe actuel obligatoires.",
+      message: "Compte cible, accès monétisation et mot de passe actuel obligatoires.",
     });
   }
 
@@ -609,7 +648,7 @@ async function mettreAJourAccesMonetisationUtilisateur(req, res) {
 
   if (Number(compteCible.est_admin) === 1) {
     return res.status(400).json({
-      message: "La monetisation d'un administrateur n'est pas configurable ici.",
+      message: "La monétisation d'un administrateur n'est pas configurable ici.",
     });
   }
 
@@ -624,7 +663,7 @@ async function mettreAJourAccesMonetisationUtilisateur(req, res) {
   return res.json({
     message: peutVoirMonetisation
       ? `Le menu Monetisation est maintenant visible pour ${compteCible.nom}.`
-      : `Le menu Monetisation a ete masque pour ${compteCible.nom}.`,
+      : `Le menu Monetisation a été masque pour ${compteCible.nom}.`,
   });
 }
 
@@ -672,7 +711,7 @@ async function mettreAJourTarifCompteUtilisateur(req, res) {
 
   if (!compteCible || compteCible.type !== "compte") {
     return res.status(404).json({
-      message: "Compte de seance introuvable.",
+      message: "Compte de séance introuvable.",
     });
   }
 
@@ -702,7 +741,7 @@ async function mettreAJourAccesAujourdhuiUtilisateur(req, res) {
     !motDePasseActuel
   ) {
     return res.status(400).json({
-      message: "Compte cible, acces Aujourd'hui et mot de passe actuel obligatoires.",
+      message: "Compte cible, accès Aujourd'hui et mot de passe actuel obligatoires.",
     });
   }
 
@@ -746,7 +785,7 @@ async function mettreAJourAccesAujourdhuiUtilisateur(req, res) {
   return res.json({
     message: peutVoirAujourdhui
       ? `Le menu Aujourd'hui est maintenant visible pour ${compteCible.nom}.`
-      : `Le menu Aujourd'hui a ete masque pour ${compteCible.nom}.`,
+      : `Le menu Aujourd'hui a été masque pour ${compteCible.nom}.`,
   });
 }
 
@@ -763,7 +802,7 @@ async function mettreAJourAccesIndisponibilitesUtilisateur(req, res) {
     !motDePasseActuel
   ) {
     return res.status(400).json({
-      message: "Compte cible, acces Indisponibilites et mot de passe actuel obligatoires.",
+      message: "Compte cible, accès Indisponibilités et mot de passe actuel obligatoires.",
     });
   }
 
@@ -807,7 +846,7 @@ async function mettreAJourAccesIndisponibilitesUtilisateur(req, res) {
   return res.json({
     message: peutVoirIndisponibilites
       ? `Le menu Indisponibilites est maintenant visible pour ${compteCible.nom}.`
-      : `Le menu Indisponibilites a ete masque pour ${compteCible.nom}.`,
+      : `Le menu Indisponibilites a été masque pour ${compteCible.nom}.`,
   });
 }
 
@@ -845,8 +884,8 @@ async function revoquerSessionAdministration(req, res) {
 
   return res.json({
     message: selfRevoke
-      ? "Votre session actuelle a ete fermee."
-      : "La session cible a ete fermee.",
+      ? "Votre session actuelle a été fermee."
+      : "La session cible a été fermee.",
     must_reauthenticate: selfRevoke,
   });
 }
@@ -896,7 +935,7 @@ async function revoquerSessionsUtilisateurAdministration(req, res) {
   return res.json({
     message:
       totalSupprime > 0
-        ? `${totalSupprime} session(s) de ${compteCible.nom} ont ete fermees.`
+        ? `${totalSupprime} session(s) de ${compteCible.nom} ont été fermees.`
         : `Aucune session active a fermer pour ${compteCible.nom}.`,
   });
 }
@@ -924,7 +963,7 @@ async function supprimerToutesLesSeancesAdmin(req, res) {
   });
 
   return res.json({
-    message: "Toutes les seances ont ete supprimees.",
+    message: "Toutes les séances ont été supprimées.",
   });
 }
 
@@ -948,10 +987,11 @@ async function supprimerToutHistoriqueAdmin(req, res) {
   await journaliserActionAdmin(req, "admin_clear_history", "success", {
     total_historique_supprime: resume.totalHistorique,
     total_journal_auth_supprime: resume.totalJournalAuth,
+    total_journal_auth_conserve: resume.totalJournalAuthConserves,
   });
 
   return res.json({
-    message: "L'historique a ete reinitialise. L'action de purge a ete conservee dans le journal d'audit.",
+    message: "L'historique des actions a été réinitialisé. Le journal d'authentification a été conservé.",
   });
 }
 
@@ -978,7 +1018,7 @@ async function executerMaintenanceSqliteAdministration(req, res) {
 
   if (execution.skipped) {
     return res.status(409).json({
-      message: "Une maintenance SQLite est deja en cours.",
+      message: "Une maintenance SQLite est déjà en cours.",
     });
   }
 
@@ -1045,8 +1085,8 @@ async function revoquerSessionSpecifique(req, res) {
 
     return res.json({
       message: selfRevoke
-        ? "Votre session actuelle a ete fermee."
-        : "La session cible a ete fermee.",
+        ? "Votre session actuelle a été fermee."
+        : "La session cible a été fermee.",
       must_reauthenticate: selfRevoke,
     });
   } catch (error) {
@@ -1127,7 +1167,7 @@ async function bloquerNouvelleIp(req, res) {
       raison: raisonNormalisee || "Bloquee par l'administrateur",
     });
 
-    return res.json({ message: `IP ${ipNormalisee} bloquee.` });
+    return res.json({ message: `IP ${ipNormalisee} bloquée.` });
   } catch (error) {
     return res.status(500).json({ message: "Erreur lors du blocage de l'IP." });
   }
@@ -1159,7 +1199,7 @@ async function debloquerIpExistante(req, res) {
     }
 
     await journaliserActionAdmin(req, "admin_unblock_ip", "success", { ip });
-    return res.json({ message: `IP ${ip} debloquee.` });
+    return res.json({ message: `IP ${ip} débloquée.` });
   } catch (error) {
     return res.status(500).json({ message: "Erreur lors du deblocage de l'IP." });
   }
@@ -1205,7 +1245,7 @@ async function revoquerAppareilAutoLoginAdministration(req, res) {
   }
 
   return res.json({
-    message: `L'auto-login de ${appareil.device_label} a ete revoque.`,
+    message: `L'auto-login de ${appareil.device_label} a été révoqué.`,
   });
 }
 
@@ -1213,6 +1253,7 @@ module.exports = {
   recupererVueAdministration,
   ajouterElementCatalogueAdministration,
   supprimerElementCatalogueAdministration,
+  restaurerElementCatalogueAdministration,
   creerUtilisateurAdministration,
   supprimerUtilisateurAdministration,
   reinitialiserMotDePasseCompte,

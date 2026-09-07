@@ -65,12 +65,12 @@ function normaliserErreurActivationPush(erreur) {
   if (/Registration failed - push service error/i.test(message)) {
     if (estNavigateurAndroid()) {
       return new Error(
-        "L'abonnement push a echoue sur Android. Reessayez dans Chrome, avec Google Play Services actifs, puis autorisez a nouveau les notifications si besoin."
+        "L'abonnement push a échoué sur Android. Réessayez dans Chrome, avec Google Play Services actifs, puis autorisez à nouveau les notifications si besoin."
       );
     }
 
     return new Error(
-      "L'abonnement push a echoue sur cet appareil. Rechargez la page puis reessayez."
+      "L'abonnement push a échoué sur cet appareil. Rechargez la page puis réessayez."
     );
   }
 
@@ -285,7 +285,7 @@ export async function activerNotificationsPush() {
   if (permission !== "granted") {
     const erreur = new Error(
       permission === "denied"
-        ? "Les notifications ont ete refusees dans ce navigateur."
+        ? "Les notifications ont été refusées dans ce navigateur."
         : "L'autorisation de notification est necessaire."
     );
     erreur.status = 400;

@@ -41,6 +41,15 @@ export async function supprimerElementCatalogueAdmin(elementId, motDePasseActuel
   });
 }
 
+export async function restaurerElementCatalogueAdmin(elementId, motDePasseActuel) {
+  return envoyerRequete(`/api/admin/catalogue-items/${Number(elementId)}/restore`, {
+    method: "POST",
+    body: JSON.stringify({
+      mot_de_passe_actuel: motDePasseActuel,
+    }),
+  });
+}
+
 export async function reinitialiserMotDePasseCompte(utilisateurId, motDePasseActuel) {
   return envoyerRequete("/api/admin/reset-password", {
     method: "POST",

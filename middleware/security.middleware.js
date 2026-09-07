@@ -11,8 +11,20 @@ function recupererPremiereValeurEntete(req, nomEntete) {
     .trim();
 }
 
+function requeteUtiliseProxyDeConfiance(req) {
+  const valeurTrustProxy = req.app?.get?.("trust proxy");
+
+  return (
+    valeurTrustProxy === true ||
+    Number(valeurTrustProxy) > 0 ||
+    String(valeurTrustProxy || "").toLowerCase() === "true"
+  );
+}
+
 function requeteEstSecurisee(req) {
-  const forwardedProto = recupererPremiereValeurEntete(req, "x-forwarded-proto").toLowerCase();
+  const forwardedProto = requeteUtiliseProxyDeConfiance(req)
+    ? recupererPremiereValeurEntete(req, "x-forwarded-proto").toLowerCase()
+    : "";
 
   if (forwardedProto) {
     return forwardedProto === "https";
@@ -22,8 +34,13 @@ function requeteEstSecurisee(req) {
 }
 
 function determinerOrigineAttendue(req) {
-  const forwardedProto = recupererPremiereValeurEntete(req, "x-forwarded-proto").toLowerCase();
-  const forwardedHost = recupererPremiereValeurEntete(req, "x-forwarded-host");
+  const utiliserProxy = requeteUtiliseProxyDeConfiance(req);
+  const forwardedProto = utiliserProxy
+    ? recupererPremiereValeurEntete(req, "x-forwarded-proto").toLowerCase()
+    : "";
+  const forwardedHost = utiliserProxy
+    ? recupererPremiereValeurEntete(req, "x-forwarded-host")
+    : "";
   const protocole = forwardedProto || (requeteEstSecurisee(req) ? "https" : req.protocol || "http");
   const host = forwardedHost || req.get("host");
 
@@ -39,7 +56,7 @@ function origineCorrespond(origine, origineAttendue) {
 }
 
 function appliquerEnTetesSecurite(req, res, next) {
-  const contentSecurityPolicy = [
+  const directivesCsp = [
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
@@ -51,7 +68,13 @@ function appliquerEnTetesSecurite(req, res, next) {
     "form-action 'self'",
     "frame-ancestors 'none'",
     "object-src 'none'",
-  ].join("; ");
+  ];
+
+  if (process.env.NODE_ENV === "production") {
+    directivesCsp.push("upgrade-insecure-requests");
+  }
+
+  const contentSecurityPolicy = directivesCsp.join("; ");
 
   res.setHeader("Content-Security-Policy", contentSecurityPolicy);
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");

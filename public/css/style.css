@@ -18,6 +18,14 @@
   --danger-soft: #fef2f2;
   --warning-soft: #fffbeb;
   --success-soft: #ecfdf5;
+  --calendar-unavailability-light: repeating-linear-gradient(
+    135deg,
+    rgba(148, 163, 184, 0.16) 0,
+    rgba(148, 163, 184, 0.16) 10px,
+    rgba(203, 213, 225, 0.34) 10px,
+    rgba(203, 213, 225, 0.34) 20px
+  );
+  --calendar-unavailability-light-border: rgba(148, 163, 184, 0.44);
   --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
   --shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
   --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.14);
@@ -1116,7 +1124,8 @@ button {
   padding: 16px 16px 14px;
 }
 
-#calendar {
+#calendar,
+#unavailability-calendar {
   width: 100%;
   min-width: 0;
   min-height: 560px;
@@ -1302,17 +1311,33 @@ button {
 }
 
 .fc .fc-event.indisponibilite-event {
-  background:
-    repeating-linear-gradient(
-      135deg,
-      rgba(75, 85, 99, 0.98) 0,
-      rgba(75, 85, 99, 0.98) 8px,
-      rgba(107, 114, 128, 0.98) 8px,
-      rgba(107, 114, 128, 0.98) 16px
-    );
-  border: 1px solid #374151;
-  color: #f8fafc;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  background: var(--calendar-unavailability-light) !important;
+  border: 1px solid var(--calendar-unavailability-light-border) !important;
+  color: transparent;
+  border-radius: 0 !important;
+  box-shadow: none;
+}
+
+.fc .fc-event.proposition-event {
+  border: 1px dashed #15803d !important;
+  background: rgba(187, 247, 208, 0.72) !important;
+  color: #14532d !important;
+  opacity: 0.72;
+  box-shadow:
+    0 10px 18px rgba(21, 128, 61, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.42);
+}
+
+.fc .fc-event.proposition-event .fc-event-main,
+.fc .fc-event.proposition-event .fc-event-title,
+.fc .fc-event.proposition-event .fc-event-time {
+  color: #14532d !important;
+}
+
+.fc .fc-event.proposition-event .fc-event-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fc .fc-scrollgrid {
@@ -1527,9 +1552,25 @@ button {
 }
 
 .fc .fc-timegrid-event.indisponibilite-event {
-  box-shadow:
-    0 10px 18px rgba(31, 41, 55, 0.18),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  border-radius: 0 !important;
+  box-shadow: none;
+}
+
+.fc .fc-timegrid-event.indisponibilite-event .fc-event-main-frame,
+.fc .fc-daygrid-event.indisponibilite-event,
+.fc .fc-daygrid-event.indisponibilite-event .fc-event-main-frame {
+  border-radius: 0 !important;
+}
+
+.fc .fc-timegrid-event.proposition-event {
+  height: 100%;
+  min-height: 100%;
+  pointer-events: auto;
+}
+
+.fc .fc-timegrid-event.proposition-event .fc-event-main-frame {
+  justify-content: flex-start;
+  padding: 7px 10px;
 }
 
 #calendar[data-calendar-view="timeGridWeek"].fc .fc-timegrid-event,
@@ -1543,14 +1584,7 @@ button {
   border-radius: 0 !important;
   padding: 0 !important;
   box-shadow: none !important;
-  background:
-    repeating-linear-gradient(
-      135deg,
-      rgba(148, 163, 184, 0.16) 0,
-      rgba(148, 163, 184, 0.16) 10px,
-      rgba(203, 213, 225, 0.34) 10px,
-      rgba(203, 213, 225, 0.34) 20px
-    ) !important;
+  background: var(--calendar-unavailability-light) !important;
 }
 
 .modal {
@@ -1580,6 +1614,49 @@ button {
   box-shadow: var(--shadow);
   padding: 24px;
   scrollbar-gutter: stable;
+}
+
+@keyframes modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+#seance-modal:not(.hidden) .modal-backdrop,
+#detail-modal:not(.hidden) .modal-backdrop,
+#unavailability-detail-modal:not(.hidden) .modal-backdrop {
+  animation: modal-backdrop-in 0.16s ease-out both;
+}
+
+#seance-modal:not(.hidden) .modal-panel,
+#detail-modal:not(.hidden) .modal-panel,
+#unavailability-detail-modal:not(.hidden) .modal-panel {
+  animation: modal-panel-in 0.18s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #seance-modal:not(.hidden) .modal-backdrop,
+  #detail-modal:not(.hidden) .modal-backdrop,
+  #unavailability-detail-modal:not(.hidden) .modal-backdrop,
+  #seance-modal:not(.hidden) .modal-panel,
+  #detail-modal:not(.hidden) .modal-panel,
+  #unavailability-detail-modal:not(.hidden) .modal-panel {
+    animation: none;
+  }
 }
 
 .modal-large {
@@ -1944,6 +2021,11 @@ button {
   transform: translateY(-1px);
 }
 
+.admin-catalog-restore:hover {
+  background: #bbf7d0;
+  color: #166534;
+}
+
 .admin-catalog-remove:disabled {
   opacity: 0.55;
   cursor: wait;
@@ -2158,6 +2240,7 @@ button {
 }
 
 .admin-workbench-tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2189,6 +2272,27 @@ button {
   background: #ffffff;
   color: #1e40af;
   box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+}
+
+.menu-notification-badge {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  box-shadow: 0 6px 12px rgba(220, 38, 38, 0.26);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+  pointer-events: none;
 }
 
 .user-password-form {
@@ -2390,6 +2494,22 @@ button {
   background: #f8fbff;
 }
 
+.proposal-item {
+  align-items: stretch;
+}
+
+.proposal-inline-form {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.proposal-inline-actions {
+  margin-top: 0;
+  justify-content: flex-start;
+}
+
 .admin-session-empty,
 .admin-user-empty {
   padding: 18px;
@@ -2505,6 +2625,61 @@ button {
   display: none;
 }
 
+.unavailability-workbench-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface-muted);
+}
+
+#indisponibilites-section .admin-workbench-tab,
+#indisponibilites-section .admin-card,
+#indisponibilites-section .admin-session-item,
+#indisponibilites-section .button,
+#indisponibilites-section .status-badge,
+#indisponibilites-section .form-error,
+#unavailability-detail-modal .detail-card,
+#unavailability-detail-modal .modal-panel,
+#unavailability-detail-modal .icon-button,
+#unavailability-detail-modal .button,
+#unavailability-detail-modal .status-badge,
+#unavailability-modal-form .field input,
+#unavailability-modal-form .field select,
+#unavailability-modal-form .field textarea,
+#unavailability-modal-form .time-select-row,
+#unavailability-modal-form .checkbox-option span {
+  border-radius: 0 !important;
+}
+
+#unavailability-calendar.fc .fc-toolbar.fc-header-toolbar,
+#unavailability-calendar.fc .fc-scrollgrid,
+#unavailability-calendar.fc .fc-button,
+#unavailability-calendar.fc .fc-timegrid-event,
+#unavailability-calendar.fc .fc-timegrid-event .fc-event-main-frame,
+#unavailability-calendar.fc .fc-daygrid-event,
+#unavailability-calendar.fc .fc-daygrid-event .fc-event-main-frame {
+  border-radius: 0 !important;
+}
+
+.unavailability-workbench-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.unavailability-calendar-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.unavailability-calendar-card .admin-card-head {
+  margin-bottom: 10px;
+}
+
 .user-form-title {
   margin: 0;
   font-size: 1rem;
@@ -2560,6 +2735,7 @@ button {
 .detail-layout {
   display: grid;
   grid-template-columns: 1.15fr 0.85fr;
+  align-items: start;
   gap: 16px;
 }
 
@@ -2677,7 +2853,12 @@ button {
 
 .detail-side {
   display: grid;
+  align-self: start;
   gap: 16px;
+}
+
+.detail-side .detail-card {
+  align-content: start;
 }
 
 .detail-card h4 {
@@ -2688,8 +2869,63 @@ button {
 
 .quick-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.quick-status-button {
+  width: 100%;
+  min-height: 46px;
+  justify-content: flex-start;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+}
+
+.quick-status-button[data-status="faite"] {
+  border-color: #bbf7d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.quick-status-button[data-status="reportee"] {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.quick-status-button[data-status="annulee"] {
+  border-color: #fecaca;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.quick-status-button:hover {
+  filter: brightness(0.985);
+}
+
+#unavailability-detail-modal .detail-layout {
+  align-items: start;
+}
+
+#unavailability-detail-modal .detail-card {
+  align-content: start;
+}
+
+#unavailability-detail-modal .detail-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+#unavailability-detail-modal .detail-actions .button {
+  flex: 0 0 auto;
+  min-height: 48px;
+  height: auto;
+  padding: 0 24px;
+}
+
+#unavailability-form-panel {
+  align-self: start;
 }
 
 .detail-photo-header {
@@ -3072,6 +3308,8 @@ button {
 }
 
 .toast {
+  display: grid;
+  gap: 4px;
   min-width: 220px;
   max-width: 320px;
   padding: 12px 14px;
@@ -3081,8 +3319,28 @@ button {
   box-shadow: 0 14px 26px rgba(15, 23, 42, 0.12);
 }
 
+.toast-title {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.toast-message {
+  display: block;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .toast.success {
   border-color: #bfdbfe;
+}
+
+.toast.proposal {
+  border-color: #86efac;
+  background: #ecfdf5;
+  color: #14532d;
+  box-shadow: 0 16px 30px rgba(22, 101, 52, 0.16);
 }
 
 .toast.error {
@@ -3701,15 +3959,18 @@ button {
     grid-template-columns: 1fr;
   }
 
-  #detail-modal .detail-layout {
+  #detail-modal .detail-layout,
+  #unavailability-detail-modal .detail-layout {
     gap: 14px;
   }
 
-  #detail-modal .detail-card {
+  #detail-modal .detail-card,
+  #unavailability-detail-modal .detail-card {
     gap: 14px;
   }
 
-  #detail-modal .detail-row {
+  #detail-modal .detail-row,
+  #unavailability-detail-modal .detail-row {
     display: grid;
     grid-template-columns: 1fr;
     align-items: start;
@@ -3717,7 +3978,8 @@ button {
     padding: 10px 0;
   }
 
-  #detail-modal .detail-row strong {
+  #detail-modal .detail-row strong,
+  #unavailability-detail-modal .detail-row strong {
     text-align: left;
     line-height: 1.45;
     overflow-wrap: anywhere;
@@ -3737,6 +3999,7 @@ button {
   }
 
   #detail-modal .detail-actions .button,
+  #unavailability-detail-modal .detail-actions .button,
   #detail-modal .quick-actions .button {
     width: 100%;
   }
@@ -4162,34 +4425,40 @@ button {
   }
 
   #detail-title,
+  #unavailability-detail-title,
   .detail-title {
     font-size: 1.1rem;
     line-height: 1.25;
     overflow-wrap: anywhere;
   }
 
-  #detail-modal .detail-badges {
+  #detail-modal .detail-badges,
+  #unavailability-detail-modal .detail-badges {
     gap: 6px;
   }
 
-  #detail-modal .status-badge {
+  #detail-modal .status-badge,
+  #unavailability-detail-modal .status-badge {
     min-height: 34px;
     padding: 7px 10px;
     font-size: 0.8rem;
   }
 
-  #detail-modal .detail-card h4 {
+  #detail-modal .detail-card h4,
+  #unavailability-detail-modal .detail-card h4 {
     font-size: 0.96rem;
   }
 
-  #detail-modal .detail-row span {
+  #detail-modal .detail-row span,
+  #unavailability-detail-modal .detail-row span {
     font-size: 0.8rem;
     font-weight: 700;
     letter-spacing: 0.02em;
     text-transform: uppercase;
   }
 
-  #detail-modal .detail-row strong {
+  #detail-modal .detail-row strong,
+  #unavailability-detail-modal .detail-row strong {
     font-size: 0.96rem;
   }
 
@@ -4405,15 +4674,8 @@ button {
     min-height: 14px;
     margin: 1px 0 0;
     border-radius: 2px;
-    border: 1px solid #cbd5e1 !important;
-    background:
-      repeating-linear-gradient(
-        135deg,
-        rgba(148, 163, 184, 0.82) 0,
-        rgba(148, 163, 184, 0.82) 8px,
-        rgba(203, 213, 225, 0.96) 8px,
-        rgba(203, 213, 225, 0.96) 16px
-      ) !important;
+    border: 1px solid var(--calendar-unavailability-light-border) !important;
+    background: var(--calendar-unavailability-light) !important;
     box-shadow: none;
   }
 
@@ -4452,6 +4714,22 @@ button {
     background: var(--calendar-mobile-abdo) !important;
     border-color: var(--calendar-mobile-abdo) !important;
     color: #ffffff !important;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-proposition,
+  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-proposition {
+    border: 1px dashed #15803d !important;
+    background: rgba(187, 247, 208, 0.76) !important;
+    color: #14532d !important;
+    opacity: 0.78;
+    box-shadow: none;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-proposition .fc-event-main,
+  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-proposition .fc-event-title,
+  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-proposition .fc-event-main,
+  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-proposition .fc-event-title {
+    color: #14532d !important;
   }
 
   #calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .fc-col-header-cell-cushion {
@@ -4517,15 +4795,8 @@ button {
 
   #calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .calendar-mobile-week-indisponibilite {
     border-radius: 4px;
-    border-color: #cbd5e1 !important;
-    background:
-      repeating-linear-gradient(
-        135deg,
-        rgba(148, 163, 184, 0.84) 0,
-        rgba(148, 163, 184, 0.84) 8px,
-        rgba(203, 213, 225, 0.96) 8px,
-        rgba(203, 213, 225, 0.96) 16px
-      ) !important;
+    border-color: var(--calendar-unavailability-light-border) !important;
+    background: var(--calendar-unavailability-light) !important;
     box-shadow: none;
   }
 
@@ -4978,6 +5249,17 @@ button {
   font-size: 0 !important;
 }
 
+#calendar.fc .indisponibilite-event,
+#calendar.fc .indisponibilite-event .fc-event-main-frame,
+#calendar.fc .calendar-mobile-month-indisponibilite,
+#calendar.fc .calendar-mobile-week-indisponibilite,
+#unavailability-calendar.fc .indisponibilite-event,
+#unavailability-calendar.fc .indisponibilite-event .fc-event-main-frame,
+#unavailability-calendar.fc .calendar-mobile-month-indisponibilite,
+#unavailability-calendar.fc .calendar-mobile-week-indisponibilite {
+  border-radius: 0 !important;
+}
+
 @media (max-width: 720px) {
   .reservation-public-main {
     width: min(100% - 16px, 1440px);
@@ -5045,5 +5327,709 @@ button {
   #reservation-public-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .calendar-mobile-week-indisponibilite {
     border-radius: 0 !important;
     box-shadow: none !important;
+  }
+}
+
+/* Mobile indisponibilites: alignement visuel avec le calendrier central. */
+@media (max-width: 720px) {
+  #indisponibilites-section .admin-panel-shell {
+    gap: 12px;
+    padding: 10px;
+    border-radius: 0;
+  }
+
+  #indisponibilites-section .section-heading {
+    gap: 6px;
+    margin-bottom: 0;
+  }
+
+  #indisponibilites-section .section-note {
+    font-size: 0.84rem;
+    line-height: 1.4;
+  }
+
+  .unavailability-workbench-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    margin-bottom: 10px;
+    padding: 0;
+    overflow: hidden;
+    background: #ffffff;
+  }
+
+  #indisponibilites-section .admin-workbench-tab {
+    min-height: 42px;
+    padding: 9px 8px;
+    border: 0;
+    border-right: 1px solid var(--border);
+    background: #ffffff;
+    box-shadow: none;
+    font-size: 0.86rem;
+  }
+
+  #indisponibilites-section .admin-workbench-tab:last-child {
+    border-right: 0;
+  }
+
+  #indisponibilites-section .admin-workbench-tab.is-active {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+
+  .unavailability-workbench-panel {
+    gap: 12px;
+  }
+
+  .unavailability-calendar-card {
+    padding: 8px;
+    border-color: #e6e9ef;
+    background: #ffffff;
+  }
+
+  .unavailability-calendar-card .admin-card-head {
+    display: none;
+  }
+
+  #unavailability-calendar {
+    min-height: 460px;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc {
+    --calendar-mobile-yassine: #e67b73;
+    --calendar-mobile-abdo: #8e24aa;
+  }
+
+  #unavailability-calendar.fc .fc-toolbar.fc-header-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 0.7rem;
+    padding: 4px 0 10px;
+    border: none;
+    background: transparent;
+  }
+
+  #unavailability-calendar.fc .fc-toolbar-chunk {
+    width: 100%;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  #unavailability-calendar.fc .fc-toolbar-title {
+    font-size: 0.98rem;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
+  }
+
+  #unavailability-calendar.fc .fc-button-group {
+    display: flex;
+    width: auto;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    border: 1px solid #dadce0;
+  }
+
+  #unavailability-calendar.fc .fc-button {
+    min-height: 36px;
+    padding: 0.4rem 0.72rem;
+    border-color: #dadce0;
+    background: #ffffff;
+    font-size: 0.8rem;
+  }
+
+  #unavailability-calendar.fc .fc-button-group .fc-button {
+    flex: 1 1 auto;
+    margin-left: 0;
+    border-top: 0;
+    border-bottom: 0;
+  }
+
+  #unavailability-calendar.fc .fc-button-group .fc-button:first-child {
+    border-left: 0;
+  }
+
+  #unavailability-calendar.fc .fc-button-group .fc-button:last-child {
+    border-right: 0;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-scrollgrid {
+    border-color: #e6e9ef;
+    background: #ffffff;
+    box-shadow: none;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-timegrid-body,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-timegrid-slots,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-timegrid-slot,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-timegrid-col {
+    touch-action: none;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-timegrid-slot,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-timegrid-col {
+    cursor: crosshair;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-highlight {
+    border: 1px solid rgba(37, 99, 235, 0.34);
+    background: rgba(37, 99, 235, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  }
+
+  #unavailability-calendar.fc .fc-col-header-cell-cushion {
+    padding: 8px 0 7px;
+    font-size: 0.64rem;
+    letter-spacing: 0;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-col-header-cell,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-daygrid-day-frame,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-day-other .fc-daygrid-day-frame {
+    background: #ffffff;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .fc-daygrid-day-frame {
+    min-height: 88px;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .fc-daygrid-day.fc-day-today {
+    background: transparent;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-frame {
+    box-shadow: none;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .fc-daygrid-day-top {
+    justify-content: center;
+    padding: 4px 0 0;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .fc-daygrid-day-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+    color: #3c4043;
+    font-size: 0.78rem;
+    font-weight: 500;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+    min-width: 24px;
+    height: 24px;
+    margin: 0 auto;
+    color: #ffffff;
+    font-size: 0.76rem;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .fc-daygrid-day-events {
+    margin-top: 2px;
+    padding: 0 2px 4px;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .fc-daygrid-event-harness {
+    margin-top: 1px;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .fc-event {
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    font-size: 0.62rem;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .calendar-mobile-month-seance {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 14px;
+    margin: 0;
+    padding: 2px 4px;
+    box-shadow: none;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .calendar-mobile-month-seance .fc-daygrid-event-dot {
+    display: none;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .calendar-mobile-month-seance .fc-event-main,
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .calendar-mobile-month-seance .fc-event-main-frame,
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .calendar-mobile-month-seance .fc-event-title-container {
+    min-width: 0;
+    width: 100%;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .calendar-mobile-month-seance .fc-event-main-frame {
+    padding: 0;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .calendar-mobile-month-seance .fc-event-title {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    color: inherit;
+    font-size: 0.56rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    line-height: 1.15;
+    text-align: left;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="dayGridMonth"].fc .calendar-mobile-month-indisponibilite {
+    min-height: 14px;
+    margin: 1px 0 0;
+    border: 1px solid var(--calendar-unavailability-light-border) !important;
+    background: var(--calendar-unavailability-light) !important;
+    box-shadow: none;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance {
+    background: var(--calendar-mobile-yassine) !important;
+    border-color: var(--calendar-mobile-yassine) !important;
+    color: #ffffff !important;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance.compte-abdo,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance.compte-abdo {
+    background: var(--calendar-mobile-abdo) !important;
+    border-color: var(--calendar-mobile-abdo) !important;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance .fc-event-main,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance .fc-event-title,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-main,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-title {
+    color: #ffffff !important;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-proposition,
+  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-proposition {
+    border: 1px dashed #15803d !important;
+    background: rgba(187, 247, 208, 0.76) !important;
+    color: #14532d !important;
+    opacity: 0.78;
+    box-shadow: none;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .fc-timegrid-slot-label-cushion,
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .fc-timegrid-axis-cushion {
+    min-width: 38px;
+    padding-right: 2px;
+    font-size: 0.68rem;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .fc-timegrid-col-events {
+    margin: 0 1px;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .fc-timegrid-event {
+    box-shadow: none;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .calendar-mobile-week-seance .fc-event-main-frame {
+    align-items: flex-start;
+    width: 100%;
+    min-width: 0;
+    gap: 0;
+    padding: 5px 4px;
+    text-align: left;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .calendar-mobile-week-seance .fc-event-title {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    color: inherit;
+    font-size: 0.62rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    line-height: 1.05;
+    text-align: left;
+    text-overflow: clip;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .calendar-mobile-week-seance .fc-event-time {
+    display: none;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .calendar-mobile-week-indisponibilite {
+    border-color: var(--calendar-unavailability-light-border) !important;
+    background: var(--calendar-unavailability-light) !important;
+    box-shadow: none;
+  }
+
+  #indisponibilites-section .admin-session-list {
+    gap: 8px;
+  }
+
+  #indisponibilites-section .admin-session-item {
+    gap: 10px;
+    padding: 12px;
+    border-color: #e6e9ef;
+    background: #ffffff;
+    box-shadow: none;
+    transform: none;
+  }
+
+  #indisponibilites-section .admin-session-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    width: 100%;
+  }
+
+  #indisponibilites-section .admin-session-actions .button {
+    width: 100%;
+    min-height: 38px;
+    padding: 7px 6px;
+    font-size: 0.78rem;
+  }
+}
+
+@media (max-width: 720px) {
+  #unavailability-detail-modal {
+    align-items: stretch;
+    justify-items: stretch;
+    place-items: stretch;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    background: #f8fafc;
+  }
+
+  #unavailability-detail-modal .modal-backdrop {
+    display: none;
+  }
+
+  #unavailability-detail-modal .modal-panel {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    max-width: none;
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    background: #f8fafc;
+    box-shadow: none;
+  }
+
+  #unavailability-detail-modal .modal-header {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 14px 14px 12px;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.96);
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(14px);
+  }
+
+  #unavailability-detail-modal .modal-header .icon-button {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+  }
+
+  #unavailability-detail-modal .modal-heading {
+    gap: 4px;
+    min-width: 0;
+  }
+
+  #unavailability-detail-modal .modal-subtitle {
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+
+  #unavailability-detail-modal .detail-layout {
+    display: grid;
+    flex: 1 1 auto;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 12px;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #unavailability-detail-modal.is-unavailability-form-open .detail-layout > .detail-card:first-child {
+    display: none;
+  }
+
+  #unavailability-detail-modal .detail-card {
+    gap: 12px;
+    padding: 14px;
+    border-color: #e2e8f0;
+    background: #ffffff;
+    box-shadow: none;
+  }
+
+  #unavailability-form-panel {
+    order: -1;
+  }
+
+  #unavailability-form-panel h4 {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  #unavailability-modal-form {
+    gap: 12px;
+  }
+
+  #unavailability-modal-form .form-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  #unavailability-modal-form .field {
+    gap: 7px;
+  }
+
+  #unavailability-modal-form .field input,
+  #unavailability-modal-form .field select {
+    min-height: 46px;
+    background: #ffffff;
+  }
+
+  #unavailability-modal-form .time-select-row {
+    border-radius: 0;
+    background: #ffffff;
+  }
+
+  #unavailability-modal-form .checkbox-option span {
+    min-height: 44px;
+  }
+
+  #unavailability-modal-form .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 2px -14px -14px;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(226, 232, 240, 0.96);
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(14px);
+  }
+
+  #unavailability-detail-modal .detail-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+
+  #unavailability-detail-modal .detail-actions .button {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+  }
+}
+
+@media (max-width: 560px) {
+  #unavailability-calendar {
+    min-height: 430px;
+  }
+
+  #indisponibilites-section .admin-panel-shell {
+    padding: 8px;
+  }
+
+  #indisponibilites-section .admin-session-actions {
+    grid-template-columns: 1fr;
+  }
+
+  #unavailability-detail-modal .detail-layout {
+    padding: 10px;
+  }
+
+  #unavailability-detail-modal .detail-card {
+    padding: 12px;
+  }
+}
+
+#unavailability-detail-modal.is-unavailability-creation-mode .modal-panel,
+#unavailability-detail-modal.is-unavailability-confirmation-mode .modal-panel {
+  width: min(1060px, 100%);
+}
+
+#unavailability-detail-modal.is-unavailability-creation-mode .detail-layout {
+  display: block;
+}
+
+#unavailability-detail-modal.is-unavailability-confirmation-mode .detail-layout {
+  display: block;
+}
+
+#unavailability-detail-modal.is-unavailability-creation-mode .detail-layout > .detail-card:first-child {
+  display: none;
+}
+
+#unavailability-detail-modal.is-unavailability-confirmation-mode .detail-layout > .detail-card:first-child {
+  display: grid;
+}
+
+#unavailability-detail-modal.is-unavailability-confirmation-mode #unavailability-form-panel {
+  display: none;
+}
+
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-form-panel {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md) !important;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+#unavailability-detail-modal.is-unavailability-creation-mode .button,
+#unavailability-detail-modal.is-unavailability-creation-mode .icon-button {
+  border-radius: 10px !important;
+}
+
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .field input,
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .field select,
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .field textarea {
+  border-radius: var(--radius-sm) !important;
+}
+
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .time-select-row {
+  border-radius: 16px !important;
+}
+
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .checkbox-option span {
+  border-radius: var(--radius-sm) !important;
+}
+
+@media (max-width: 720px) {
+  #unavailability-detail-modal.is-unavailability-creation-mode,
+  #unavailability-detail-modal.is-unavailability-confirmation-mode {
+    align-items: center;
+    justify-items: center;
+    place-items: center;
+    width: auto;
+    height: auto;
+    padding: 10px;
+    overflow: visible;
+    background: transparent;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode .modal-backdrop,
+  #unavailability-detail-modal.is-unavailability-confirmation-mode .modal-backdrop {
+    display: block;
+    background: rgba(17, 24, 39, 0.44);
+    backdrop-filter: blur(8px);
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode .modal-panel,
+  #unavailability-detail-modal.is-unavailability-confirmation-mode .modal-panel {
+    display: block;
+    width: min(100%, 100%);
+    max-width: 100%;
+    height: auto;
+    min-height: 0;
+    max-height: calc(100vh - 20px);
+    max-height: calc(100dvh - 20px);
+    margin: 0;
+    padding: 14px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 16px !important;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    scrollbar-gutter: stable;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode .modal-header,
+  #unavailability-detail-modal.is-unavailability-confirmation-mode .modal-header {
+    position: sticky;
+    top: -14px;
+    z-index: 4;
+    margin: -14px -14px 14px;
+    padding: 14px 14px 12px;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.92);
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(14px);
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode .modal-header .icon-button,
+  #unavailability-detail-modal.is-unavailability-confirmation-mode .modal-header .icon-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode .detail-layout,
+  #unavailability-detail-modal.is-unavailability-confirmation-mode .detail-layout {
+    display: block;
+    padding: 0;
+    overflow: visible;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode #unavailability-form-panel {
+    gap: 16px;
+    padding: 18px;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode #unavailability-form-panel h4 {
+    font-size: 1.04rem;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form {
+    gap: 16px;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .form-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .field {
+    gap: 8px;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .field input,
+  #unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .field select {
+    min-height: 60px;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .time-select-row {
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .checkbox-option span {
+    min-height: 54px;
+  }
+
+  #unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .form-actions {
+    position: static;
+    display: flex;
+    grid-template-columns: unset;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin: 0;
+    padding: 6px 0 0;
+    border-top: 1px solid var(--border);
+    background: transparent;
+    backdrop-filter: none;
   }
 }

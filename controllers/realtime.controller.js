@@ -1,10 +1,21 @@
 const {
+  autoriserNouveauClientTempsReel,
   ajouterClientTempsReel,
   retirerClientTempsReel,
   configurerHeartbeatClient,
 } = require("../utils/realtime");
+const { normaliserIpClient } = require("../middleware/security.middleware");
 
 function ouvrirFluxTempsReel(req, res) {
+  const clientKey = req.utilisateur?.id
+    ? `user:${req.utilisateur.id}`
+    : `ip:${normaliserIpClient(req)}`;
+  const autorisation = autoriserNouveauClientTempsReel({ clientKey });
+
+  if (!autorisation.ok) {
+    return res.status(autorisation.status).json({ message: autorisation.message });
+  }
+
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, private");
   res.setHeader("Connection", "keep-alive");
@@ -19,6 +30,7 @@ function ouvrirFluxTempsReel(req, res) {
   const client = ajouterClientTempsReel({
     res,
     utilisateurId: req.utilisateur?.id,
+    clientKey,
   });
 
   configurerHeartbeatClient(client);

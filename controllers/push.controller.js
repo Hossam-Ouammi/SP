@@ -64,7 +64,7 @@ async function supprimerAbonnementPush(req, res) {
 
   if (!abonnement) {
     return res.json({
-      message: "Aucun abonnement actif a supprimer pour cet appareil.",
+      message: "Aucun abonnement actif à supprimer pour cet appareil.",
     });
   }
 

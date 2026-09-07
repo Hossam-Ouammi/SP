@@ -8,6 +8,7 @@ import {
   recupererVueAdministration,
   ajouterElementCatalogueAdmin,
   supprimerElementCatalogueAdmin,
+  restaurerElementCatalogueAdmin,
   creerUtilisateurAdmin,
   supprimerUtilisateurAdmin,
   reinitialiserMotDePasseCompte,
@@ -39,14 +40,20 @@ import {
   changerStatutSeance,
   recupererIndisponibilites,
   creerIndisponibilite,
+  modifierIndisponibilite,
   supprimerIndisponibilite,
+  recupererPropositionsSeances,
+  creerPropositionSeance,
+  modifierPropositionSeance,
+  accepterPropositionSeance,
+  refuserPropositionSeance,
   recupererHistoriqueActions,
   recupererDetailHistorique,
   supprimerEntreeHistorique as supprimerEntreeHistoriqueApi,
   recupererMonetisation,
   telechargerReleveMonetisation,
 } from "./seances.js";
-import { initialiserCalendrier, mettreAJourEvenements } from "./calendrier.js";
+import { initialiserCalendrier, mettreAJourEvenements } from "./calendrier.js?v=20260611d";
 import {
   recupererEtatNotificationsPush,
   synchroniserNotificationsPushActuelles,
@@ -73,7 +80,6 @@ const ordreChampsCreationHistorique = [
   "heure_fin",
   "duree_minutes",
   "statut_seance",
-  "description",
 ];
 
 const libellesCreationHistorique = {
@@ -87,15 +93,19 @@ const libellesCreationHistorique = {
   heure_fin: "Heure de fin",
   duree_minutes: "Durée",
   statut_seance: "Statut",
-  description: "Description",
 };
 
 const heuresDebutDisponibles = Array.from({ length: 15 }, (_, index) =>
   String(index + 8).padStart(2, "0")
 );
+const heuresIndisponibiliteDisponibles = Array.from({ length: 16 }, (_, index) =>
+  String(index + 8).padStart(2, "0")
+);
 const minutesDebutDisponibles = ["00", "30"];
+const minutesFinIndisponibiliteDisponibles = ["00", "30", "59"];
 const comptesMonetisationPrincipaux = ["Yassine", "Abdo"];
 const cleConnexionMemorisee = "gestion-seances-connexion-memorisee";
+const delaiTripleClicIndisponibiliteMs = 1200;
 
 function creerCatalogueVide() {
   return {
@@ -108,6 +118,7 @@ const etat = {
   utilisateur: null,
   seances: [],
   indisponibilites: [],
+  propositionsSeances: [],
   historique: [],
   monetisation: null,
   monetisationPeriodeMode: "monthly",
@@ -121,7 +132,16 @@ const etat = {
   catalogue: creerCatalogueVide(),
   historiqueSelection: null,
   seanceSelectionnee: null,
+  indisponibiliteSelectionnee: null,
+  propositionEditionId: null,
+  clicIndisponibilite: {
+    id: null,
+    count: 0,
+    lastAt: 0,
+  },
   calendrier: null,
+  calendrierIndisponibilites: null,
+  vueIndisponibilitesActive: "declaration",
   sectionActive: "aujourdhui",
   notificationsPush: {
     supported: false,
@@ -132,27 +152,27 @@ const etat = {
 const vuesAdministration = {
   accounts: {
     titre: "Comptes",
-    note: "Creez, securisez ou retirez les comptes collaborateurs.",
+    note: "Créez, sécurisez ou retirez les comptes collaborateurs.",
   },
   catalogue: {
     titre: "Catalogue",
-    note: "Gerez les comptes de seance et les tarifs utilises dans l'application.",
+    note: "Gérez les comptes de séance et les tarifs utilisés dans l'application.",
   },
   access: {
-    titre: "Acces",
-    note: "Activez les modules disponibles pour chaque compte sans modifier les seances existantes.",
+    titre: "Accès",
+    note: "Activez les modules disponibles pour chaque compte sans modifier les séances existantes.",
   },
   security: {
-    titre: "Securite",
-    note: "Surveillez les sessions, les appareils auto-login, l'audit et les IP bloquees.",
+    titre: "Sécurité",
+    note: "Surveillez les sessions, les appareils auto-login, l'audit et les IP bloquées.",
   },
   maintenance: {
     titre: "Maintenance",
-    note: "Executez des controles SQLite legers et adaptes a une petite instance Oracle.",
+    note: "Exécutez des contrôles SQLite légers et adaptés à une petite instance Oracle.",
   },
   password: {
     titre: "MDP",
-    note: "Changez le mot de passe du compte connecte.",
+    note: "Changez le mot de passe du compte connecté.",
   },
   notifications: {
     titre: "Notifications",
@@ -160,10 +180,11 @@ const vuesAdministration = {
   },
   danger: {
     titre: "Zone critique",
-    note: "Actions destructrices a utiliser seulement apres verification.",
+    note: "Actions destructrices à utiliser seulement après vérification.",
   },
 };
 const vuesAdministrationValides = new Set(Object.keys(vuesAdministration));
+const vuesIndisponibilitesValides = new Set(["declaration", "propositions"]);
 const connexionTempsReel = {
   source: null,
   synchronisationProgrammee: null,
@@ -257,10 +278,69 @@ const elements = {
   ),
   adminUnavailabilityStart: document.getElementById("admin-unavailability-start"),
   adminUnavailabilityEnd: document.getElementById("admin-unavailability-end"),
-  adminUnavailabilityReason: document.getElementById("admin-unavailability-reason"),
   adminUnavailabilityList: document.getElementById("admin-unavailability-list"),
   adminUnavailabilityError: document.getElementById("admin-unavailability-error"),
   adminUnavailabilityButton: document.getElementById("admin-unavailability-button"),
+  unavailabilityViewTabs: Array.from(document.querySelectorAll("[data-unavailability-view]")),
+  unavailabilityPanels: Array.from(document.querySelectorAll("[data-unavailability-panel]")),
+  unavailabilityPropositionsTab: document.getElementById("unavailability-propositions-tab"),
+  unavailabilityPropositionsBadge: document.getElementById(
+    "unavailability-propositions-badge"
+  ),
+  unavailabilityDeclarationPanel: document.getElementById(
+    "unavailability-declaration-panel"
+  ),
+  unavailabilityPropositionsPanel: document.getElementById(
+    "unavailability-propositions-panel"
+  ),
+  unavailabilityCalendar: document.getElementById("unavailability-calendar"),
+  unavailabilityDetailModal: document.getElementById("unavailability-detail-modal"),
+  unavailabilityDetailTitle: document.getElementById("unavailability-detail-title"),
+  unavailabilityDetailSubtitle: document.getElementById("unavailability-detail-subtitle"),
+  unavailabilityDetailBadge: document.getElementById("unavailability-detail-badge"),
+  unavailabilityDetailDate: document.getElementById("unavailability-detail-date"),
+  unavailabilityDetailTime: document.getElementById("unavailability-detail-time"),
+  unavailabilityDetailCreatedBy: document.getElementById(
+    "unavailability-detail-created-by"
+  ),
+  unavailabilityDetailCreatedAt: document.getElementById(
+    "unavailability-detail-created-at"
+  ),
+  editUnavailabilityButton: document.getElementById("edit-unavailability-button"),
+  duplicateUnavailabilityButton: document.getElementById(
+    "duplicate-unavailability-button"
+  ),
+  deleteUnavailabilityButton: document.getElementById("delete-unavailability-button"),
+  unavailabilityFormPanel: document.getElementById("unavailability-form-panel"),
+  unavailabilityFormTitle: document.getElementById("unavailability-form-title"),
+  unavailabilityModalForm: document.getElementById("unavailability-modal-form"),
+  unavailabilityModalDate: document.getElementById("unavailability-modal-date"),
+  unavailabilityModalFullDay: document.getElementById("unavailability-modal-full-day"),
+  unavailabilityModalFullDayNote: document.getElementById(
+    "unavailability-modal-full-day-note"
+  ),
+  unavailabilityModalTimeFields: document.getElementById(
+    "unavailability-modal-time-fields"
+  ),
+  unavailabilityModalStart: document.getElementById("unavailability-modal-start"),
+  unavailabilityModalEnd: document.getElementById("unavailability-modal-end"),
+  unavailabilityModalStartHourSelect: document.getElementById(
+    "unavailability-modal-start-hour-select"
+  ),
+  unavailabilityModalStartMinuteSelect: document.getElementById(
+    "unavailability-modal-start-minute-select"
+  ),
+  unavailabilityModalEndHourSelect: document.getElementById(
+    "unavailability-modal-end-hour-select"
+  ),
+  unavailabilityModalEndMinuteSelect: document.getElementById(
+    "unavailability-modal-end-minute-select"
+  ),
+  unavailabilityModalError: document.getElementById("unavailability-modal-error"),
+  cancelUnavailabilityFormButton: document.getElementById(
+    "cancel-unavailability-form-button"
+  ),
+  saveUnavailabilityButton: document.getElementById("save-unavailability-button"),
   adminCreateUserCurrentPassword: document.getElementById(
     "admin-create-user-current-password"
   ),
@@ -500,6 +580,8 @@ const elements = {
   dureeCheckboxes: Array.from(document.querySelectorAll(".duration-checkbox")),
   statutCheckboxes: Array.from(document.querySelectorAll(".statut-checkbox")),
   essaiCheckboxes: Array.from(document.querySelectorAll(".essai-checkbox")),
+  descriptionSection: document.getElementById("description-section"),
+  statusSection: document.getElementById("status-section"),
   description: document.getElementById("description"),
   detailModal: document.getElementById("detail-modal"),
   detailTitle: document.getElementById("detail-title"),
@@ -651,16 +733,24 @@ function utilisateurDoitChangerMotDePasse() {
 }
 
 function rafraichirEvenementsCalendrier() {
-  if (!etat.calendrier) {
-    return;
-  }
+  [etat.calendrier, etat.calendrierIndisponibilites].forEach((calendrier) => {
+    if (!calendrier) {
+      return;
+    }
 
-  mettreAJourEvenements(etat.calendrier, etat.seances, etat.indisponibilites);
+    mettreAJourEvenements(
+      calendrier,
+      etat.seances,
+      etat.indisponibilites,
+      etat.propositionsSeances
+    );
+  });
 }
 
 function viderDonneesApplication() {
   etat.seances = [];
   etat.indisponibilites = [];
+  etat.propositionsSeances = [];
   etat.historique = [];
   etat.monetisation = null;
   etat.monetisationPeriodeMode = "monthly";
@@ -673,8 +763,11 @@ function viderDonneesApplication() {
   etat.catalogue = creerCatalogueVide();
   etat.historiqueSelection = null;
   etat.seanceSelectionnee = null;
+  etat.indisponibiliteSelectionnee = null;
+  etat.propositionEditionId = null;
+  etat.vueIndisponibilitesActive = "declaration";
 
-  if (etat.calendrier) {
+  if (etat.calendrier || etat.calendrierIndisponibilites) {
     rafraichirEvenementsCalendrier();
   }
 
@@ -697,6 +790,7 @@ async function chargerDonneesApplication() {
     chargerOptionsSeancesDisponibles(),
     chargerSeances(),
     chargerIndisponibilites(),
+    chargerPropositionsSeancesSiAutorise(),
     chargerHistorique(),
     chargerMonetisationSiAutorise(),
     chargerAdministrationSiAutorise(),
@@ -708,6 +802,7 @@ async function initialiserApplication() {
   synchroniserIdentifiantsFormulairesMotDePasse();
   mettreAJourVisibiliteMotDePasseConnexion();
   initialiserChoixHeureDebut();
+  initialiserChoixHeuresIndisponibilite();
   initialiserFormulaireIndisponibilite();
   initialiserCatalogueSeanceParDefaut();
   reinitialiserEtatNotificationsPush();
@@ -742,6 +837,95 @@ function initialiserChoixHeureDebut() {
   elements.heureDebutMinuteSelect.innerHTML = minutesDebutDisponibles
     .map((minute) => `<option value="${minute}">${minute}</option>`)
     .join("");
+}
+
+function remplirSelectOptionsSimples(select, valeurs) {
+  if (!select) {
+    return;
+  }
+
+  select.innerHTML = valeurs
+    .map((valeur) => `<option value="${valeur}">${valeur}</option>`)
+    .join("");
+}
+
+function initialiserChoixHeuresIndisponibilite() {
+  [
+    elements.unavailabilityModalStartHourSelect,
+    elements.unavailabilityModalEndHourSelect,
+  ].forEach((select) => {
+    remplirSelectOptionsSimples(select, heuresIndisponibiliteDisponibles);
+  });
+
+  [
+    elements.unavailabilityModalStartMinuteSelect,
+  ].forEach((select) => {
+    remplirSelectOptionsSimples(select, minutesDebutDisponibles);
+  });
+
+  remplirSelectOptionsSimples(
+    elements.unavailabilityModalEndMinuteSelect,
+    minutesFinIndisponibiliteDisponibles
+  );
+}
+
+function selectContientValeur(select, valeur) {
+  return Array.from(select?.options || []).some(
+    (option) => option.value === String(valeur || "")
+  );
+}
+
+function definirHeureIndisponibilite(controles, type, heure) {
+  const heureNormalisee = estHeureValide(heure) ? heure : recupererHeureDebutParDefaut();
+  const [heures, minutes] = heureNormalisee.split(":");
+  const input = controles?.[`${type}Input`];
+  const hourSelect = controles?.[`${type}HourSelect`];
+  const minuteSelect = controles?.[`${type}MinuteSelect`];
+
+  if (input) {
+    input.value = heureNormalisee;
+  }
+
+  if (hourSelect && minuteSelect) {
+    hourSelect.value = selectContientValeur(hourSelect, heures)
+      ? heures
+      : heuresIndisponibiliteDisponibles[0];
+    minuteSelect.value = selectContientValeur(minuteSelect, minutes)
+      ? minutes
+      : minutesDebutDisponibles[0];
+  }
+}
+
+function lireHeureIndisponibilite(controles, type) {
+  const input = controles?.[`${type}Input`];
+  const hourSelect = controles?.[`${type}HourSelect`];
+  const minuteSelect = controles?.[`${type}MinuteSelect`];
+
+  if (hourSelect && minuteSelect) {
+    const heures = hourSelect.value;
+    const minutes = minuteSelect.value;
+    return heures && minutes ? `${heures}:${minutes}` : "";
+  }
+
+  return input?.value || "";
+}
+
+function obtenirChampsHeuresIndisponibilite(controles) {
+  return [
+    controles?.startInput,
+    controles?.endInput,
+    controles?.startHourSelect,
+    controles?.startMinuteSelect,
+    controles?.endHourSelect,
+    controles?.endMinuteSelect,
+  ].filter(Boolean);
+}
+
+function configurerChampsHeuresIndisponibilite(controles, { disabled, required }) {
+  obtenirChampsHeuresIndisponibilite(controles).forEach((champ) => {
+    champ.disabled = disabled;
+    champ.required = required;
+  });
 }
 
 function initialiserFormulaireIndisponibilite() {
@@ -785,8 +969,6 @@ function obtenirControlesIndisponibiliteActifs() {
       form?.querySelector("#admin-unavailability-start") || elements.adminUnavailabilityStart,
     endInput:
       form?.querySelector("#admin-unavailability-end") || elements.adminUnavailabilityEnd,
-    reasonInput:
-      form?.querySelector("#admin-unavailability-reason") || elements.adminUnavailabilityReason,
     errorElement:
       form?.querySelector("#admin-unavailability-error") || elements.adminUnavailabilityError,
     button:
@@ -808,8 +990,8 @@ function mettreAJourModeJourCompletIndisponibilite() {
   controles.fullDayNote?.classList.toggle("hidden", !jourComplet);
   if (!controles.button?.disabled) {
     controles.button.textContent = jourComplet
-      ? "Ajouter la journee"
-      : "Ajouter le creneau";
+      ? "Ajouter la journée"
+      : "Ajouter le créneau";
   }
   masquerErreur(controles.errorElement);
 
@@ -838,6 +1020,151 @@ function mettreAJourModeJourCompletIndisponibilite() {
       60
     );
   }
+}
+
+function obtenirControlesIndisponibiliteModal() {
+  return {
+    form: elements.unavailabilityModalForm,
+    dateInput: elements.unavailabilityModalDate,
+    fullDayInput: elements.unavailabilityModalFullDay,
+    fullDayNote: elements.unavailabilityModalFullDayNote,
+    timeFields: elements.unavailabilityModalTimeFields,
+    startInput: elements.unavailabilityModalStart,
+    endInput: elements.unavailabilityModalEnd,
+    startHourSelect: elements.unavailabilityModalStartHourSelect,
+    startMinuteSelect: elements.unavailabilityModalStartMinuteSelect,
+    endHourSelect: elements.unavailabilityModalEndHourSelect,
+    endMinuteSelect: elements.unavailabilityModalEndMinuteSelect,
+    errorElement: elements.unavailabilityModalError,
+    button: elements.saveUnavailabilityButton,
+  };
+}
+
+function mettreAJourModeJourCompletIndisponibiliteModal() {
+  const controles = obtenirControlesIndisponibiliteModal();
+  const jourComplet = Boolean(controles.fullDayInput?.checked);
+
+  if (controles.form) {
+    controles.form.dataset.fullDay = jourComplet ? "1" : "0";
+  }
+
+  controles.timeFields?.classList.toggle("hidden", jourComplet);
+  controles.fullDayNote?.classList.toggle("hidden", !jourComplet);
+  masquerErreur(controles.errorElement);
+
+  configurerChampsHeuresIndisponibilite(controles, {
+    disabled: jourComplet,
+    required: !jourComplet,
+  });
+
+  if (jourComplet) {
+    definirHeureIndisponibilite(controles, "start", "00:00");
+    definirHeureIndisponibilite(controles, "end", "23:59");
+    return;
+  }
+
+  const heureDebut = lireHeureIndisponibilite(controles, "start");
+  const heureFin = lireHeureIndisponibilite(controles, "end");
+
+  if (!heureDebut || heureDebut === "00:00") {
+    definirHeureIndisponibilite(controles, "start", recupererHeureDebutParDefaut());
+  }
+
+  if (
+    !heureFin ||
+    heureFin === "23:59" ||
+    calculerDureeMinutesDepuisHeures(lireHeureIndisponibilite(controles, "start"), heureFin) <= 0
+  ) {
+    const debutActuel = lireHeureIndisponibilite(controles, "start");
+    definirHeureIndisponibilite(controles, "end", calculerHeureFin(debutActuel, 60));
+  }
+}
+
+function lireDonneesIndisponibiliteDepuisControles(controles) {
+  const jourComplet =
+    controles.form?.dataset.fullDay === "1" ||
+    Boolean(controles.fullDayInput?.checked) ||
+    Boolean(controles.timeFields?.classList.contains("hidden"));
+
+  return {
+    date: controles.dateInput.value,
+    heure_debut: jourComplet ? "00:00" : lireHeureIndisponibilite(controles, "start"),
+    heure_fin: jourComplet ? "23:59" : lireHeureIndisponibilite(controles, "end"),
+    jour_complet: jourComplet,
+    raison: "",
+  };
+}
+
+function estHeureFinIndisponibiliteClientValide(heure) {
+  return estHeureDebutSeanceValide(heure) || heure === "23:59";
+}
+
+function validerDonneesIndisponibiliteClient(
+  donneesIndisponibilite,
+  errorElement,
+  options = {}
+) {
+  const { date, heure_debut: heureDebut, heure_fin: heureFin, jour_complet: jourComplet } =
+    donneesIndisponibilite;
+
+  if (!date || (!jourComplet && (!heureDebut || !heureFin))) {
+    afficherErreur(errorElement, "Date, heure de début et heure de fin obligatoires.");
+    return false;
+  }
+
+  if (!estDateIsoValide(date)) {
+    afficherErreur(errorElement, "La date est invalide.");
+    return false;
+  }
+
+  if (!jourComplet) {
+    if (
+      !estHeureDebutSeanceValide(heureDebut) ||
+      !estHeureFinIndisponibiliteClientValide(heureFin)
+    ) {
+      afficherErreur(errorElement, "Les heures doivent être choisies par tranches de 30 minutes.");
+      return false;
+    }
+
+    if (calculerDureeMinutesDepuisHeures(heureDebut, heureFin) <= 0) {
+      afficherErreur(errorElement, "L'heure de fin doit être postérieure à l'heure de début.");
+      return false;
+    }
+  }
+
+  if (jourComplet) {
+    const jourDejaBloque = etat.indisponibilites.find((indisponibilite) => {
+      if (indisponibilite.date !== date || !estIndisponibiliteJourCompletClient(indisponibilite)) {
+        return false;
+      }
+
+      return !(
+        options.ignorerIndisponibiliteId &&
+        Number(indisponibilite.id) === Number(options.ignorerIndisponibiliteId)
+      );
+    });
+
+    if (jourDejaBloque) {
+      afficherErreur(errorElement, "Cette journée est déjà indisponible.");
+      return false;
+    }
+
+    return true;
+  }
+
+  const conflit = trouverIndisponibiliteChevauchanteLocale({
+    date,
+    heure_debut: heureDebut,
+    heure_fin: heureFin,
+    ignorerIndisponibiliteId: options.ignorerIndisponibiliteId || null,
+  });
+
+  if (conflit) {
+    afficherErreur(errorElement, "Ce créneau chevauche déjà une indisponibilité existante.");
+    return false;
+  }
+
+  return true;
 }
 
 function normaliserListeCatalogue(valeurs, valeursParDefaut = []) {
@@ -1008,6 +1335,11 @@ function attacherEcouteurs() {
       afficherVueAdministration(bouton.dataset.adminView);
     });
   });
+  elements.unavailabilityViewTabs.forEach((bouton) => {
+    bouton?.addEventListener("click", () => {
+      afficherVueIndisponibilites(bouton.dataset.unavailabilityView);
+    });
+  });
   elements.adminAddAccountForm?.addEventListener("submit", gererAjoutCompteAdministration);
   elements.adminUnavailabilityForm?.addEventListener("submit", gererCreationIndisponibilite);
   elements.adminCreateUserForm?.addEventListener("submit", gererCreationUtilisateurAdmin);
@@ -1082,6 +1414,36 @@ function attacherEcouteurs() {
     "change",
     mettreAJourModeJourCompletIndisponibilite
   );
+  elements.unavailabilityModalFullDay?.addEventListener(
+    "change",
+    mettreAJourModeJourCompletIndisponibiliteModal
+  );
+  elements.unavailabilityModalForm?.addEventListener(
+    "submit",
+    gererSoumissionIndisponibiliteModal
+  );
+  elements.editUnavailabilityButton?.addEventListener(
+    "click",
+    ouvrirFormulaireModificationIndisponibilite
+  );
+  elements.duplicateUnavailabilityButton?.addEventListener(
+    "click",
+    ouvrirFormulaireDuplicationIndisponibilite
+  );
+  elements.deleteUnavailabilityButton?.addEventListener("click", async () => {
+    if (etat.indisponibiliteSelectionnee) {
+      await gererSuppressionIndisponibilite(etat.indisponibiliteSelectionnee.id);
+    }
+  });
+  elements.cancelUnavailabilityFormButton?.addEventListener("click", () => {
+    if (elements.unavailabilityModalForm?.dataset.mode === "creation") {
+      fermerModal(elements.unavailabilityDetailModal);
+      reinitialiserFormulaireIndisponibiliteModal();
+      return;
+    }
+
+    masquerFormulaireIndisponibiliteModal();
+  });
   elements.logoutButton?.addEventListener("click", gererDeconnexion);
   elements.navTabs.forEach((bouton) => {
     bouton?.addEventListener("click", () => {
@@ -1215,7 +1577,7 @@ function programmerSynchronisationTempsReel() {
   connexionTempsReel.synchronisationProgrammee = window.setTimeout(() => {
     connexionTempsReel.synchronisationProgrammee = null;
     synchroniserApplicationDepuisTempsReel().catch((erreur) => {
-      console.error("Synchronisation temps reel impossible :", erreur);
+      console.error("Synchronisation temps réel impossible :", erreur);
     });
   }, 350);
 }
@@ -1247,7 +1609,7 @@ async function synchroniserApplicationDepuisTempsReel() {
     const utilisateurActualise = await recupererUtilisateurCourant();
 
     if (!utilisateurActualise) {
-      appliquerDeconnexionLocale("Votre session a ete mise a jour. Reconnectez-vous.");
+      appliquerDeconnexionLocale("Votre session a été mise à jour. Reconnectez-vous.");
       return;
     }
 
@@ -1269,6 +1631,7 @@ async function synchroniserApplicationDepuisTempsReel() {
           : {}
       ),
       chargerIndisponibilites(),
+      chargerPropositionsSeancesSiAutorise(),
       chargerHistorique(),
       chargerMonetisationSiAutorise(),
       chargerAdministrationSiAutorise(),
@@ -1289,32 +1652,69 @@ function initialiserCalendrierSiNecessaire() {
   }
 
   etat.calendrier = initialiserCalendrier(elements.calendar, {
-    onDateClick: ouvrirFormulaireCreation,
+    onDateClick: gererClicDateCalendrier,
     onEventClick: ouvrirDetailSeance,
     onIndisponibiliteClick: gererClicIndisponibilite,
+    onPropositionClick: gererClicPropositionCalendrier,
   });
 
   rafraichirEvenementsCalendrier();
 }
 
-function rafraichirCalendrierSiVisible(sectionDemandee = etat.sectionActive) {
-  if (sectionDemandee !== "dashboard") {
+function initialiserCalendrierIndisponibilitesSiNecessaire() {
+  if (etat.calendrierIndisponibilites || !elements.unavailabilityCalendar) {
     return;
   }
 
-  initialiserCalendrierSiNecessaire();
+  etat.calendrierIndisponibilites = initialiserCalendrier(elements.unavailabilityCalendar, {
+    onSlotClick: gererClicCreneauCalendrierIndisponibilite,
+    onSelect: gererSelectionCalendrierIndisponibilite,
+    onEventClick: ouvrirDetailSeance,
+    onIndisponibiliteClick: (indisponibilite) => {
+      if (utilisateurPeutGererIndisponibilites()) {
+        ouvrirDetailIndisponibilite(indisponibilite);
+        return;
+      }
 
-  if (!etat.calendrier) {
+      gererClicIndisponibilite(indisponibilite);
+    },
+    onPropositionClick: gererClicPropositionCalendrier,
+    selectionMobileRapide: true,
+  });
+
+  rafraichirEvenementsCalendrier();
+}
+
+function mettreAJourTailleCalendrier(calendrier) {
+  if (!calendrier) {
     return;
   }
 
   window.requestAnimationFrame(() => {
     window.requestAnimationFrame(() => {
-      if (typeof etat.calendrier.updateSize === "function") {
-        etat.calendrier.updateSize();
+      if (typeof calendrier.updateSize === "function") {
+        calendrier.updateSize();
       }
     });
   });
+}
+
+function rafraichirCalendrierSiVisible(sectionDemandee = etat.sectionActive) {
+  if (sectionDemandee === "dashboard") {
+    initialiserCalendrierSiNecessaire();
+    mettreAJourTailleCalendrier(etat.calendrier);
+    return;
+  }
+
+  if (
+    sectionDemandee !== "indisponibilites" ||
+    etat.vueIndisponibilitesActive !== "declaration"
+  ) {
+    return;
+  }
+
+  initialiserCalendrierIndisponibilitesSiNecessaire();
+  mettreAJourTailleCalendrier(etat.calendrierIndisponibilites);
 }
 
 function afficherSectionApplication(section) {
@@ -1361,7 +1761,31 @@ function afficherSectionApplication(section) {
     mettreAJourMonetisation();
   }
 
+  if (sectionDemandee === "indisponibilites") {
+    afficherVueIndisponibilites(etat.vueIndisponibilitesActive);
+    return;
+  }
+
   rafraichirCalendrierSiVisible(sectionDemandee);
+}
+
+function afficherVueIndisponibilites(vueDemandee = "declaration") {
+  const vue = vuesIndisponibilitesValides.has(vueDemandee)
+    ? vueDemandee
+    : "declaration";
+
+  etat.vueIndisponibilitesActive = vue;
+
+  elements.unavailabilityViewTabs.forEach((bouton) => {
+    bouton.classList.toggle("is-active", bouton.dataset.unavailabilityView === vue);
+  });
+
+  elements.unavailabilityPanels.forEach((panneau) => {
+    panneau.classList.toggle("hidden", panneau.dataset.unavailabilityPanel !== vue);
+  });
+
+  afficherListeIndisponibilitesAdministration();
+  rafraichirCalendrierSiVisible("indisponibilites");
 }
 
 function utilisateurEstHossam() {
@@ -1416,7 +1840,7 @@ function formaterPermissionNotificationsPush(permission) {
     return "Non prise en charge";
   }
 
-  return "A demander";
+  return "À demander";
 }
 
 function mettreAJourCarteNotificationsPush() {
@@ -1452,10 +1876,10 @@ function mettreAJourCarteNotificationsPush() {
         "Changez d'abord votre mot de passe pour activer les notifications sur cet appareil.";
     } else if (abonnementActif) {
       elements.pushSettingsInfo.textContent =
-        "Les notifications temps reel et les rappels toutes les 2 heures sont actifs sur cet appareil.";
+        "Les notifications temps réel et les rappels toutes les 2 heures sont actifs sur cet appareil.";
     } else {
       elements.pushSettingsInfo.textContent =
-        "Les notifications sont desactivees sur cet appareil.";
+        "Les notifications sont désactivées sur cet appareil.";
     }
   }
 
@@ -1507,7 +1931,7 @@ function seanceEstMasqueePourConfidentialite(seance) {
 }
 
 function obtenirMessageSeanceConfidentielle() {
-  return "Ce creneau est reserve et visible uniquement par l'administrateur.";
+  return "Ce créneau est réservé et visible uniquement par l'administrateur.";
 }
 
 function obtenirSeancesPourStatistiques() {
@@ -1618,7 +2042,7 @@ function reinitialiserFormulaireUtilisateur() {
   elements.adminMaintenanceSqliteForm.reset();
   masquerErreur(elements.adminMaintenanceSqliteError);
   masquerInfo(elements.adminMaintenanceSqliteResult);
-  elements.adminMaintenanceSqliteStatus.textContent = "Non verifie";
+  elements.adminMaintenanceSqliteStatus.textContent = "Non vérifié";
   elements.adminUnavailabilityForm?.reset?.();
   masquerErreur(elements.adminUnavailabilityError);
   elements.adminBlockIpForm.reset();
@@ -1707,40 +2131,40 @@ function mettreAJourResumeCompteConnecte() {
 
   elements.userUsername.textContent = etat.utilisateur?.nom || "-";
   elements.userSecurityStatus.textContent = motDePasseAChanger
-    ? "Mot de passe temporaire detecte. Changez-le pour debloquer l'application."
+    ? "Mot de passe temporaire détecté. Changez-le pour débloquer l'application."
     : lectureSeule
-      ? "Compte securise en lecture seule. Les modifications sont bloquees."
+      ? "Compte sécurisé en lecture seule. Les modifications sont bloquées."
       : estAdministrateur
-        ? "Compte securise. Vous pouvez gerer votre acces depuis ce panneau."
+        ? "Compte sécurisé. Vous pouvez gérer votre accès depuis ce panneau."
         : "Compte securise. Vous pouvez modifier votre mot de passe depuis cet espace.";
   elements.passwordSecurityNotice.classList.toggle("hidden", !motDePasseAChanger);
   elements.userAdminAccess.textContent = utilisateurPeutVoirAdministration() ? "Oui" : "Non";
   elements.userLastLogin.textContent = etat.utilisateur?.dernier_login_at
     ? formatDateHeureSecondes(etat.utilisateur.dernier_login_at)
     : "Jamais";
-  elements.adminPanelTitle.textContent = estAdministrateur ? "Admin panel" : "User admin";
+  elements.adminPanelTitle.textContent = estAdministrateur ? "Panneau admin" : "Espace utilisateur";
   elements.adminPanelNote.textContent = estAdministrateur
-    ? "Securite du compte et outils de controle reserves a Hossam."
-    : "Securite du compte et modification du mot de passe.";
+    ? "Sécurité du compte et outils de contrôle réservés à Hossam."
+    : "Sécurité du compte et modification du mot de passe.";
   elements.adminGuideTitle.textContent = estAdministrateur
-    ? "Controle global"
+    ? "Contrôle global"
     : "Espace utilisateur";
   elements.adminGuideNote.textContent = estAdministrateur
-    ? "Ajout d'utilisateurs, sessions actives, lecture seule et actions sensibles sont centralises ici. Les indisponibilites ont maintenant leur menu dedie."
+    ? "Ajout d'utilisateurs, sessions actives, lecture seule et actions sensibles sont centralisés ici. Les indisponibilités ont maintenant leur menu dédié."
     : "Modifiez votre mot de passe et consultez votre derniere connexion depuis cet espace.";
 
   if (boutonUtilisateur) {
-    boutonUtilisateur.textContent = estAdministrateur ? "Admin panel" : "User admin";
+    boutonUtilisateur.textContent = estAdministrateur ? "Panneau admin" : "Espace utilisateur";
   }
 
   definirBadgeAdmin(
     elements.userRoleBadge,
-    estAdministrateur ? "Admin" : "User",
+    estAdministrateur ? "Admin" : "Utilisateur",
     estAdministrateur ? "admin" : "user"
   );
   definirBadgeAdmin(
     elements.userAccessBadge,
-    accesActif ? "Acces actif" : "Suspendu",
+    accesActif ? "Accès actif" : "Suspendu",
     accesActif ? "active" : "suspended"
   );
 
@@ -1783,13 +2207,13 @@ async function gererConnexion(event) {
     etat.utilisateur = utilisateur;
     afficherApplication();
     await chargerDonneesApplication();
-    afficherToast("Connexion reussie.");
+    afficherToast("Connexion réussie.");
   } catch (erreur) {
     if (erreur.status === 429 && erreur.retryAfter) {
       let restantes = parseInt(erreur.retryAfter, 10);
       if (!isNaN(restantes)) {
         if (elements.loginButton) elements.loginButton.disabled = true;
-        afficherErreur(elements.loginError, "Trop de tentatives. Reessayez dans " + restantes + "s");
+        afficherErreur(elements.loginError, "Trop de tentatives. Réessayez dans " + restantes + "s");
         const timer = setInterval(() => {
           restantes--;
           if (restantes <= 0) {
@@ -1800,7 +2224,7 @@ async function gererConnexion(event) {
               elements.loginButton.textContent = originalText;
             }
           } else {
-            afficherErreur(elements.loginError, "Trop de tentatives. Reessayez dans " + restantes + "s");
+            afficherErreur(elements.loginError, "Trop de tentatives. Réessayez dans " + restantes + "s");
           }
         }, 1000);
         return;
@@ -1886,7 +2310,7 @@ async function gererActivationNotificationsPush() {
   try {
     etat.notificationsPush = await activerNotificationsPush();
     mettreAJourCarteNotificationsPush();
-    afficherToast("Notifications push activees sur cet appareil.");
+    afficherToast("Notifications push activées sur cet appareil.");
   } catch (erreur) {
     afficherErreur(elements.pushSettingsError, erreur.message);
   } finally {
@@ -1900,12 +2324,12 @@ async function gererDesactivationNotificationsPush() {
 
   const texteInitial = elements.pushDisableButton.textContent;
   elements.pushDisableButton.disabled = true;
-  elements.pushDisableButton.textContent = "Desactivation...";
+  elements.pushDisableButton.textContent = "Désactivation...";
 
   try {
     etat.notificationsPush = await desactiverNotificationsPush();
     mettreAJourCarteNotificationsPush();
-    afficherToast("Notifications push desactivees sur cet appareil.");
+    afficherToast("Notifications push désactivées sur cet appareil.");
   } catch (erreur) {
     afficherErreur(elements.pushSettingsError, erreur.message);
   } finally {
@@ -1923,7 +2347,7 @@ async function gererTestNotificationsPush() {
 
   try {
     const resultat = await envoyerNotificationPushTest();
-    afficherToast(resultat.message || "Notification de test envoyee.");
+    afficherToast(resultat.message || "Notification de test envoyée.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -1948,7 +2372,7 @@ async function gererCreationUtilisateurAdmin(event) {
   }
 
   elements.adminCreateUserButton.disabled = true;
-  elements.adminCreateUserButton.textContent = "Creation...";
+  elements.adminCreateUserButton.textContent = "Création...";
 
   try {
     const resultat = await creerUtilisateurAdmin({
@@ -1965,7 +2389,7 @@ async function gererCreationUtilisateurAdmin(event) {
       );
     }
     await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Utilisateur ajoute.");
+    afficherToast(resultat.message || "Utilisateur ajouté.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -1999,12 +2423,12 @@ async function gererSuppressionUtilisateurAdmin(event) {
   const compte = obtenirCompteAdministrationParId(utilisateurId);
 
   if (!compte) {
-    afficherErreur(elements.adminDeleteUserError, "Selectionnez un compte valide.");
+    afficherErreur(elements.adminDeleteUserError, "Sélectionnez un compte valide.");
     return;
   }
 
   const confirmation = window.confirm(
-    `Supprimer definitivement le compte ${compte.nom} ?`
+    `Supprimer définitivement le compte ${compte.nom} ?`
   );
 
   if (!confirmation) {
@@ -2021,7 +2445,7 @@ async function gererSuppressionUtilisateurAdmin(event) {
     );
     elements.adminDeleteUserForm.reset();
     await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Utilisateur supprime.");
+    afficherToast(resultat.message || "Utilisateur supprimé.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -2129,9 +2553,9 @@ async function gererSuppressionElementCatalogueAdministration({
     return;
   }
 
-  const libelleType = type === "matiere" ? "matiere" : "compte";
+  const libelleType = type === "matiere" ? "matière" : "compte";
   const confirmation = window.confirm(
-    `Supprimer ${libelleType} ${elementCatalogue.valeur} du catalogue ? Les seances existantes resteront conservees.`
+    `Supprimer ${libelleType} ${elementCatalogue.valeur} du catalogue ? Les séances existantes seront conservées.`
   );
 
   if (!confirmation) {
@@ -2149,7 +2573,61 @@ async function gererSuppressionElementCatalogueAdministration({
       motDePasseInput.value = "";
     }
     await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Element du catalogue supprime.");
+    afficherToast(resultat.message || "Élément du catalogue supprimé.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      elements.adminToolsPanel.classList.add("hidden");
+      afficherSectionApplication("dashboard");
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherErreur(erreurElement, erreur.message);
+  } finally {
+    bouton.disabled = false;
+  }
+}
+
+async function gererRestaurationElementCatalogueAdministration({
+  elementCatalogue,
+  motDePasseInput,
+  erreurElement,
+  bouton,
+}) {
+  masquerErreur(erreurElement);
+
+  if (!utilisateurPeutVoirAdministration()) {
+    elements.adminToolsPanel.classList.add("hidden");
+    return;
+  }
+
+  const motDePasseActuel = String(motDePasseInput?.value || "");
+
+  if (!motDePasseActuel) {
+    afficherErreur(
+      erreurElement,
+      "Saisissez votre mot de passe actuel avant de restaurer cet element."
+    );
+    return;
+  }
+
+  bouton.disabled = true;
+
+  try {
+    const resultat = await restaurerElementCatalogueAdmin(
+      elementCatalogue.id,
+      motDePasseActuel
+    );
+    if (motDePasseInput) {
+      motDePasseInput.value = "";
+    }
+    await chargerAdministrationSiAutorise();
+    afficherToast(resultat.message || "Élément du catalogue restauré.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -2179,65 +2657,9 @@ async function gererCreationIndisponibilite(event) {
     return;
   }
 
-  const date = controles.dateInput.value;
-  const jourComplet =
-    controles.form?.dataset.fullDay === "1" ||
-    Boolean(controles.fullDayInput?.checked) ||
-    Boolean(controles.timeFields?.classList.contains("hidden"));
-  const heureDebut = jourComplet ? "00:00" : controles.startInput.value;
-  const heureFin = jourComplet ? "23:59" : controles.endInput.value;
-  const raison = controles.reasonInput.value.trim();
+  const donneesIndisponibilite = lireDonneesIndisponibiliteDepuisControles(controles);
 
-  if (!date || (!jourComplet && (!heureDebut || !heureFin))) {
-    afficherErreur(
-      controles.errorElement,
-      "Date, heure de debut et heure de fin obligatoires."
-    );
-    return;
-  }
-
-  if (!estDateIsoValide(date)) {
-    afficherErreur(controles.errorElement, "La date est invalide.");
-    return;
-  }
-
-  if (!jourComplet) {
-    if (!estHeureDebutSeanceValide(heureDebut) || !estHeureDebutSeanceValide(heureFin)) {
-      afficherErreur(
-        controles.errorElement,
-        "Les heures doivent etre choisies par tranches de 30 minutes."
-      );
-      return;
-    }
-
-    if (calculerDureeMinutesDepuisHeures(heureDebut, heureFin) <= 0) {
-      afficherErreur(
-        controles.errorElement,
-        "L'heure de fin doit etre posterieure a l'heure de debut."
-      );
-      return;
-    }
-  }
-
-  if (raison.length > 200) {
-    afficherErreur(
-      controles.errorElement,
-      "La raison ne peut pas depasser 200 caracteres."
-    );
-    return;
-  }
-
-  const conflit = trouverIndisponibiliteChevauchanteLocale({
-    date,
-    heure_debut: heureDebut,
-    heure_fin: heureFin,
-  });
-
-  if (conflit) {
-    afficherErreur(
-      controles.errorElement,
-      "Ce creneau chevauche deja une indisponibilite existante."
-    );
+  if (!validerDonneesIndisponibiliteClient(donneesIndisponibilite, controles.errorElement)) {
     return;
   }
 
@@ -2245,16 +2667,19 @@ async function gererCreationIndisponibilite(event) {
   controles.button.textContent = "Ajout...";
 
   try {
-    await creerIndisponibilite({
-      date,
-      heure_debut: heureDebut,
-      heure_fin: heureFin,
-      jour_complet: jourComplet,
-      raison,
-    });
+    const resultatIndisponibilite = await creerIndisponibilite(donneesIndisponibilite);
+    const nombreFragments = extraireIndisponibilitesDepuisResultat(
+      resultatIndisponibilite
+    ).length;
     initialiserFormulaireIndisponibilite();
     await Promise.all([chargerIndisponibilites(), chargerHistorique()]);
-    afficherToast(jourComplet ? "Journee indisponible ajoutee." : "Creneau indisponible ajoute.");
+    afficherToast(
+      donneesIndisponibilite.jour_complet && nombreFragments > 1
+        ? `${nombreFragments} créneaux indisponibles créés sur les plages libres.`
+        : donneesIndisponibilite.jour_complet
+        ? "Journée indisponible ajoutée."
+        : "Créneau indisponible ajouté."
+    );
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -2292,8 +2717,8 @@ async function gererSuppressionIndisponibilite(indisponibiliteId) {
 
   const confirmation = window.confirm(
     estIndisponibiliteJourCompletClient(indisponibilite)
-      ? `Supprimer la journee indisponible du ${formatDate(indisponibilite.date)} ?`
-      : `Supprimer le creneau indisponible du ${formatDate(indisponibilite.date)} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin} ?`
+      ? `Supprimer la journée indisponible du ${formatDate(indisponibilite.date)} ?`
+      : `Supprimer le créneau indisponible du ${formatDate(indisponibilite.date)} de ${indisponibilite.heure_debut} à ${indisponibilite.heure_fin} ?`
   );
 
   if (!confirmation) {
@@ -2303,7 +2728,16 @@ async function gererSuppressionIndisponibilite(indisponibiliteId) {
   try {
     const resultat = await supprimerIndisponibilite(indisponibilite.id);
     await Promise.all([chargerIndisponibilites(), chargerHistorique()]);
-    afficherToast(resultat.message || "Creneau indisponible supprime.");
+    if (
+      etat.indisponibiliteSelectionnee &&
+      Number(etat.indisponibiliteSelectionnee.id) === Number(indisponibilite.id) &&
+      elements.unavailabilityDetailModal &&
+      !elements.unavailabilityDetailModal.classList.contains("hidden")
+    ) {
+      fermerModal(elements.unavailabilityDetailModal);
+      etat.indisponibiliteSelectionnee = null;
+    }
+    afficherToast(resultat.message || "Créneau indisponible supprimé.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -2317,6 +2751,385 @@ async function gererSuppressionIndisponibilite(indisponibiliteId) {
     }
 
     afficherToast(erreur.message, "error");
+  }
+}
+
+function definirSousTitreModalIndisponibilite(message) {
+  elements.unavailabilityDetailSubtitle.textContent = message;
+  elements.unavailabilityDetailSubtitle.classList.toggle("hidden", !message);
+}
+
+function definirFormulaireIndisponibiliteModalOuvert(ouvert) {
+  elements.unavailabilityDetailModal?.classList.toggle(
+    "is-unavailability-form-open",
+    Boolean(ouvert)
+  );
+}
+
+function definirModeCreationIndisponibiliteModal(creation) {
+  if (creation) {
+    definirModeConfirmationIndisponibilite(false);
+  }
+
+  elements.unavailabilityDetailModal?.classList.toggle(
+    "is-unavailability-creation-mode",
+    Boolean(creation)
+  );
+}
+
+function definirModeConfirmationIndisponibilite(confirmation) {
+  elements.unavailabilityDetailModal?.classList.toggle(
+    "is-unavailability-confirmation-mode",
+    Boolean(confirmation)
+  );
+}
+
+function construirePlageIndisponibilite(indisponibilite) {
+  if (estIndisponibiliteJourCompletClient(indisponibilite)) {
+    return "Jour complet";
+  }
+
+  return `${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`;
+}
+
+function trouverIndisponibiliteLocale(indisponibiliteId) {
+  return etat.indisponibilites.find(
+    (indisponibilite) => Number(indisponibilite.id) === Number(indisponibiliteId)
+  );
+}
+
+function reinitialiserFormulaireIndisponibiliteModal() {
+  const controles = obtenirControlesIndisponibiliteModal();
+  controles.form?.reset?.();
+
+  if (controles.form) {
+    controles.form.dataset.mode = "";
+    controles.form.dataset.indisponibiliteId = "";
+    controles.form.dataset.fullDay = "0";
+  }
+
+  controles.fullDayInput.checked = false;
+  definirHeureIndisponibilite(controles, "start", recupererHeureDebutParDefaut());
+  definirHeureIndisponibilite(
+    controles,
+    "end",
+    calculerHeureFin(recupererHeureDebutParDefaut(), 60)
+  );
+  controles.button.disabled = false;
+  controles.button.textContent = "Sauvegarder";
+  masquerErreur(controles.errorElement);
+  mettreAJourModeJourCompletIndisponibiliteModal();
+}
+
+function masquerFormulaireIndisponibiliteModal() {
+  elements.unavailabilityFormPanel?.classList.add("hidden");
+  definirFormulaireIndisponibiliteModalOuvert(false);
+  definirModeCreationIndisponibiliteModal(false);
+  definirModeConfirmationIndisponibilite(false);
+  reinitialiserFormulaireIndisponibiliteModal();
+  definirSousTitreModalIndisponibilite("");
+}
+
+function remplirFormulaireIndisponibiliteModal(indisponibilite, options = {}) {
+  const controles = obtenirControlesIndisponibiliteModal();
+  const dupliquer = options.mode === "duplication";
+
+  controles.dateInput.value = dupliquer ? "" : indisponibilite.date || "";
+  controles.fullDayInput.checked = estIndisponibiliteJourCompletClient(indisponibilite);
+  definirHeureIndisponibilite(
+    controles,
+    "start",
+    indisponibilite.heure_debut || recupererHeureDebutParDefaut()
+  );
+  definirHeureIndisponibilite(
+    controles,
+    "end",
+    indisponibilite.heure_fin ||
+      calculerHeureFin(lireHeureIndisponibilite(controles, "start"), 60)
+  );
+  mettreAJourModeJourCompletIndisponibiliteModal();
+}
+
+function construireSelectionIndisponibilite(selection = {}) {
+  const date = extraireDateIsoDepuisValeurCalendrier(selection.date);
+  const dateFin = extraireDateIsoDepuisValeurCalendrier(selection.date_fin || selection.date);
+  const touteLaJournee = Boolean(selection.toute_la_journee);
+  let heureDebut = selection.heure_debut || recupererHeureDebutParDefaut();
+  let heureFin = selection.heure_fin || "";
+
+  if (!estHeureDebutSeanceValide(heureDebut)) {
+    heureDebut = recupererHeureDebutParDefaut();
+  }
+
+  if (!estHeureFinIndisponibiliteClientValide(heureFin)) {
+    heureFin = calculerHeureFin(heureDebut, selection.heure_debut ? 30 : 60);
+  }
+
+  if (calculerDureeMinutesDepuisHeures(heureDebut, heureFin) <= 0) {
+    heureFin = calculerHeureFin(heureDebut, 60);
+  }
+
+  return {
+    date,
+    dateFin,
+    heureDebut,
+    heureFin,
+    touteLaJournee,
+  };
+}
+
+function extraireIndisponibilitesDepuisResultat(resultat) {
+  if (Array.isArray(resultat?.indisponibilites) && resultat.indisponibilites.length > 0) {
+    return resultat.indisponibilites.filter(Boolean);
+  }
+
+  return resultat?.indisponibilite ? [resultat.indisponibilite] : [];
+}
+
+function choisirIndisponibiliteResultat(resultat, donneesIndisponibilite = {}) {
+  const indisponibilites = extraireIndisponibilitesDepuisResultat(resultat);
+
+  if (indisponibilites.length === 0) {
+    return null;
+  }
+
+  if (!donneesIndisponibilite.jour_complet) {
+    return indisponibilites[0];
+  }
+
+  return (
+    indisponibilites.find(
+      (indisponibilite) => !estIndisponibiliteJourCompletClient(indisponibilite)
+    ) || indisponibilites[0]
+  );
+}
+
+function definirActionsDetailIndisponibiliteVisibles(visible) {
+  [
+    elements.editUnavailabilityButton,
+    elements.duplicateUnavailabilityButton,
+    elements.deleteUnavailabilityButton,
+  ].forEach((bouton) => {
+    bouton?.classList.toggle("hidden", !visible);
+  });
+}
+
+function ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection = {}) {
+  if (!utilisateurPeutGererIndisponibilites()) {
+    afficherToast("Les indisponibilités sont gérées par Hossam.", "warning");
+    return;
+  }
+
+  const selectionNormalisee = construireSelectionIndisponibilite(selection);
+
+  if (!selectionNormalisee.date) {
+    return;
+  }
+
+  if (
+    selectionNormalisee.dateFin &&
+    selectionNormalisee.dateFin !== selectionNormalisee.date
+  ) {
+    afficherToast("Sélectionnez un seul jour à la fois.", "warning");
+    return;
+  }
+
+  const controles = obtenirControlesIndisponibiliteModal();
+  reinitialiserFormulaireIndisponibiliteModal();
+  etat.indisponibiliteSelectionnee = null;
+
+  elements.unavailabilityDetailTitle.textContent = "Nouvelle indisponibilité";
+  elements.unavailabilityDetailBadge.textContent = selectionNormalisee.touteLaJournee
+    ? "Jour complet"
+    : "Indisponible";
+  elements.unavailabilityDetailDate.textContent = formatDate(selectionNormalisee.date);
+  elements.unavailabilityDetailTime.textContent = selectionNormalisee.touteLaJournee
+    ? "Jour complet"
+    : `${selectionNormalisee.heureDebut} - ${selectionNormalisee.heureFin}`;
+  elements.unavailabilityDetailCreatedBy.textContent = etat.utilisateur?.nom || "Hossam";
+  elements.unavailabilityDetailCreatedAt.textContent = "-";
+  definirActionsDetailIndisponibiliteVisibles(false);
+
+  controles.form.dataset.mode = "creation";
+  controles.form.dataset.indisponibiliteId = "";
+  controles.dateInput.value = selectionNormalisee.date;
+  controles.fullDayInput.checked = selectionNormalisee.touteLaJournee;
+  definirHeureIndisponibilite(controles, "start", selectionNormalisee.heureDebut);
+  definirHeureIndisponibilite(controles, "end", selectionNormalisee.heureFin);
+  elements.unavailabilityFormPanel?.classList.remove("hidden");
+  definirFormulaireIndisponibiliteModalOuvert(true);
+  definirModeConfirmationIndisponibilite(false);
+  definirModeCreationIndisponibiliteModal(true);
+  elements.unavailabilityFormTitle.textContent = "Déclarer une indisponibilité";
+  controles.button.textContent = "Ajouter";
+  mettreAJourModeJourCompletIndisponibiliteModal();
+  definirSousTitreModalIndisponibilite("");
+  ouvrirModal(elements.unavailabilityDetailModal);
+  controles.dateInput.focus();
+}
+
+function ouvrirDetailIndisponibilite(indisponibilite, options = {}) {
+  if (!indisponibilite || !elements.unavailabilityDetailModal) {
+    return;
+  }
+
+  const indisponibiliteLocale = trouverIndisponibiliteLocale(indisponibilite.id) || indisponibilite;
+  etat.indisponibiliteSelectionnee = indisponibiliteLocale;
+
+  elements.unavailabilityDetailTitle.textContent = estIndisponibiliteJourCompletClient(
+    indisponibiliteLocale
+  )
+    ? "Journée indisponible"
+    : "Créneau indisponible";
+  elements.unavailabilityDetailBadge.textContent = estIndisponibiliteJourCompletClient(
+    indisponibiliteLocale
+  )
+    ? "Jour complet"
+    : "Indisponible";
+  elements.unavailabilityDetailDate.textContent = formatDate(indisponibiliteLocale.date);
+  elements.unavailabilityDetailTime.textContent = construirePlageIndisponibilite(
+    indisponibiliteLocale
+  );
+  elements.unavailabilityDetailCreatedBy.textContent =
+    indisponibiliteLocale.cree_par_nom || "Hossam";
+  elements.unavailabilityDetailCreatedAt.textContent = indisponibiliteLocale.created_at
+    ? formatDateHeureSecondes(indisponibiliteLocale.created_at)
+    : "-";
+  definirActionsDetailIndisponibiliteVisibles(utilisateurPeutGererIndisponibilites());
+  masquerFormulaireIndisponibiliteModal();
+  definirModeConfirmationIndisponibilite(Boolean(options.confirmation));
+  ouvrirModal(elements.unavailabilityDetailModal);
+}
+
+function ouvrirFormulaireModificationIndisponibilite() {
+  if (!etat.indisponibiliteSelectionnee || !utilisateurPeutGererIndisponibilites()) {
+    return;
+  }
+
+  const controles = obtenirControlesIndisponibiliteModal();
+  controles.form.dataset.mode = "modification";
+  controles.form.dataset.indisponibiliteId = etat.indisponibiliteSelectionnee.id;
+  elements.unavailabilityFormPanel?.classList.remove("hidden");
+  definirFormulaireIndisponibiliteModalOuvert(true);
+  definirModeCreationIndisponibiliteModal(false);
+  definirModeConfirmationIndisponibilite(false);
+  elements.unavailabilityFormTitle.textContent = "Modifier l'indisponibilité";
+  controles.button.textContent = "Sauvegarder";
+  remplirFormulaireIndisponibiliteModal(etat.indisponibiliteSelectionnee);
+  definirSousTitreModalIndisponibilite("");
+  controles.dateInput.focus();
+}
+
+function ouvrirFormulaireDuplicationIndisponibilite() {
+  if (!etat.indisponibiliteSelectionnee || !utilisateurPeutGererIndisponibilites()) {
+    return;
+  }
+
+  const controles = obtenirControlesIndisponibiliteModal();
+  controles.form.dataset.mode = "duplication";
+  controles.form.dataset.indisponibiliteId = "";
+  elements.unavailabilityFormPanel?.classList.remove("hidden");
+  definirFormulaireIndisponibiliteModalOuvert(true);
+  definirModeCreationIndisponibiliteModal(false);
+  definirModeConfirmationIndisponibilite(false);
+  elements.unavailabilityFormTitle.textContent = "Dupliquer l'indisponibilité";
+  controles.button.textContent = "Créer la copie";
+  remplirFormulaireIndisponibiliteModal(etat.indisponibiliteSelectionnee, {
+    mode: "duplication",
+  });
+  definirSousTitreModalIndisponibilite("Choisissez une nouvelle date avant d'enregistrer.");
+  controles.dateInput.focus();
+}
+
+async function gererSoumissionIndisponibiliteModal(event) {
+  event.preventDefault();
+
+  if (!utilisateurPeutGererIndisponibilites()) {
+    fermerModal(elements.unavailabilityDetailModal);
+    afficherSectionApplication("dashboard");
+    return;
+  }
+
+  const controles = obtenirControlesIndisponibiliteModal();
+  const mode = controles.form?.dataset.mode || "modification";
+  const indisponibiliteId = Number(controles.form?.dataset.indisponibiliteId || 0);
+  const donneesIndisponibilite = lireDonneesIndisponibiliteDepuisControles(controles);
+
+  masquerErreur(controles.errorElement);
+
+  const valide = validerDonneesIndisponibiliteClient(
+    donneesIndisponibilite,
+    controles.errorElement,
+    {
+      ignorerIndisponibiliteId: mode === "modification" ? indisponibiliteId : null,
+    }
+  );
+
+  if (!valide) {
+    return;
+  }
+
+  controles.button.disabled = true;
+  const libelleInitial = controles.button.textContent;
+  const creation = mode === "creation" || mode === "duplication";
+  controles.button.textContent = creation ? "Création..." : "Sauvegarde...";
+
+  try {
+    const resultatIndisponibilite = creation
+      ? await creerIndisponibilite(donneesIndisponibilite)
+      : await modifierIndisponibilite(indisponibiliteId, donneesIndisponibilite);
+    const indisponibiliteReference = choisirIndisponibiliteResultat(
+      resultatIndisponibilite,
+      donneesIndisponibilite
+    );
+
+    await Promise.all([chargerIndisponibilites(), chargerHistorique()]);
+    const indisponibiliteActualisee = indisponibiliteReference
+      ? trouverIndisponibiliteLocale(indisponibiliteReference.id) || indisponibiliteReference
+      : null;
+
+    if (indisponibiliteActualisee) {
+      if (creation) {
+        fermerModal(elements.unavailabilityDetailModal);
+        elements.unavailabilityDetailModal?.getBoundingClientRect();
+      }
+
+      ouvrirDetailIndisponibilite(indisponibiliteActualisee, {
+        confirmation: creation,
+      });
+    } else {
+      fermerModal(elements.unavailabilityDetailModal);
+    }
+
+    const nombreFragments = extraireIndisponibilitesDepuisResultat(
+      resultatIndisponibilite
+    ).length;
+    afficherToast(
+      donneesIndisponibilite.jour_complet && nombreFragments > 1
+        ? `${nombreFragments} créneaux indisponibles créés sur les plages libres.`
+        : mode === "creation"
+          ? "Indisponibilité ajoutée."
+          : mode === "duplication"
+            ? "Indisponibilité dupliquée."
+            : "Indisponibilité modifiée."
+    );
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      fermerModal(elements.unavailabilityDetailModal);
+      afficherSectionApplication("dashboard");
+      afficherToast(erreur.message, "error");
+      return;
+    }
+
+    afficherErreur(controles.errorElement, erreur.message);
+  } finally {
+    controles.button.disabled = false;
+    controles.button.textContent = libelleInitial;
   }
 }
 
@@ -2334,12 +3147,12 @@ async function gererReinitialisationMotDePasseCompte(event) {
   const compte = obtenirCompteAdministrationParId(utilisateurId);
 
   if (!compte) {
-    afficherErreur(elements.adminResetPasswordError, "Selectionnez un compte valide.");
+    afficherErreur(elements.adminResetPasswordError, "Sélectionnez un compte valide.");
     return;
   }
 
   const confirmation = window.confirm(
-    `Reinitialiser le mot de passe de ${compte.nom} et generer un nouveau code temporaire ?`
+    `Réinitialiser le mot de passe de ${compte.nom} et générer un nouveau code temporaire ?`
   );
 
   if (!confirmation) {
@@ -2347,7 +3160,7 @@ async function gererReinitialisationMotDePasseCompte(event) {
   }
 
   elements.adminResetPasswordButton.disabled = true;
-  elements.adminResetPasswordButton.textContent = "Reinitialisation...";
+  elements.adminResetPasswordButton.textContent = "Réinitialisation...";
 
   try {
     const resultat = await reinitialiserMotDePasseCompte(
@@ -2374,13 +3187,13 @@ async function gererReinitialisationMotDePasseCompte(event) {
       afficherToast(
         motDePasseTemporaire
           ? `Votre nouveau code temporaire est ${motDePasseTemporaire}. Reconnectez-vous.`
-          : "Votre mot de passe a ete reinitialise. Reconnectez-vous."
+          : "Votre mot de passe a été réinitialisé. Reconnectez-vous."
       );
       return;
     }
 
     await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Mot de passe reinitialise.");
+    afficherToast(resultat.message || "Mot de passe réinitialisé.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -2397,7 +3210,7 @@ async function gererReinitialisationMotDePasseCompte(event) {
     afficherErreur(elements.adminResetPasswordError, erreur.message);
   } finally {
     elements.adminResetPasswordButton.disabled = false;
-    elements.adminResetPasswordButton.textContent = "Reinitialiser le mot de passe";
+    elements.adminResetPasswordButton.textContent = "Réinitialiser le mot de passe";
   }
 }
 
@@ -2414,15 +3227,15 @@ async function gererMiseAJourAccesUtilisateur(event) {
   const compte = obtenirCompteAdministrationParId(utilisateurId);
 
   if (!compte) {
-    afficherErreur(elements.adminToggleAccessError, "Selectionnez un compte valide.");
+    afficherErreur(elements.adminToggleAccessError, "Sélectionnez un compte valide.");
     return;
   }
 
   const nouvelAccesActif = Number(compte.acces_active) !== 1;
   const confirmation = window.confirm(
     nouvelAccesActif
-      ? `Reactiver l'acces de ${compte.nom} ?`
-      : `Suspendre immediatement l'acces de ${compte.nom} ?`
+      ? `Réactiver l'accès de ${compte.nom} ?`
+      : `Suspendre immédiatement l'accès de ${compte.nom} ?`
   );
 
   if (!confirmation) {
@@ -2430,7 +3243,7 @@ async function gererMiseAJourAccesUtilisateur(event) {
   }
 
   elements.adminToggleAccessButton.disabled = true;
-  elements.adminToggleAccessButton.textContent = "Mise a jour...";
+  elements.adminToggleAccessButton.textContent = "Mise à jour...";
 
   try {
     const resultat = await mettreAJourAccesCompte(
@@ -2474,7 +3287,7 @@ async function gererRevoquerSessionsUtilisateur(event) {
   const compte = obtenirCompteAdministrationParId(utilisateurId);
 
   if (!compte) {
-    afficherErreur(elements.adminLogoutUserError, "Selectionnez un compte valide.");
+    afficherErreur(elements.adminLogoutUserError, "Sélectionnez un compte valide.");
     return;
   }
 
@@ -2487,7 +3300,7 @@ async function gererRevoquerSessionsUtilisateur(event) {
   }
 
   elements.adminLogoutUserButton.disabled = true;
-  elements.adminLogoutUserButton.textContent = "Deconnexion...";
+  elements.adminLogoutUserButton.textContent = "Déconnexion...";
 
   try {
     const resultat = await revoquerSessionsUtilisateurAdmin(
@@ -2549,7 +3362,7 @@ async function gererRevoquerSessionIndividuelle(sessionId) {
       etat.utilisateur = null;
       viderDonneesApplication();
       afficherConnexion();
-      afficherToast("Votre session actuelle a ete fermee.");
+      afficherToast("Votre session actuelle a été fermée.");
       return;
     }
 
@@ -2602,7 +3415,7 @@ async function gererRevocationAppareilAutoLogin(appareil) {
     const resultat = await revoquerAppareilAutoLoginAdmin(appareil.id, motDePasseActuel);
     elements.adminTrustedDeviceCurrentPassword.value = "";
     await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Auto-login revoque.");
+    afficherToast(resultat.message || "Auto-login révoqué.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -2692,12 +3505,12 @@ async function gererDeblocageIpAdmin(ip) {
   if (!motDePasseActuel) {
     afficherErreur(
       elements.adminBlockIpError,
-      "Entrez votre mot de passe actuel pour debloquer une IP."
+      "Entrez votre mot de passe actuel pour débloquer une IP."
     );
     return;
   }
 
-  const confirmation = window.confirm(`Debloquer l'IP ${ip} ?`);
+  const confirmation = window.confirm(`Débloquer l'IP ${ip} ?`);
 
   if (!confirmation) {
     return;
@@ -2869,14 +3682,14 @@ async function gererMaintenanceSqliteAdmin(event) {
   }
 
   elements.adminMaintenanceSqliteButton.disabled = true;
-  elements.adminMaintenanceSqliteButton.textContent = "Verification...";
+  elements.adminMaintenanceSqliteButton.textContent = "Vérification...";
 
   try {
     const resultat = await executerMaintenanceSqliteAdmin(motDePasseActuel);
     const maintenance = resultat.maintenance || {};
     const integrite = String(maintenance.integrity_check || "unknown");
     const checkpoint = formaterResultatCheckpointSqlite(maintenance.wal_checkpoint);
-    const statut = integrite === "ok" ? "Base OK" : "A verifier";
+    const statut = integrite === "ok" ? "Base OK" : "À vérifier";
 
     elements.adminMaintenanceSqliteForm.reset();
     elements.adminMaintenanceSqliteStatus.textContent = `${statut} - ${integrite}`;
@@ -2884,7 +3697,7 @@ async function gererMaintenanceSqliteAdmin(event) {
       elements.adminMaintenanceSqliteResult,
       `Integrite: ${integrite}. ${checkpoint}. Optimisation: ${maintenance.optimize || "ok"}.`
     );
-    afficherToast(resultat.message || "Maintenance SQLite terminee.");
+    afficherToast(resultat.message || "Maintenance SQLite terminée.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -2901,7 +3714,7 @@ async function gererMaintenanceSqliteAdmin(event) {
     afficherErreur(elements.adminMaintenanceSqliteError, erreur.message);
   } finally {
     elements.adminMaintenanceSqliteButton.disabled = false;
-    elements.adminMaintenanceSqliteButton.textContent = "Verifier SQLite";
+    elements.adminMaintenanceSqliteButton.textContent = "Vérifier SQLite";
   }
 }
 
@@ -2981,7 +3794,7 @@ async function gererSuppressionEntreeHistorique(event) {
   );
 
   if (!Number.isInteger(entreeId) || entreeId <= 0) {
-    afficherErreur(controles.error, "Selectionnez une entree d'historique valide.");
+    afficherErreur(controles.error, "Sélectionnez une entrée d'historique valide.");
     return;
   }
 
@@ -2996,7 +3809,7 @@ async function gererSuppressionEntreeHistorique(event) {
   }
 
   const confirmation = window.confirm(
-    "Supprimer cette entree d'historique ?"
+    "Supprimer cette entrée d'historique ?"
   );
 
   if (!confirmation) {
@@ -3012,7 +3825,7 @@ async function gererSuppressionEntreeHistorique(event) {
     etat.historiqueSelection = null;
     reinitialiserSuppressionHistorique();
     await chargerHistorique({ ouvrirEntreeId: null });
-    afficherToast(resultat.message || "L'entree d'historique a ete supprimee.");
+    afficherToast(resultat.message || "L'entrée d'historique a été supprimée.");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -3046,7 +3859,7 @@ async function gererMiseAJourLectureSeuleUtilisateur(event) {
   const compte = obtenirCompteAdministrationParId(utilisateurId);
 
   if (!compte) {
-    afficherErreur(elements.adminReadonlyError, "Selectionnez un compte valide.");
+    afficherErreur(elements.adminReadonlyError, "Sélectionnez un compte valide.");
     return;
   }
 
@@ -3054,7 +3867,7 @@ async function gererMiseAJourLectureSeuleUtilisateur(event) {
   const confirmation = window.confirm(
     nouveauModeLectureSeule
       ? `Passer ${compte.nom} en lecture seule ?`
-      : `Autoriser de nouveau ${compte.nom} a modifier les donnees ?`
+      : `Autoriser de nouveau ${compte.nom} à modifier les données ?`
   );
 
   if (!confirmation) {
@@ -3062,7 +3875,7 @@ async function gererMiseAJourLectureSeuleUtilisateur(event) {
   }
 
   elements.adminReadonlyButton.disabled = true;
-  elements.adminReadonlyButton.textContent = "Mise a jour...";
+  elements.adminReadonlyButton.textContent = "Mise à jour...";
 
   try {
     const resultat = await mettreAJourLectureSeuleCompte(
@@ -3106,15 +3919,15 @@ async function gererMiseAJourAccesMonetisationUtilisateur(event) {
   const compte = obtenirCompteAdministrationParId(utilisateurId);
 
   if (!compte) {
-    afficherErreur(elements.adminMonetisationError, "Selectionnez un compte valide.");
+    afficherErreur(elements.adminMonetisationError, "Sélectionnez un compte valide.");
     return;
   }
 
   const nouvelAccesMonetisation = Number(compte.peut_voir_monetisation) !== 1;
   const confirmation = window.confirm(
     nouvelAccesMonetisation
-      ? `Afficher le menu Monetisation a ${compte.nom} ?`
-      : `Masquer le menu Monetisation pour ${compte.nom} ?`
+      ? `Afficher le menu Monétisation ? ${compte.nom} ?`
+      : `Masquer le menu Monétisation pour ${compte.nom} ?`
   );
 
   if (!confirmation) {
@@ -3122,7 +3935,7 @@ async function gererMiseAJourAccesMonetisationUtilisateur(event) {
   }
 
   elements.adminMonetisationButton.disabled = true;
-  elements.adminMonetisationButton.textContent = "Mise a jour...";
+  elements.adminMonetisationButton.textContent = "Mise à jour...";
 
   try {
     const resultat = await mettreAJourAccesMonetisationCompte(
@@ -3165,7 +3978,7 @@ async function gererMiseAJourTarifHoraireUtilisateur(event) {
   const compte = obtenirCompteCatalogueAdministrationParId(elements.adminRateUserId.value);
 
   if (!compte) {
-    afficherErreur(elements.adminRateError, "Selectionnez un compte de seance valide.");
+    afficherErreur(elements.adminRateError, "Sélectionnez un compte de séance valide.");
     return;
   }
 
@@ -3180,7 +3993,7 @@ async function gererMiseAJourTarifHoraireUtilisateur(event) {
   }
 
   const confirmation = window.confirm(
-    `Definir le tarif horaire du compte ${compte.valeur} a ${tarifHoraire} dh ?`
+    `Définir le tarif horaire du compte ${compte.valeur} à ${tarifHoraire} dh ?`
   );
 
   if (!confirmation) {
@@ -3188,7 +4001,7 @@ async function gererMiseAJourTarifHoraireUtilisateur(event) {
   }
 
   elements.adminRateButton.disabled = true;
-  elements.adminRateButton.textContent = "Mise a jour...";
+  elements.adminRateButton.textContent = "Mise à jour...";
 
   try {
     const resultat = await mettreAJourTarifHoraireCompteAdmin(
@@ -3233,14 +4046,14 @@ async function gererMiseAJourAccesAujourdhuiUtilisateur(event) {
   const compte = obtenirCompteAdministrationParId(utilisateurId);
 
   if (!compte) {
-    afficherErreur(elements.adminTodayError, "Selectionnez un compte valide.");
+    afficherErreur(elements.adminTodayError, "Sélectionnez un compte valide.");
     return;
   }
 
   const nouvelAccesAujourdhui = Number(compte.peut_voir_aujourdhui) !== 1;
   const confirmation = window.confirm(
     nouvelAccesAujourdhui
-      ? `Afficher le menu Aujourd'hui a ${compte.nom} ?`
+      ? `Afficher le menu Aujourd'hui à ${compte.nom} ?`
       : `Masquer le menu Aujourd'hui pour ${compte.nom} ?`
   );
 
@@ -3249,7 +4062,7 @@ async function gererMiseAJourAccesAujourdhuiUtilisateur(event) {
   }
 
   elements.adminTodayButton.disabled = true;
-  elements.adminTodayButton.textContent = "Mise a jour...";
+  elements.adminTodayButton.textContent = "Mise à jour...";
 
   try {
     const resultat = await mettreAJourAccesAujourdhuiCompte(
@@ -3295,7 +4108,7 @@ async function gererMiseAJourAccesIndisponibilitesUtilisateur(event) {
   if (!compte) {
     afficherErreur(
       elements.adminUnavailabilityAccessError,
-      "Selectionnez un compte valide."
+      "Sélectionnez un compte valide."
     );
     return;
   }
@@ -3303,8 +4116,8 @@ async function gererMiseAJourAccesIndisponibilitesUtilisateur(event) {
   const nouvelAccesIndisponibilites = Number(compte.peut_voir_indisponibilites) !== 1;
   const confirmation = window.confirm(
     nouvelAccesIndisponibilites
-      ? `Afficher le menu Indisponibilites a ${compte.nom} ?`
-      : `Masquer le menu Indisponibilites pour ${compte.nom} ?`
+      ? `Afficher le menu Indisponibilités ? ${compte.nom} ?`
+      : `Masquer le menu Indisponibilités pour ${compte.nom} ?`
   );
 
   if (!confirmation) {
@@ -3312,7 +4125,7 @@ async function gererMiseAJourAccesIndisponibilitesUtilisateur(event) {
   }
 
   elements.adminUnavailabilityAccessButton.disabled = true;
-  elements.adminUnavailabilityAccessButton.textContent = "Mise a jour...";
+  elements.adminUnavailabilityAccessButton.textContent = "Mise à jour...";
 
   try {
     const resultat = await mettreAJourAccesIndisponibilitesCompte(
@@ -3371,20 +4184,6 @@ async function chargerSeances(options = {}) {
 }
 
 async function chargerIndisponibilites() {
-  if (!utilisateurPeutVoirIndisponibilites()) {
-    etat.indisponibilites = [];
-    rafraichirEvenementsCalendrier();
-    afficherListeIndisponibilitesAdministration();
-
-    if (etat.sectionActive === "indisponibilites") {
-      afficherSectionApplication(
-        utilisateurPeutVoirAujourdhui() ? "aujourdhui" : "dashboard"
-      );
-    }
-
-    return;
-  }
-
   try {
     etat.indisponibilites = await recupererIndisponibilites();
     rafraichirEvenementsCalendrier();
@@ -3410,6 +4209,33 @@ async function chargerIndisponibilites() {
     }
 
     etat.indisponibilites = [];
+    rafraichirEvenementsCalendrier();
+    afficherListeIndisponibilitesAdministration();
+    afficherToast(erreur.message, "error");
+  }
+}
+
+async function chargerPropositionsSeancesSiAutorise() {
+  try {
+    etat.propositionsSeances = await recupererPropositionsSeances();
+    rafraichirEvenementsCalendrier();
+    afficherListeIndisponibilitesAdministration();
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    if (erreur.status === 403) {
+      etat.propositionsSeances = [];
+      etat.propositionEditionId = null;
+      rafraichirEvenementsCalendrier();
+      afficherListeIndisponibilitesAdministration();
+      return;
+    }
+
+    etat.propositionsSeances = [];
+    etat.propositionEditionId = null;
     rafraichirEvenementsCalendrier();
     afficherListeIndisponibilitesAdministration();
     afficherToast(erreur.message, "error");
@@ -3562,11 +4388,11 @@ function viderAdministration() {
   elements.adminAuditLogList.innerHTML =
     '<div class="admin-session-empty">Aucun log disponible.</div>';
   elements.adminBlockedIpsList.innerHTML =
-    '<div class="admin-session-empty">Aucune IP bloquee.</div>';
+    '<div class="admin-session-empty">Aucune IP bloquée.</div>';
   elements.adminAccountList.innerHTML =
     '<div class="admin-user-empty">Aucun compte disponible.</div>';
   elements.adminUnavailabilityList.innerHTML =
-    '<div class="admin-session-empty">Aucun creneau indisponible pour le moment.</div>';
+    '<div class="admin-session-empty">Aucune proposition en attente.</div>';
   masquerInfo(elements.adminCreateUserResult);
   masquerInfo(elements.adminResetPasswordResult);
   masquerErreur(elements.adminTrustedDeviceError);
@@ -3603,9 +4429,9 @@ function viderAdministration() {
   elements.adminToggleAccessButton.textContent = "Mettre à jour l'accès";
   elements.adminReadonlyButton.textContent = "Mettre à jour le mode";
   elements.adminTodayButton.textContent = "Mettre à jour Aujourd'hui";
-  elements.adminUnavailabilityAccessButton.textContent = "Mettre à jour Indisponibilites";
-  elements.adminMonetisationButton.textContent = "Mettre à jour Monetisation";
-  elements.adminRateButton.textContent = "Mettre a jour le tarif";
+  elements.adminUnavailabilityAccessButton.textContent = "Mettre à jour Indisponibilités";
+  elements.adminMonetisationButton.textContent = "Mettre à jour Monétisation";
+  elements.adminRateButton.textContent = "Mettre à jour le tarif";
   elements.adminLogoutUserButton.textContent = "Couper les sessions";
   elements.adminDeleteUserButton.disabled = true;
   elements.adminToggleAccessButton.disabled = true;
@@ -4088,8 +4914,8 @@ function obtenirConfigurationReleveMonetisation() {
         format: "pdf",
       },
       periodeValide: estAnneeIsoValide(anneeSelectionnee),
-      texteBouton: "Telecharger releve annuel",
-      messageSucces: "Le releve annuel a ete telecharge.",
+      texteBouton: "Télécharger le relevé annuel",
+      messageSucces: "Le relevé annuel a été téléchargé.",
       nomFichierSecours: `releve-monetisation-annuelle-${anneeSelectionnee}.pdf`,
     };
   }
@@ -4101,8 +4927,8 @@ function obtenirConfigurationReleveMonetisation() {
         format: "pdf",
       },
       periodeValide: true,
-      texteBouton: "Telecharger releve global",
-      messageSucces: "Le releve global a ete telecharge.",
+      texteBouton: "Télécharger le relevé global",
+      messageSucces: "Le relevé global a été téléchargé.",
       nomFichierSecours: "releve-monetisation-globale.pdf",
     };
   }
@@ -4114,8 +4940,8 @@ function obtenirConfigurationReleveMonetisation() {
       format: "pdf",
     },
     periodeValide: estMoisIsoValide(moisSelectionne),
-    texteBouton: "Telecharger releve mensuel",
-    messageSucces: "Le releve mensuel a ete telecharge.",
+    texteBouton: "Télécharger le relevé mensuel",
+    messageSucces: "Le relevé mensuel a été téléchargé.",
     nomFichierSecours: `releve-monetisation-mensuelle-${moisSelectionne}.pdf`,
   };
 }
@@ -4233,8 +5059,8 @@ function afficherSelectionComptesMonetisation() {
     const nombreSelectionnes = comptesSelectionnes.size;
     elements.monetisationReportAccountsNote.textContent =
       nombreSelectionnes > 0
-        ? `${nombreSelectionnes} compte(s) inclus dans le releve.`
-        : "Choisis au moins un compte a inclure dans le releve.";
+        ? `${nombreSelectionnes} compte(s) inclus dans le relevé.`
+        : "Sélectionnez au moins un compte à inclure dans le relevé.";
   }
 
   elements.monetisationReportAccountsSection.classList.remove("hidden");
@@ -4328,12 +5154,12 @@ async function gererTelechargementReleveMonetisation() {
   const configurationReleve = obtenirConfigurationReleveMonetisation();
 
   if (!configurationReleve.periodeValide) {
-    afficherToast("Selectionnez une periode valide pour telecharger le releve.", "warning");
+    afficherToast("Sélectionnez une période valide pour télécharger le relevé.", "warning");
     return;
   }
 
   if (comptesSelectionnes.length === 0) {
-    afficherToast("Selectionnez au moins un compte pour generer le releve.", "warning");
+    afficherToast("Sélectionnez au moins un compte pour générer le relevé.", "warning");
     return;
   }
 
@@ -4343,7 +5169,7 @@ async function gererTelechargementReleveMonetisation() {
   if (elements.monetisationDownloadStatementButton) {
     elements.monetisationDownloadStatementButton.dataset.loading = "true";
     elements.monetisationDownloadStatementButton.disabled = true;
-    elements.monetisationDownloadStatementButton.textContent = "Preparation...";
+    elements.monetisationDownloadStatementButton.textContent = "Préparation...";
   }
 
   try {
@@ -4399,19 +5225,20 @@ function parserEvenementTempsReel(event) {
 function construireMessageNotificationTempsReel(payload = {}) {
   const acteur = String(payload.actorName || "").trim() || "Quelqu'un";
   const messagesParAction = {
-    seance_added: `${acteur} a ajoute une seance.`,
-    seance_updated: `${acteur} a modifie une seance.`,
-    seance_status_updated: `${acteur} a modifie le statut d'une seance.`,
-    seance_deleted: `${acteur} a supprime une seance.`,
-    unavailability_added: `${acteur} a ajoute une indisponibilite.`,
-    full_day_unavailability_added: `${acteur} a bloque une journee complete.`,
-    unavailability_deleted: `${acteur} a supprime une indisponibilite.`,
-    catalogue_updated: `${acteur} a mis a jour le catalogue.`,
-    catalogue_deleted: `${acteur} a supprime un element du catalogue.`,
-    history_updated: `${acteur} a mis a jour l'historique.`,
+    seance_added: `${acteur} a ajouté une séance.`,
+    seance_updated: `${acteur} a modifié une séance.`,
+    seance_status_updated: `${acteur} a modifié le statut d'une séance.`,
+    seance_deleted: `${acteur} a supprimé une séance.`,
+    unavailability_added: `${acteur} a ajouté une indisponibilité.`,
+    full_day_unavailability_added: `${acteur} a bloqué une journée complète.`,
+    unavailability_updated: `${acteur} a modifié une indisponibilité.`,
+    unavailability_deleted: `${acteur} a supprimé une indisponibilité.`,
+    catalogue_updated: `${acteur} a mis à jour le catalogue.`,
+    catalogue_deleted: `${acteur} a supprimé un élément du catalogue.`,
+    history_updated: `${acteur} a mis à jour l'historique.`,
     administration_updated: `${acteur} a effectue une action d'administration.`,
-    session_updated: `${acteur} a mis a jour une session.`,
-    application_updated: `${acteur} a mis a jour l'application.`,
+    session_updated: `${acteur} a mis à jour une session.`,
+    application_updated: `${acteur} a mis à jour l'application.`,
   };
 
   if (payload.action && messagesParAction[payload.action]) {
@@ -4551,8 +5378,8 @@ function creerCarteMonetisationSupplementaire(nomCompte, stats) {
 
   [
     ["Tarif unitaire", formaterMontantDh(stats.tarif_unitaire)],
-    ["Seances facturables", String(Number(stats.seances_facturables) || 0)],
-    ["Seances d'essai faites", String(Number(stats.seances_essai_faites) || 0)],
+    ["Séances facturables", String(Number(stats.seances_facturables) || 0)],
+    ["Séances d'essai faites", String(Number(stats.seances_essai_faites) || 0)],
   ].forEach(([libelle, valeur]) => {
     const ligne = document.createElement("div");
     ligne.className = "stats-list-row";
@@ -4671,7 +5498,7 @@ function mettreAJourResume() {
   carteTotale.className = "panel stat-overview-card stat-overview-card-primary";
   const labelTotal = document.createElement("span");
   labelTotal.className = "stat-overview-label";
-  labelTotal.textContent = "Total general";
+  labelTotal.textContent = "Total général";
   const valeurTotale = document.createElement("strong");
   valeurTotale.className = "stat-overview-value";
   valeurTotale.textContent = String(seancesPourStatistiques.length);
@@ -4763,7 +5590,7 @@ function mettreAJourResume() {
   } else {
     elements.statsAccountsTable.innerHTML = "";
     elements.statsAccountsTable.appendChild(
-      creerEmptyState("Aucune donnee statistique disponible.")
+      creerEmptyState("Aucune donnée statistique disponible.")
     );
   }
 }
@@ -4841,15 +5668,15 @@ function formaterEtatAccesCompte(compte) {
 }
 
 function formaterEtatMotDePasseCompte(compte) {
-  return Number(compte?.doit_changer_mot_de_passe) === 1 ? "A changer" : "A jour";
+  return Number(compte?.doit_changer_mot_de_passe) === 1 ? "À changer" : "À jour";
 }
 
 function formaterEtatLectureSeuleCompte(compte) {
-  return Number(compte?.mode_lecture_seule) === 1 ? "Lecture seule" : "Modification autorisee";
+  return Number(compte?.mode_lecture_seule) === 1 ? "Lecture seule" : "Modification autorisée";
 }
 
 function formaterEtatMonetisationCompte(compte) {
-  return Number(compte?.peut_voir_monetisation) === 1 ? "Visible" : "Masquee";
+  return Number(compte?.peut_voir_monetisation) === 1 ? "Visible" : "Masquée";
 }
 
 function formaterTarifHoraireCompte(compte) {
@@ -4857,11 +5684,11 @@ function formaterTarifHoraireCompte(compte) {
 }
 
 function formaterEtatAujourdhuiCompte(compte) {
-  return Number(compte?.peut_voir_aujourdhui) === 1 ? "Visible" : "Masque";
+  return Number(compte?.peut_voir_aujourdhui) === 1 ? "Visible" : "Masqué";
 }
 
 function formaterEtatIndisponibilitesCompte(compte) {
-  return Number(compte?.peut_voir_indisponibilites) === 1 ? "Visible" : "Masque";
+  return Number(compte?.peut_voir_indisponibilites) === 1 ? "Visible" : "Masqué";
 }
 
 function creerBadgeAdministration(texte, type) {
@@ -4922,8 +5749,25 @@ function afficherListeCatalogueAdministration(
 
     const label = document.createElement("span");
     label.className = "admin-catalog-item-label";
-    label.textContent = `${elementCatalogue.valeur} (supprime)`;
+    label.textContent = `${elementCatalogue.valeur} (supprimé)`;
     item.appendChild(label);
+
+    if (container === elements.adminAccountList) {
+      const action = document.createElement("button");
+      action.type = "button";
+      action.className = "admin-catalog-remove admin-catalog-restore";
+      action.textContent = "+";
+      action.title = `Restaurer ${elementCatalogue.valeur}`;
+      action?.addEventListener("click", async () => {
+        await gererRestaurationElementCatalogueAdministration({
+          elementCatalogue,
+          motDePasseInput: elements.adminAddAccountCurrentPassword,
+          erreurElement: elements.adminAddAccountError,
+          bouton: action,
+        });
+      });
+      item.appendChild(action);
+    }
 
     container.appendChild(item);
   });
@@ -5009,7 +5853,7 @@ function creerCarteUtilisateurAdministration(compte) {
   const badges = document.createElement("div");
   badges.className = "admin-user-badges";
   badges.append(
-    creerBadgeAdministration(Number(compte.est_admin) === 1 ? "Admin" : "User", Number(compte.est_admin) === 1 ? "admin" : "user"),
+    creerBadgeAdministration(Number(compte.est_admin) === 1 ? "Admin" : "Utilisateur", Number(compte.est_admin) === 1 ? "admin" : "user"),
     creerBadgeAdministration(formaterEtatAccesCompte(compte), Number(compte.acces_active) === 1 ? "active" : "suspended"),
     creerBadgeAdministration(formaterEtatMotDePasseCompte(compte), Number(compte.doit_changer_mot_de_passe) === 1 ? "warning" : "user")
   );
@@ -5017,7 +5861,7 @@ function creerCarteUtilisateurAdministration(compte) {
   if (Number(compte.est_admin) !== 1) {
     badges.append(
       creerBadgeAdministration(
-        Number(compte.mode_lecture_seule) === 1 ? "Lecture seule" : "Acces complet",
+        Number(compte.mode_lecture_seule) === 1 ? "Lecture seule" : "Accès complet",
         Number(compte.mode_lecture_seule) === 1 ? "warning" : "user"
       )
     );
@@ -5028,8 +5872,8 @@ function creerCarteUtilisateurAdministration(compte) {
   const meta = document.createElement("div");
   meta.className = "admin-user-meta";
   meta.textContent = compte.dernier_login_at
-    ? `Derniere connexion : ${formatDateHeureSecondes(compte.dernier_login_at)}`
-    : "Derniere connexion : jamais";
+    ? `Dernière connexion : ${formatDateHeureSecondes(compte.dernier_login_at)}`
+    : "Dernière connexion : jamais";
 
   const hint = document.createElement("div");
   hint.className = "admin-user-hint";
@@ -5038,7 +5882,7 @@ function creerCarteUtilisateurAdministration(compte) {
       ? "Compte administrateur principal."
       : `Mot de passe : ${formaterEtatMotDePasseCompte(compte)}. ${formaterEtatLectureSeuleCompte(
           compte
-        )}. Monetisation ${formaterEtatMonetisationCompte(compte).toLowerCase()}.`;
+        )}. Monétisation ${formaterEtatMonetisationCompte(compte).toLowerCase()}.`;
 
   contenu.append(entete, meta, hint);
 
@@ -5048,7 +5892,7 @@ function creerCarteUtilisateurAdministration(compte) {
   const boutonSelection = document.createElement("button");
   boutonSelection.type = "button";
   boutonSelection.className = "button secondary";
-  boutonSelection.textContent = "Selectionner";
+  boutonSelection.textContent = "Sélectionner";
   boutonSelection?.addEventListener("click", () => {
     selectionnerCompteAdministration(compte.id);
   });
@@ -5105,7 +5949,7 @@ function creerCarteSessionAdministration(session) {
 
   const details = document.createElement("div");
   details.className = "admin-session-agent";
-  details.textContent = `IP : ${session.adresse_ip || "-"} | Derniere activite : ${
+  details.textContent = `IP : ${session.adresse_ip || "-"} | Dernière activité : ${
     session.updated_at ? formatDateHeureSecondes(session.updated_at) : "-"
   }`;
 
@@ -5171,7 +6015,7 @@ function creerCarteAppareilAutoLoginAdministration(appareil) {
 
   const details = document.createElement("div");
   details.className = "admin-session-agent";
-  details.textContent = `IP : ${appareil.adresse_ip || "-"} | Derniere utilisation : ${
+  details.textContent = `IP : ${appareil.adresse_ip || "-"} | Dernière utilisation : ${
     appareil.last_used_at ? formatDateHeureSecondes(appareil.last_used_at) : "-"
   }`;
 
@@ -5286,7 +6130,7 @@ function ouvrirDetailJournalAudit(log) {
     return;
   }
 
-  const identifiant = normaliserTexteAudit(log.identifiant, "Activite");
+  const identifiant = normaliserTexteAudit(log.identifiant, "Activité");
   const utilisateur =
     normaliserTexteAudit(log.utilisateur_nom, "") ||
     normaliserTexteAudit(log.utilisateur_email, "") ||
@@ -5294,7 +6138,7 @@ function ouvrirDetailJournalAudit(log) {
   const details = lireDetailsJournalAudit(log);
 
   elements.auditLogModalResult.textContent =
-    log.resultat === "success" ? "Succes" : "Echec";
+    log.resultat === "success" ? "Succès" : "Échec";
   elements.auditLogModalAction.textContent = formaterLibelleAudit(log.action_type);
   elements.auditLogModalIdentifiant.textContent = identifiant;
   elements.auditLogModalUser.textContent = utilisateur;
@@ -5314,9 +6158,9 @@ function ouvrirDetailJournalAudit(log) {
     const empty = document.createElement("div");
     empty.className = "history-change-card";
     const titre = document.createElement("strong");
-    titre.textContent = "Aucun detail supplementaire";
+    titre.textContent = "Aucun détail supplémentaire";
     const texte = document.createElement("p");
-    texte.textContent = "Cette entree ne contient pas d'information supplementaire.";
+    texte.textContent = "Cette entrée ne contient pas d'information supplémentaire.";
     empty.append(titre, texte);
     elements.auditLogModalDetailsList.appendChild(empty);
   } else {
@@ -5358,13 +6202,13 @@ function afficherJournalAuthAdministration() {
 
     const titre = document.createElement("strong");
     titre.className = "admin-audit-title";
-    titre.textContent = normaliserTexteAudit(log.identifiant, "Activite");
+    titre.textContent = normaliserTexteAudit(log.identifiant, "Activité");
 
     const resultat = document.createElement("span");
     resultat.className = `admin-audit-result ${
       log.resultat === "success" ? "success" : "failed"
     }`;
-    resultat.textContent = log.resultat === "success" ? "Succes" : "Echec";
+    resultat.textContent = log.resultat === "success" ? "Succès" : "Échec";
     head.append(titre, resultat);
 
     const detail = document.createElement("p");
@@ -5392,7 +6236,7 @@ function afficherIpsBloqueesAdministration() {
   elements.adminBlockedIpsList.innerHTML = "";
 
   if (ips.length === 0) {
-    elements.adminBlockedIpsList.innerHTML = '<div class="admin-session-empty">Aucune IP bloquee.</div>';
+    elements.adminBlockedIpsList.innerHTML = '<div class="admin-session-empty">Aucune IP bloquée.</div>';
     return;
   }
 
@@ -5430,76 +6274,404 @@ function construireLibelleIndisponibilite(indisponibilite) {
   return `${formatDate(indisponibilite.date)} · ${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`;
 }
 
-function construireLibelleIndisponibiliteAdministration(indisponibilite) {
-  if (estIndisponibiliteJourCompletClient(indisponibilite)) {
-    return `${formatDate(indisponibilite.date)} - Jour complet`;
+function comparerIndisponibilitesLifo(a, b) {
+  const idB = Number(b?.id || 0);
+  const idA = Number(a?.id || 0);
+
+  if (idB !== idA) {
+    return idB - idA;
   }
 
-  return `${formatDate(indisponibilite.date)} - ${indisponibilite.heure_debut} - ${indisponibilite.heure_fin}`;
+  const dateB = Date.parse(b?.created_at || b?.updated_at || b?.date || "");
+  const dateA = Date.parse(a?.created_at || a?.updated_at || a?.date || "");
+  return (Number.isNaN(dateB) ? 0 : dateB) - (Number.isNaN(dateA) ? 0 : dateA);
 }
 
-function afficherListeIndisponibilitesAdministration() {
-  const indisponibilites = Array.isArray(etat.indisponibilites) ? etat.indisponibilites : [];
-  elements.adminUnavailabilityList.innerHTML = "";
+function comparerPropositionsSeancesLifo(a, b) {
+  const idB = Number(b?.id || 0);
+  const idA = Number(a?.id || 0);
 
-  if (indisponibilites.length === 0) {
-    elements.adminUnavailabilityList.innerHTML =
-      '<div class="admin-session-empty">Aucun creneau indisponible pour le moment.</div>';
+  if (idB !== idA) {
+    return idB - idA;
+  }
+
+  const dateB = Date.parse(b?.created_at || b?.updated_at || b?.date || "");
+  const dateA = Date.parse(a?.created_at || a?.updated_at || a?.date || "");
+  return (Number.isNaN(dateB) ? 0 : dateB) - (Number.isNaN(dateA) ? 0 : dateA);
+}
+
+function construireTitrePropositionSeance(proposition) {
+  const etudiant = proposition?.etudiant || "Étudiant";
+  const matiere = proposition?.matiere || "Matière";
+  return `${etudiant} - ${matiere}`;
+}
+
+function construirePlagePropositionSeance(proposition) {
+  const date = proposition?.date ? formatDate(proposition.date) : "-";
+  const heureDebut = proposition?.heure_debut || "--:--";
+  const heureFin = proposition?.heure_fin || "--:--";
+  return `${date} - ${heureDebut} - ${heureFin}`;
+}
+
+function construireMetaPropositionSeance(proposition) {
+  const morceaux = [
+    `Compte : ${proposition?.compte || "-"}`,
+    `Proposé par ${proposition?.proposee_par_nom || "un utilisateur"}`,
+  ];
+
+  if (proposition?.created_at) {
+    morceaux.push(formatDateHeureSecondes(proposition.created_at));
+  }
+
+  return morceaux.join(" · ");
+}
+
+function creerFormulaireEditionPropositionSeance(proposition) {
+  const form = document.createElement("form");
+  form.className = "proposal-inline-form";
+  form.dataset.propositionId = String(proposition.id);
+
+  const grille = document.createElement("div");
+  grille.className = "form-grid";
+
+  const champDate = document.createElement("label");
+  champDate.className = "field";
+  const labelDate = document.createElement("span");
+  labelDate.textContent = "Date";
+  const inputDate = document.createElement("input");
+  inputDate.type = "date";
+  inputDate.name = "date";
+  inputDate.value = proposition.date || "";
+  champDate.append(labelDate, inputDate);
+
+  const champHeure = document.createElement("label");
+  champHeure.className = "field";
+  const labelHeure = document.createElement("span");
+  labelHeure.textContent = "Heure de début";
+  const inputHeure = document.createElement("input");
+  inputHeure.type = "time";
+  inputHeure.step = "1800";
+  inputHeure.name = "heure_debut";
+  inputHeure.value = proposition.heure_debut || recupererHeureDebutParDefaut();
+  champHeure.append(labelHeure, inputHeure);
+
+  const champDuree = document.createElement("label");
+  champDuree.className = "field";
+  const labelDuree = document.createElement("span");
+  labelDuree.textContent = "Durée";
+  const selectDuree = document.createElement("select");
+  selectDuree.name = "duree_minutes";
+  [60, 90, 120].forEach((duree) => {
+    const option = document.createElement("option");
+    option.value = String(duree);
+    option.textContent = formaterDureeHistorique(duree);
+    selectDuree.appendChild(option);
+  });
+  selectDuree.value = String(proposition.duree_minutes || 60);
+  champDuree.append(labelDuree, selectDuree);
+
+  grille.append(champDate, champHeure, champDuree);
+
+  const erreur = document.createElement("p");
+  erreur.className = "form-error hidden";
+
+  const actions = document.createElement("div");
+  actions.className = "form-actions proposal-inline-actions";
+
+  const annuler = document.createElement("button");
+  annuler.type = "button";
+  annuler.className = "button secondary";
+  annuler.textContent = "Annuler";
+  annuler.addEventListener("click", () => {
+    etat.propositionEditionId = null;
+    afficherListeIndisponibilitesAdministration();
+  });
+
+  const enregistrer = document.createElement("button");
+  enregistrer.type = "submit";
+  enregistrer.className = "button primary";
+  enregistrer.textContent = "Sauvegarder";
+
+  actions.append(annuler, enregistrer);
+  form.append(grille, erreur, actions);
+  form.addEventListener("submit", (event) => {
+    gererModificationPropositionSeance(event, proposition, {
+      date: inputDate,
+      heureDebut: inputHeure,
+      duree: selectDuree,
+      erreur,
+      bouton: enregistrer,
+    });
+  });
+
+  return form;
+}
+
+function creerCartePropositionSeance(proposition) {
+  const carte = document.createElement("article");
+  carte.className = "admin-session-item proposal-item";
+
+  const contenu = document.createElement("div");
+  contenu.className = "admin-session-main";
+
+  const entete = document.createElement("div");
+  entete.className = "admin-session-head";
+
+  const titreGroupe = document.createElement("div");
+  const titre = document.createElement("h4");
+  titre.className = "admin-session-title";
+  titre.textContent = construireTitrePropositionSeance(proposition);
+  const plage = document.createElement("div");
+  plage.className = "admin-session-agent";
+  plage.textContent = construirePlagePropositionSeance(proposition);
+  titreGroupe.append(titre, plage);
+
+  const badges = document.createElement("div");
+  badges.className = "admin-session-badges";
+  badges.appendChild(creerBadgeAdministration("Proposition", "warning"));
+  if (proposition.est_essai) {
+    badges.appendChild(creerBadgeAdministration("Essai", "user"));
+  }
+
+  entete.append(titreGroupe, badges);
+
+  const details = document.createElement("div");
+  details.className = "admin-session-meta";
+  details.textContent = construireMetaPropositionSeance(proposition);
+
+  contenu.append(entete, details);
+
+  if (Number(etat.propositionEditionId) === Number(proposition.id)) {
+    contenu.appendChild(creerFormulaireEditionPropositionSeance(proposition));
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "admin-session-actions";
+
+  const boutonModifier = document.createElement("button");
+  boutonModifier.type = "button";
+  boutonModifier.className = "button secondary";
+  boutonModifier.textContent = "Modifier";
+  boutonModifier.addEventListener("click", () => {
+    etat.propositionEditionId =
+      Number(etat.propositionEditionId) === Number(proposition.id) ? null : proposition.id;
+    afficherListeIndisponibilitesAdministration();
+  });
+
+  const boutonAccepter = document.createElement("button");
+  boutonAccepter.type = "button";
+  boutonAccepter.className = "button primary";
+  boutonAccepter.textContent = "Accepter";
+  boutonAccepter.addEventListener("click", async () => {
+    await gererAcceptationPropositionSeance(proposition.id, boutonAccepter);
+  });
+
+  const boutonRefuser = document.createElement("button");
+  boutonRefuser.type = "button";
+  boutonRefuser.className = "button danger";
+  boutonRefuser.textContent = "Refuser";
+  boutonRefuser.addEventListener("click", async () => {
+    await gererRefusPropositionSeance(proposition.id, boutonRefuser);
+  });
+
+  actions.append(boutonModifier, boutonAccepter, boutonRefuser);
+  carte.append(contenu, actions);
+  return carte;
+}
+
+function mettreAJourBadgePropositionsIndisponibilites() {
+  if (!elements.unavailabilityPropositionsBadge) {
     return;
   }
 
-  indisponibilites.forEach((indisponibilite) => {
-    const carte = document.createElement("article");
-    carte.className = "admin-session-item";
+  const nombrePropositions = Array.isArray(etat.propositionsSeances)
+    ? etat.propositionsSeances.length
+    : 0;
+  const badgeVisible = nombrePropositions > 0;
+  const libelleBadge = nombrePropositions > 99 ? "99+" : String(nombrePropositions);
 
-    const contenu = document.createElement("div");
-    contenu.className = "admin-session-main";
+  elements.unavailabilityPropositionsBadge.textContent = badgeVisible ? libelleBadge : "";
+  elements.unavailabilityPropositionsBadge.classList.toggle("hidden", !badgeVisible);
 
-    const entete = document.createElement("div");
-    entete.className = "admin-session-head";
+  if (elements.unavailabilityPropositionsTab) {
+    const libelleAccessible = badgeVisible
+      ? `Propositions, ${nombrePropositions} en attente`
+      : "Propositions";
+    elements.unavailabilityPropositionsTab.setAttribute("aria-label", libelleAccessible);
+    elements.unavailabilityPropositionsTab.title = libelleAccessible;
+  }
+}
 
-    const titre = document.createElement("h4");
-    titre.className = "admin-session-title";
-    titre.textContent = construireLibelleIndisponibiliteAdministration(indisponibilite);
+function afficherListePropositionsIndisponibilites() {
+  mettreAJourBadgePropositionsIndisponibilites();
 
-    const badges = document.createElement("div");
-    badges.className = "admin-session-badges";
-    badges.appendChild(creerBadgeAdministration("Indisponible", "warning"));
-    if (estIndisponibiliteJourCompletClient(indisponibilite)) {
-      badges.appendChild(creerBadgeAdministration("Jour complet", "warning"));
-    }
+  if (!elements.adminUnavailabilityList) {
+    return;
+  }
 
-    entete.append(titre, badges);
+  elements.adminUnavailabilityList.innerHTML = "";
 
-    const details = document.createElement("div");
-    details.className = "admin-session-meta";
-    details.textContent = estIndisponibiliteJourCompletClient(indisponibilite)
-      ? indisponibilite.raison
-        ? `Jour entier bloque. Raison : ${indisponibilite.raison}`
-        : "Jour entier bloque."
-      : indisponibilite.raison
-        ? `Raison : ${indisponibilite.raison}`
-        : "Aucune raison renseignee.";
+  if (!utilisateurPeutGererIndisponibilites()) {
+    elements.adminUnavailabilityList.innerHTML =
+      '<div class="admin-session-empty">Les propositions sont gérées par Hossam.</div>';
+    return;
+  }
 
-    contenu.append(entete, details);
+  const propositions = Array.isArray(etat.propositionsSeances)
+    ? [...etat.propositionsSeances].sort(comparerPropositionsSeancesLifo)
+    : [];
 
-    const actions = document.createElement("div");
-    actions.className = "admin-session-actions";
+  if (propositions.length === 0) {
+    elements.adminUnavailabilityList.innerHTML =
+      '<div class="admin-session-empty">Aucune proposition en attente.</div>';
+    return;
+  }
 
-    if (utilisateurPeutGererIndisponibilites()) {
-      const bouton = document.createElement("button");
-      bouton.type = "button";
-      bouton.className = "button danger";
-      bouton.textContent = "Supprimer";
-      bouton?.addEventListener("click", async () => {
-        await gererSuppressionIndisponibilite(indisponibilite.id);
-      });
-      actions.appendChild(bouton);
-    }
-
-    carte.append(contenu, actions);
-    elements.adminUnavailabilityList.appendChild(carte);
+  propositions.forEach((proposition) => {
+    elements.adminUnavailabilityList.appendChild(creerCartePropositionSeance(proposition));
   });
+}
+
+function afficherListeIndisponibilitesAdministration() {
+  afficherListePropositionsIndisponibilites();
+}
+
+async function gererModificationPropositionSeance(event, proposition, controles) {
+  event.preventDefault();
+  masquerErreur(controles.erreur);
+
+  const date = controles.date.value;
+  const heureDebut = controles.heureDebut.value;
+  const dureeMinutes = Number(controles.duree.value);
+
+  if (!date || !estDateIsoValide(date)) {
+    afficherErreur(controles.erreur, "La date est invalide.");
+    return;
+  }
+
+  if (!estHeureDebutSeanceValide(heureDebut)) {
+    afficherErreur(
+      controles.erreur,
+      "L'heure de début doit être choisie par tranches de 30 minutes."
+    );
+    return;
+  }
+
+  const heureFin = calculerHeureFin(heureDebut, dureeMinutes);
+
+  if (![60, 90, 120].includes(dureeMinutes) || !heureFin) {
+    afficherErreur(controles.erreur, "La durée est invalide.");
+    return;
+  }
+
+  const conflitSeance = trouverSeanceChevauchanteLocale({
+    date,
+    heure_debut: heureDebut,
+    heure_fin: heureFin,
+  });
+
+  if (conflitSeance) {
+    afficherErreur(controles.erreur, construireMessageConflitSeanceClient(conflitSeance));
+    return;
+  }
+
+  const libelleInitial = controles.bouton.textContent;
+  controles.bouton.disabled = true;
+  controles.bouton.textContent = "Sauvegarde...";
+
+  try {
+    await modifierPropositionSeance(proposition.id, {
+      date,
+      heure_debut: heureDebut,
+      duree_minutes: dureeMinutes,
+    });
+    etat.propositionEditionId = null;
+    await chargerPropositionsSeancesSiAutorise();
+    afficherToast("Proposition modifiée.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    afficherErreur(controles.erreur, erreur.message);
+  } finally {
+    controles.bouton.disabled = false;
+    controles.bouton.textContent = libelleInitial;
+  }
+}
+
+async function gererAcceptationPropositionSeance(propositionId, bouton) {
+  const libelleInitial = bouton?.textContent || "Accepter";
+
+  if (bouton) {
+    bouton.disabled = true;
+    bouton.textContent = "Acceptation...";
+  }
+
+  try {
+    const resultat = await accepterPropositionSeance(propositionId);
+    etat.propositionEditionId = null;
+    await Promise.all([
+      chargerPropositionsSeancesSiAutorise(),
+      chargerSeances(
+        resultat?.seance?.id
+          ? {
+              ouvrirSeanceId: resultat.seance.id,
+            }
+          : {}
+      ),
+      chargerHistorique(),
+      chargerMonetisationSiAutorise(),
+    ]);
+    afficherToast(resultat.message || "Proposition acceptée.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    afficherToast(erreur.message, "error");
+  } finally {
+    if (bouton) {
+      bouton.disabled = false;
+      bouton.textContent = libelleInitial;
+    }
+  }
+}
+
+async function gererRefusPropositionSeance(propositionId, bouton) {
+  const confirmation = window.confirm("Refuser cette proposition ?");
+
+  if (!confirmation) {
+    return;
+  }
+
+  const libelleInitial = bouton?.textContent || "Refuser";
+
+  if (bouton) {
+    bouton.disabled = true;
+    bouton.textContent = "Refus...";
+  }
+
+  try {
+    const resultat = await refuserPropositionSeance(propositionId);
+    etat.propositionEditionId = null;
+    await chargerPropositionsSeancesSiAutorise();
+    afficherToast(resultat.message || "Proposition refusée.");
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    afficherToast(erreur.message, "error");
+  } finally {
+    if (bouton) {
+      bouton.disabled = false;
+      bouton.textContent = libelleInitial;
+    }
+  }
 }
 
 function mettreAJourControlesAdministration() {
@@ -5529,7 +6701,7 @@ function mettreAJourControlesAdministration() {
     ? Number(compteAcces.acces_active) === 1
       ? `Suspendre ${compteAcces.nom}`
       : `Reactiver ${compteAcces.nom}`
-    : "Mettre a jour l'acces";
+    : "Mettre à jour l'accès";
   elements.adminToggleAccessButton.classList.toggle(
     "danger",
     Boolean(compteAcces) && Number(compteAcces.acces_active) === 1
@@ -5547,7 +6719,7 @@ function mettreAJourControlesAdministration() {
     ? Number(compteLectureSeule.mode_lecture_seule) === 1
       ? `Retirer la lecture seule`
       : `Activer la lecture seule`
-    : "Mettre a jour le mode";
+    : "Mettre à jour le mode";
 
   elements.adminTodayStatus.textContent = compteAujourdhui
     ? formaterEtatAujourdhuiCompte(compteAujourdhui)
@@ -5557,7 +6729,7 @@ function mettreAJourControlesAdministration() {
     ? Number(compteAujourdhui.peut_voir_aujourdhui) === 1
       ? `Masquer Aujourd'hui`
       : `Afficher Aujourd'hui`
-    : "Mettre a jour Aujourd'hui";
+    : "Mettre à jour Aujourd'hui";
 
   elements.adminUnavailabilityAccessStatus.textContent = compteIndisponibilites
     ? formaterEtatIndisponibilitesCompte(compteIndisponibilites)
@@ -5565,9 +6737,9 @@ function mettreAJourControlesAdministration() {
   elements.adminUnavailabilityAccessButton.disabled = !compteIndisponibilites;
   elements.adminUnavailabilityAccessButton.textContent = compteIndisponibilites
     ? Number(compteIndisponibilites.peut_voir_indisponibilites) === 1
-      ? `Masquer Indisponibilites`
-      : `Afficher Indisponibilites`
-    : "Mettre a jour Indisponibilites";
+      ? `Masquer Indisponibilités`
+      : `Afficher Indisponibilités`
+    : "Mettre à jour Indisponibilités";
 
   elements.adminMonetisationStatus.textContent = compteMonetisation
     ? formaterEtatMonetisationCompte(compteMonetisation)
@@ -5575,17 +6747,17 @@ function mettreAJourControlesAdministration() {
   elements.adminMonetisationButton.disabled = !compteMonetisation;
   elements.adminMonetisationButton.textContent = compteMonetisation
     ? Number(compteMonetisation.peut_voir_monetisation) === 1
-      ? `Masquer Monetisation`
-      : `Afficher Monetisation`
-    : "Mettre a jour Monetisation";
+      ? `Masquer Monétisation`
+      : `Afficher Monétisation`
+    : "Mettre à jour Monétisation";
 
   elements.adminRateStatus.textContent = compteTarif
     ? formaterTarifHoraireCompte(compteTarif)
     : "-";
   elements.adminRateButton.disabled = !compteTarif;
   elements.adminRateButton.textContent = compteTarif
-    ? `Mettre a jour le tarif de ${compteTarif.valeur}`
-    : "Mettre a jour le tarif";
+    ? `Mettre à jour le tarif de ${compteTarif.valeur}`
+    : "Mettre à jour le tarif";
   if (elements.adminRateValue) {
     const compteLie = compteTarif ? String(compteTarif.id) : "";
     if (elements.adminRateValue.dataset.boundAccountId !== compteLie) {
@@ -5668,7 +6840,7 @@ function mettreAJourPanneauAdministration() {
   remplirSelectComptes(
     elements.adminRateUserId,
     comptesSeance,
-    "Aucun compte de seance"
+    "Aucun compte de séance"
   );
   remplirSelectComptes(
     elements.adminLogoutUserId,
@@ -5786,7 +6958,7 @@ function remplirDetailHistoriqueCibles(cibles, entree, presentationAction, detai
 
   if (detailsHistorique.lignes.length === 0) {
     cibles.changesList.innerHTML =
-      '<div class="empty-state">Aucun detail supplementaire pour cette action.</div>';
+      '<div class="empty-state">Aucun détail supplémentaire pour cette action.</div>';
     return;
   }
 
@@ -5852,7 +7024,7 @@ function viderDetailHistorique() {
   elements.historyDetailModalSeance.textContent = "-";
   elements.historyDetailModalActor.textContent = "-";
   elements.historyDetailModalDate.textContent = "-";
-  elements.historyDetailModalChangesTitle.textContent = "Details";
+  elements.historyDetailModalChangesTitle.textContent = "Détails";
   elements.historyDetailModalChangesList.innerHTML = "";
   elements.historyDetailModalSubtitle.textContent = "";
   elements.historyDetailModalSubtitle.classList.add("hidden");
@@ -5995,7 +7167,7 @@ function obtenirPresentationActionHistorique(entree) {
 
   if (entree?.action_type === "indisponibilite_creee") {
     return {
-      label: "Creation d'un creneau indisponible",
+      label: "Création d'un créneau indisponible",
       badgeLabel: "Indispo",
       tone: "blocked",
     };
@@ -6003,9 +7175,17 @@ function obtenirPresentationActionHistorique(entree) {
 
   if (entree?.action_type === "indisponibilite_supprimee") {
     return {
-      label: "Suppression d'un creneau indisponible",
+      label: "Suppression d'un créneau indisponible",
       badgeLabel: "Indispo",
       tone: "blocked",
+    };
+  }
+
+  if (entree?.action_type === "indisponibilite_modifiee") {
+    return {
+      label: "Modification d'un créneau indisponible",
+      badgeLabel: "Indispo",
+      tone: "update",
     };
   }
 
@@ -6188,6 +7368,24 @@ function creerCarteInformationHistorique(ligne) {
   return carte;
 }
 
+function mettreAJourVisibiliteDescriptionSeance(mode) {
+  const afficherDescription = mode === "modification";
+  elements.descriptionSection?.classList.toggle("hidden", !afficherDescription);
+
+  if (!afficherDescription && elements.description) {
+    elements.description.value = "";
+  }
+}
+
+function mettreAJourVisibiliteStatutSeance(mode) {
+  const afficherStatut = mode === "modification";
+  elements.statusSection?.classList.toggle("hidden", !afficherStatut);
+
+  if (!afficherStatut) {
+    definirValeurSelectionnee(elements.statutCheckboxes, "planifiee");
+  }
+}
+
 function ouvrirFormulaireCreation(dateSelectionnee = "") {
   if (!utilisateurPeutModifierDonnees()) {
     afficherToast("Votre compte est en lecture seule.", "warning");
@@ -6198,7 +7396,7 @@ function ouvrirFormulaireCreation(dateSelectionnee = "") {
 
   if (dateIsoSelectionnee && estJourIntegralementIndisponible(dateIsoSelectionnee)) {
     afficherToast(
-      `Le ${formatDate(dateIsoSelectionnee)} est indisponible toute la journee.`,
+      `Le ${formatDate(dateIsoSelectionnee)} est indisponible toute la journée.`,
       "warning"
     );
     return;
@@ -6207,6 +7405,8 @@ function ouvrirFormulaireCreation(dateSelectionnee = "") {
   elements.seanceForm.reset();
   masquerErreur(elements.seanceFormError);
   elements.seanceForm.dataset.mode = "creation";
+  mettreAJourVisibiliteDescriptionSeance("creation");
+  mettreAJourVisibiliteStatutSeance("creation");
   rendreOptionsCatalogueSeance();
   configurerOptionsStatut("creation");
   definirSousTitreModalSeance("");
@@ -6247,6 +7447,8 @@ function ouvrirFormulaireModification() {
 
   fermerModal(elements.detailModal);
   elements.seanceForm.dataset.mode = "modification";
+  mettreAJourVisibiliteDescriptionSeance("modification");
+  mettreAJourVisibiliteStatutSeance("modification");
   rendreOptionsCatalogueSeance();
   configurerOptionsStatut("modification");
   definirSousTitreModalSeance("");
@@ -6280,14 +7482,16 @@ function ouvrirFormulaireDuplication() {
   elements.seanceForm.reset();
   masquerErreur(elements.seanceFormError);
   elements.seanceForm.dataset.mode = "creation";
+  mettreAJourVisibiliteDescriptionSeance("creation");
+  mettreAJourVisibiliteStatutSeance("creation");
   rendreOptionsCatalogueSeance();
   configurerOptionsStatut("creation");
   definirSousTitreModalSeance(
     `Copie de ${seanceSource.libelle || seanceSource.etudiant}. Choisissez la date avant d'enregistrer.`
   );
-  elements.seanceModalTitle.textContent = "Dupliquer la seance";
-  elements.saveSeanceButton.textContent = "Creer la copie";
-  elements.saveSeanceButton.dataset.defaultLabel = "Creer la copie";
+  elements.seanceModalTitle.textContent = "Dupliquer la séance";
+  elements.saveSeanceButton.textContent = "Créer la copie";
+  elements.saveSeanceButton.dataset.defaultLabel = "Créer la copie";
   elements.seanceId.value = "";
   elements.etudiant.value = seanceSource.etudiant || "";
   elements.parent.value = seanceSource.parent || "";
@@ -6304,7 +7508,6 @@ function ouvrirFormulaireDuplication() {
   definirDureeSelectionnee(seanceSource.duree_minutes || 60);
   elements.date.value = "";
   definirHeureDebutSelectionnee(seanceSource.heure_debut || recupererHeureDebutParDefaut());
-  elements.description.value = seanceSource.description || "";
   mettreAJourHeureFinCalculee();
   ouvrirModal(elements.seanceModal);
   elements.date.focus();
@@ -6327,6 +7530,8 @@ function ouvrirFormulaireReport() {
 
   fermerModal(elements.detailModal);
   elements.seanceForm.dataset.mode = "modification";
+  mettreAJourVisibiliteDescriptionSeance("modification");
+  mettreAJourVisibiliteStatutSeance("modification");
   rendreOptionsCatalogueSeance();
   configurerOptionsStatut("modification");
   remplirFormulaire(etat.seanceSelectionnee);
@@ -6365,6 +7570,50 @@ function remplirFormulaire(seance) {
   mettreAJourHeureFinCalculee();
 }
 
+function messageErreurIndisponibiliteServeur(message) {
+  const texte = String(message || "").toLowerCase();
+  return texte.includes("indisponible") || texte.includes("bloque");
+}
+
+async function envoyerPropositionSeanceDepuisFormulaire(
+  donneesSeance,
+  conflitIndisponibilite = null,
+  options = {}
+) {
+  const libelleBoutonFinal =
+    elements.saveSeanceButton.dataset.defaultLabel || "Enregistrer";
+
+  elements.saveSeanceButton.disabled = true;
+  elements.saveSeanceButton.textContent = "Proposition...";
+
+  try {
+    await creerPropositionSeance({
+      ...donneesSeance,
+      indisponibilite_id: conflitIndisponibilite?.id || null,
+      seance_source_id: options.seanceSourceId || null,
+    });
+    fermerModal(elements.seanceModal);
+
+    if (utilisateurPeutGererIndisponibilites()) {
+      await chargerPropositionsSeancesSiAutorise();
+    }
+
+    afficherNotificationPropositionIndisponibilite();
+    return true;
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return true;
+    }
+
+    afficherErreur(elements.seanceFormError, erreur.message);
+    return false;
+  } finally {
+    elements.saveSeanceButton.disabled = false;
+    elements.saveSeanceButton.textContent = libelleBoutonFinal;
+  }
+}
+
 async function gererSoumissionSeance(event) {
   event.preventDefault();
   masquerErreur(elements.seanceFormError);
@@ -6374,6 +7623,11 @@ async function gererSoumissionSeance(event) {
     return;
   }
 
+  const mode = elements.seanceForm.dataset.mode || "creation";
+  const seanceSourceId =
+    mode === "modification"
+      ? Number(etat.seanceSelectionnee?.id || elements.seanceId.value) || null
+      : null;
   const dureeMinutes = recupererDureeSelectionnee();
   const donneesSeance = {
     etudiant: elements.etudiant.value.trim(),
@@ -6384,9 +7638,13 @@ async function gererSoumissionSeance(event) {
     date: elements.date.value,
     heure_debut: elements.heureDebut.value,
     duree_minutes: dureeMinutes,
-    statut_seance: recupererValeurSelectionnee(elements.statutCheckboxes),
-    description: elements.description.value.trim(),
+    statut_seance:
+      mode === "creation" ? "planifiee" : recupererValeurSelectionnee(elements.statutCheckboxes),
   };
+
+  if (mode === "modification") {
+    donneesSeance.description = elements.description.value.trim();
+  }
   const heureFinCalculee = calculerHeureFin(donneesSeance.heure_debut, dureeMinutes);
 
   if (!donneesSeance.etudiant) {
@@ -6414,7 +7672,7 @@ async function gererSoumissionSeance(event) {
     return;
   }
 
-  if (!donneesSeance.statut_seance) {
+  if (mode === "modification" && !donneesSeance.statut_seance) {
     afficherErreur(elements.seanceFormError, "Sélectionnez un statut.");
     return;
   }
@@ -6447,32 +7705,6 @@ async function gererSoumissionSeance(event) {
     return;
   }
 
-  const mode = elements.seanceForm.dataset.mode || "creation";
-  const conflitIndisponibilite = trouverIndisponibiliteChevauchanteLocale({
-    date: donneesSeance.date,
-    heure_debut: donneesSeance.heure_debut,
-    heure_fin: heureFinCalculee,
-  });
-
-  if (
-    conflitIndisponibilite &&
-    !(
-      mode === "modification" &&
-      creneauSeanceEquivalent(
-        etat.seanceSelectionnee,
-        donneesSeance.date,
-        donneesSeance.heure_debut,
-        heureFinCalculee
-      )
-    )
-  ) {
-    afficherErreur(
-      elements.seanceFormError,
-      construireMessageIndisponibiliteClient(conflitIndisponibilite)
-    );
-    return;
-  }
-
   const conflitSeanceConfidentielle = trouverSeanceConfidentielleChevauchanteLocale({
     date: donneesSeance.date,
     heure_debut: donneesSeance.heure_debut,
@@ -6493,6 +7725,53 @@ async function gererSoumissionSeance(event) {
     )
   ) {
     afficherErreur(elements.seanceFormError, obtenirMessageSeanceConfidentielle());
+    return;
+  }
+
+  const conflitSeance = trouverSeanceChevauchanteLocale({
+    date: donneesSeance.date,
+    heure_debut: donneesSeance.heure_debut,
+    heure_fin: heureFinCalculee,
+    ignorerSeanceId: mode === "modification" ? etat.seanceSelectionnee?.id : null,
+  });
+
+  if (
+    conflitSeance &&
+    !(
+      mode === "modification" &&
+      creneauSeanceEquivalent(
+        etat.seanceSelectionnee,
+        donneesSeance.date,
+        donneesSeance.heure_debut,
+        heureFinCalculee
+      )
+    )
+  ) {
+    afficherErreur(elements.seanceFormError, construireMessageConflitSeanceClient(conflitSeance));
+    return;
+  }
+
+  const conflitIndisponibilite = trouverIndisponibiliteChevauchanteLocale({
+    date: donneesSeance.date,
+    heure_debut: donneesSeance.heure_debut,
+    heure_fin: heureFinCalculee,
+  });
+
+  if (
+    conflitIndisponibilite &&
+    !(
+      mode === "modification" &&
+      creneauSeanceEquivalent(
+        etat.seanceSelectionnee,
+        donneesSeance.date,
+        donneesSeance.heure_debut,
+        heureFinCalculee
+      )
+    )
+  ) {
+    await envoyerPropositionSeanceDepuisFormulaire(donneesSeance, conflitIndisponibilite, {
+      seanceSourceId,
+    });
     return;
   }
 
@@ -6527,6 +7806,16 @@ async function gererSoumissionSeance(event) {
       return;
     }
 
+    if (
+      erreur.status === 400 &&
+      messageErreurIndisponibiliteServeur(erreur.message)
+    ) {
+      await envoyerPropositionSeanceDepuisFormulaire(donneesSeance, null, {
+        seanceSourceId,
+      });
+      return;
+    }
+
     afficherErreur(elements.seanceFormError, erreur.message);
   } finally {
     elements.saveSeanceButton.disabled = false;
@@ -6539,42 +7828,166 @@ function gererClicIndisponibilite(indisponibilite) {
     const dateLabel = indisponibilite?.date ? formatDate(indisponibilite.date) : "";
     const messageConfidentiel = estIndisponibiliteJourCompletClient(indisponibilite)
       ? dateLabel
-        ? `Jour complet indisponible : ${dateLabel}. Raison : Seance Hossam.`
-        : "Jour complet indisponible. Raison : Seance Hossam."
-      : `Creneau indisponible${dateLabel ? ` : ${dateLabel}` : ""}${
+        ? `Jour complet indisponible : ${dateLabel}.`
+        : "Jour complet indisponible."
+      : `Créneau indisponible${dateLabel ? ` : ${dateLabel}` : ""}${
           indisponibilite?.heure_debut && indisponibilite?.heure_fin
             ? `, ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}`
             : ""
-        }. Raison : Seance Hossam.`;
+        }.`;
     afficherToast(messageConfidentiel, "warning");
     return;
   }
 
-  const raison = String(indisponibilite?.raison || "").trim();
   const messagePlage = estIndisponibiliteJourCompletClient(indisponibilite)
     ? "Jour complet indisponible"
-    : `Creneau indisponible : ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}`;
+    : `Créneau indisponible : ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}`;
 
   if (utilisateurPeutGererIndisponibilites()) {
+    const progressionTripleClic = enregistrerClicIndisponibilite(indisponibilite);
+
+    if (progressionTripleClic.complete) {
+      ouvrirDetailIndisponibilite(indisponibilite);
+      return;
+    }
+
     afficherToast(
-      raison
-        ? `${messagePlage} (${raison}).`
-        : `${messagePlage}.`,
+      `${messagePlage}. ${progressionTripleClic.restants} clic(s) restant(s) pour gérer.`,
       "warning"
     );
     return;
   }
 
   afficherToast(
-    raison
-      ? estIndisponibiliteJourCompletClient(indisponibilite)
-        ? `Hossam a bloque toute cette journee : ${raison}.`
-        : `Hossam a bloque ce creneau : ${raison}.`
-      : estIndisponibiliteJourCompletClient(indisponibilite)
-        ? "Cette journee a ete marquee comme indisponible par Hossam."
-        : "Ce creneau a ete marque comme indisponible par Hossam.",
+    estIndisponibiliteJourCompletClient(indisponibilite)
+      ? "Cette journée a été marquée comme indisponible par Hossam."
+      : "Ce créneau a été marqué comme indisponible par Hossam.",
     "warning"
   );
+}
+
+function enregistrerClicIndisponibilite(indisponibilite) {
+  const identifiant = String(indisponibilite?.id || "");
+  const maintenant = Date.now();
+  const memeIndisponibilite = etat.clicIndisponibilite.id === identifiant;
+  const clicRecent =
+    memeIndisponibilite &&
+    maintenant - etat.clicIndisponibilite.lastAt <= delaiTripleClicIndisponibiliteMs;
+  const count = clicRecent ? etat.clicIndisponibilite.count + 1 : 1;
+
+  etat.clicIndisponibilite = {
+    id: identifiant,
+    count,
+    lastAt: maintenant,
+  };
+
+  if (count >= 3) {
+    etat.clicIndisponibilite = {
+      id: null,
+      count: 0,
+      lastAt: 0,
+    };
+
+    return {
+      complete: true,
+      restants: 0,
+    };
+  }
+
+  return {
+    complete: false,
+    restants: 3 - count,
+  };
+}
+
+function gererClicDateCalendrier(dateSelectionnee = "") {
+  const dateIsoSelectionnee = extraireDateIsoDepuisValeurCalendrier(dateSelectionnee);
+  const indisponibiliteJourComplet = dateIsoSelectionnee
+    ? estJourIntegralementIndisponible(dateIsoSelectionnee)
+    : null;
+
+  if (indisponibiliteJourComplet) {
+    gererClicIndisponibilite(indisponibiliteJourComplet);
+    return;
+  }
+
+  ouvrirFormulaireCreation(dateSelectionnee);
+}
+
+function trouverIndisponibiliteDepuisSelectionCalendrier(selection = {}) {
+  const date = extraireDateIsoDepuisValeurCalendrier(selection.date);
+
+  if (!date) {
+    return null;
+  }
+
+  const indisponibiliteJourComplet = estJourIntegralementIndisponible(date);
+  if (indisponibiliteJourComplet) {
+    return indisponibiliteJourComplet;
+  }
+
+  const heureDebut = selection.heure_debut || "";
+  const heureFin = selection.heure_fin || (heureDebut ? calculerHeureFin(heureDebut, 30) : "");
+
+  if (!heureDebut || !heureFin) {
+    return null;
+  }
+
+  return trouverIndisponibiliteChevauchanteLocale({
+    date,
+    heure_debut: heureDebut,
+    heure_fin: heureFin,
+  });
+}
+
+function ouvrirIndisponibiliteDepuisSelectionCalendrier(selection = {}) {
+  const indisponibilite = trouverIndisponibiliteDepuisSelectionCalendrier(selection);
+
+  if (!indisponibilite) {
+    return false;
+  }
+
+  if (utilisateurPeutGererIndisponibilites()) {
+    ouvrirDetailIndisponibilite(indisponibilite);
+  } else {
+    gererClicIndisponibilite(indisponibilite);
+  }
+
+  return true;
+}
+
+function gererClicCreneauCalendrierIndisponibilite(selection = {}) {
+  if (ouvrirIndisponibiliteDepuisSelectionCalendrier(selection)) {
+    return;
+  }
+
+  ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection);
+}
+
+function gererSelectionCalendrierIndisponibilite(selection = {}) {
+  if (ouvrirIndisponibiliteDepuisSelectionCalendrier(selection)) {
+    return;
+  }
+
+  ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection);
+}
+
+function gererClicPropositionCalendrier(proposition) {
+  if (!proposition) {
+    return;
+  }
+
+  if (!utilisateurPeutGererIndisponibilites()) {
+    afficherToast("Proposition en attente de validation par Hossam.", "warning");
+    return;
+  }
+
+  etat.propositionEditionId = Number(proposition.id) || null;
+  afficherSectionApplication("indisponibilites");
+  afficherVueIndisponibilites("propositions");
+  afficherListeIndisponibilitesAdministration();
+  elements.indisponibilitesSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+  afficherToast("Proposition en attente de validation par Hossam.", "warning");
 }
 
 async function ouvrirDetailSeance(seance) {
@@ -6586,7 +7999,7 @@ async function ouvrirDetailSeance(seance) {
   etat.seanceSelectionnee = seance;
   elements.detailTitle.textContent = seance.libelle;
   elements.detailStudent.textContent = seance.etudiant;
-  elements.detailParent.textContent = seance.parent || "Non renseigne";
+  elements.detailParent.textContent = seance.parent || "Non renseigné";
   elements.detailSubject.textContent = seance.matiere;
   elements.detailAccount.textContent = seance.compte;
   elements.detailDate.textContent = formatDate(seance.date);
@@ -6837,6 +8250,10 @@ function trouverSeanceConfidentielleChevauchanteLocale({
         return false;
       }
 
+      if (String(seance.statut_seance || "").toLowerCase() === "annulee") {
+        return false;
+      }
+
       if (ignorerSeanceId && Number(seance.id) === Number(ignorerSeanceId)) {
         return false;
       }
@@ -6849,13 +8266,59 @@ function trouverSeanceConfidentielleChevauchanteLocale({
   );
 }
 
+function trouverSeanceChevauchanteLocale({
+  date,
+  heure_debut: heureDebut,
+  heure_fin: heureFin,
+  ignorerSeanceId = null,
+}) {
+  return (
+    etat.seances.find((seance) => {
+      if (seanceEstMasqueePourConfidentialite(seance) || seance.date !== date) {
+        return false;
+      }
+
+      if (String(seance.statut_seance || "").toLowerCase() === "annulee") {
+        return false;
+      }
+
+      if (ignorerSeanceId && Number(seance.id) === Number(ignorerSeanceId)) {
+        return false;
+      }
+
+      return (
+        calculerDureeMinutesDepuisHeures(seance.heure_debut, heureFin) > 0 &&
+        calculerDureeMinutesDepuisHeures(heureDebut, seance.heure_fin) > 0
+      );
+    }) || null
+  );
+}
+
+function construireMessageConflitSeanceClient(seance) {
+  const etudiant = String(seance?.etudiant || "").trim();
+  const matiere = String(seance?.matiere || "").trim();
+  const details = [etudiant, matiere].filter(Boolean).join(" - ");
+
+  return details
+    ? `Ce créneau chevauche déjà une séance (${details}).`
+    : "Ce créneau chevauche déjà une séance.";
+}
+
 function trouverIndisponibiliteChevauchanteLocale({
   date,
   heure_debut: heureDebut,
   heure_fin: heureFin,
+  ignorerIndisponibiliteId = null,
 }) {
   return etat.indisponibilites.find((indisponibilite) => {
     if (indisponibilite.date !== date) {
+      return false;
+    }
+
+    if (
+      ignorerIndisponibiliteId &&
+      Number(indisponibilite.id) === Number(ignorerIndisponibiliteId)
+    ) {
       return false;
     }
 
@@ -6887,16 +8350,9 @@ function extraireDateIsoDepuisValeurCalendrier(valeur) {
 }
 
 function construireMessageIndisponibiliteClient(indisponibilite) {
-  const raison = String(indisponibilite?.raison || "").trim();
-  const base = estIndisponibiliteJourCompletClient(indisponibilite)
-    ? `Cette journee est indisponible le ${indisponibilite.date}.`
-    : `Ce creneau est indisponible le ${indisponibilite.date} de ${indisponibilite.heure_debut} a ${indisponibilite.heure_fin}.`;
-
-  if (!raison) {
-    return base;
-  }
-
-  return `${base} Raison : ${raison}.`;
+  return estIndisponibiliteJourCompletClient(indisponibilite)
+    ? `Cette journée est indisponible le ${indisponibilite.date}.`
+    : `Ce créneau est indisponible le ${indisponibilite.date} de ${indisponibilite.heure_debut} à ${indisponibilite.heure_fin}.`;
 }
 
 function formaterDureeHistorique(dureeMinutes) {
@@ -7022,10 +8478,18 @@ function fermerModal(modal) {
     viderDetailJournalAuditModal();
   }
 
+  if (modal === elements.unavailabilityDetailModal) {
+    etat.indisponibiliteSelectionnee = null;
+    masquerFormulaireIndisponibiliteModal();
+  }
+
   if (
     elements.seanceModal.classList.contains("hidden") &&
     elements.detailModal.classList.contains("hidden") &&
     elements.historyDetailModal.classList.contains("hidden") &&
+    (elements.unavailabilityDetailModal
+      ? elements.unavailabilityDetailModal.classList.contains("hidden")
+      : true) &&
     (elements.auditLogModal ? elements.auditLogModal.classList.contains("hidden") : true)
   ) {
     document.body.classList.remove("modal-open");
@@ -7058,15 +8522,40 @@ function definirBadge(element, type, texte) {
   element.textContent = texte;
 }
 
-function afficherToast(message, type = "success") {
+function afficherToast(message, type = "success", options = {}) {
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
-  toast.textContent = message;
+
+  if (options.title) {
+    const titre = document.createElement("strong");
+    titre.className = "toast-title";
+    titre.textContent = options.title;
+
+    const detail = document.createElement("span");
+    detail.className = "toast-message";
+    detail.textContent = message;
+
+    toast.append(titre, detail);
+  } else {
+    toast.textContent = message;
+  }
+
   elements.toastContainer.appendChild(toast);
 
   window.setTimeout(() => {
     toast.remove();
-  }, 3600);
+  }, Number(options.dureeMs) || 3600);
+}
+
+function afficherNotificationPropositionIndisponibilite() {
+  afficherToast(
+    "Vous avez programmé une séance dans un créneau indisponible. Proposition envoyée à Hossam.",
+    "proposal",
+    {
+      title: "Proposition envoyée",
+      dureeMs: 5200,
+    }
+  );
 }
 
 function formatDate(date) {
