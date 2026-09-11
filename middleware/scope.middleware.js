@@ -52,6 +52,81 @@ function verifierScopeHandlerCourant(req, res, next) {
   return next();
 }
 
+/**
+ * Une indisponibilité est toujours une déclaration personnelle de Professeur.
+ * Le Handler ne possède pas ce module : son Dashboard reçoit un flux lecture
+ * seule séparé, limité aux créneaux de ses Professeurs actifs.
+ */
+function verifierDeclarationDisponibiliteProfesseur(req, res, next) {
+  if (req.scope?.estHandler === true) {
+    return res.status(403).json({
+      code: "HANDLER_UNAVAILABILITY_FORBIDDEN",
+      message:
+        "Le Handler ne peut pas déclarer, modifier ou supprimer une indisponibilité.",
+    });
+  }
+
+  if (req.scope?.estProfesseur !== true && req.scope?.estSuperAdmin !== true) {
+    return res.status(403).json({
+      code: "PROFESSOR_UNAVAILABILITY_DECLARATION_REQUIRED",
+      message: "Seul un Professeur peut déclarer ses indisponibilités.",
+    });
+  }
+
+  return next();
+}
+
+/**
+ * The former proposal workflow was an exception mechanism for an
+ * unavailability. It has been retired with the availability exceptions UI:
+ * accepting it would give a Handler an indirect mutation path over a
+ * Professor's personal declaration.
+ */
+function verifierCreationPropositionProfesseur(req, res, next) {
+  return res.status(410).json({
+    code: "UNAVAILABILITY_PROPOSALS_RETIRED",
+    message:
+      "Les propositions liées aux indisponibilités ne sont plus disponibles. Choisissez un créneau disponible dans le calendrier central.",
+  });
+}
+
+/**
+ * Les propositions historiques constituent l'ancien mécanisme d'exception
+ * d'indisponibilité. Le Handler n'a plus à les consulter : son seul flux lié
+ * aux indisponibilités est la projection en lecture seule du Dashboard.
+ */
+function verifierLecturePropositionIndisponibiliteHandler(req, res, next) {
+  if (req.scope?.estHandler === true) {
+    return res.status(403).json({
+      code: "HANDLER_UNAVAILABILITY_FORBIDDEN",
+      message:
+        "Le Handler n'a pas accès aux propositions liées aux indisponibilités.",
+    });
+  }
+
+  return next();
+}
+
+/**
+ * Les anciennes propositions servaient à demander une exception à une
+ * indisponibilité. Le Handler n'a plus de module Indisponibilités et ne peut
+ * donc plus modifier, accepter ou refuser ce type d'exception par API.
+ *
+ * Le garde est placé après `verifierModeEcritureAutorise` dans les routes : un
+ * compte lecture seule conserve ainsi son erreur stable `READ_ONLY_ACCOUNT`.
+ */
+function verifierMutationPropositionIndisponibiliteHandler(req, res, next) {
+  if (req.scope?.estHandler === true) {
+    return res.status(403).json({
+      code: "HANDLER_UNAVAILABILITY_FORBIDDEN",
+      message:
+        "Le Handler ne peut pas modifier, accepter ou refuser une proposition liée à une indisponibilité.",
+    });
+  }
+
+  return next();
+}
+
 async function verifierAccesHandler(req, res, next) {
   try {
     const handlerId = req.params?.handlerId ?? req.body?.handler_id ?? req.query?.handler_id;
@@ -87,6 +162,10 @@ module.exports = {
   verifierRoleSuperAdmin,
   verifierRoleHandler,
   verifierScopeHandlerCourant,
+  verifierDeclarationDisponibiliteProfesseur,
+  verifierCreationPropositionProfesseur,
+  verifierLecturePropositionIndisponibiliteHandler,
+  verifierMutationPropositionIndisponibiliteHandler,
   verifierAccesHandler,
   verifierGestionIntervenant,
 };

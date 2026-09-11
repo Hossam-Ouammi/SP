@@ -15,7 +15,7 @@ const {
   trouverIndisponibiliteChevauchante,
   trouverIndisponibiliteIntervenantChevauchante,
 } = require("../models/indisponibilite.model");
-const { trouverSeanceParId, trouverSeanceParIdScopee } = require("../models/seance.model");
+const { trouverSeanceParIdScopee } = require("../models/seance.model");
 const { construireFiltreLectureSeances } = require("../models/access-scope.model");
 const { executerTransactionImmediate } = require("../models/db");
 const {
@@ -28,11 +28,15 @@ const {
   resoudreAffectationSeance,
   ajouterTarifSnapshotIntervenant,
   statutsCreationValides,
+  verifierDisponibiliteCollectiveHandler,
 } = require("./seances.controller");
 
-function creerErreurHttp(status, message) {
+function creerErreurHttp(status, message, code = null) {
   const erreur = new Error(message);
   erreur.status = status;
+  if (code) {
+    erreur.code = code;
+  }
   return erreur;
 }
 
@@ -123,6 +127,40 @@ function preparerDonneesDepuisProposition(proposition, corps = {}) {
     intervenant_id:
       corps.intervenant_id ?? corps.intervenantId ?? corps.professeur_id ?? proposition.intervenant_id,
   };
+}
+
+function verifierAffectationPropositionInchangee(req, proposition, corps = {}) {
+  if (req.scope?.estHandler !== true) {
+    return;
+  }
+
+  const handlerDemande = normaliserIdentifiantOptionnel(
+    corps?.handler_id ?? corps?.handlerId,
+    "Identifiant Handler"
+  );
+  const intervenantDemande = normaliserIdentifiantOptionnel(
+    corps?.intervenant_id ?? corps?.intervenantId ?? corps?.professeur_id,
+    "Identifiant intervenant"
+  );
+  const handlerProposition = normaliserIdentifiantOptionnel(
+    proposition?.handler_id,
+    "Identifiant Handler"
+  );
+  const intervenantProposition = normaliserIdentifiantOptionnel(
+    proposition?.intervenant_id,
+    "Identifiant intervenant"
+  );
+
+  if (
+    (handlerDemande && handlerDemande !== handlerProposition) ||
+    (intervenantDemande && intervenantDemande !== intervenantProposition)
+  ) {
+    throw creerErreurHttp(
+      403,
+      "Le Handler peut ajuster une proposition, mais ne peut pas la réaffecter à un autre intervenant.",
+      "HANDLER_PROPOSAL_REASSIGNMENT_FORBIDDEN"
+    );
+  }
 }
 
 function transformerPropositionPourClient(proposition) {
@@ -261,7 +299,7 @@ async function ajouterPropositionSeance(req, res) {
   donneesSeance = await ajouterTarifSnapshotIntervenant({
     ...donneesSeance,
     ...affectation,
-  });
+  }, { seanceExistante: seanceSource });
   const erreurs = await validerPropositionCommeCreation(donneesSeance, req.utilisateur, {
     seanceExistante: seanceSource,
   });
@@ -321,16 +359,21 @@ async function modifierPropositionSeance(req, res) {
     return res.status(404).json({ message: "Seance source introuvable." });
   }
 
+  verifierAffectationPropositionInchangee(req, propositionExistante, req.body || {});
+  const donneesProposees = preparerDonneesDepuisProposition(
+    propositionExistante,
+    req.body || {}
+  );
   const affectation = await resoudreAffectationSeance({
     scope: req.scope,
     acteur: req.utilisateur,
-    donneesSeance: req.body || {},
-    seanceExistante: seanceSource,
+    donneesSeance: donneesProposees,
+    seanceExistante: propositionExistante,
   });
   const donneesSeance = await ajouterTarifSnapshotIntervenant({
-    ...preparerDonneesDepuisProposition(propositionExistante, req.body || {}),
+    ...donneesProposees,
     ...affectation,
-  });
+  }, { seanceExistante: seanceSource });
   const erreurs = await validerPropositionCommeCreation(donneesSeance, req.utilisateur, {
     seanceExistante: seanceSource,
   });
@@ -389,9 +432,19 @@ async function accepterPropositionSeance(req, res) {
     return res.status(404).json({ message: "Seance source introuvable." });
   }
 
-  const donneesSeance = await ajouterTarifSnapshotIntervenant(
-    preparerDonneesDepuisProposition(proposition)
-  );
+  const donneesProposees = preparerDonneesDepuisProposition(proposition);
+  // L'acceptation peut arriver bien après la proposition : le rattachement
+  // du professeur doit donc encore être actif à ce moment précis.
+  const affectation = await resoudreAffectationSeance({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donneesSeance: donneesProposees,
+    seanceExistante: proposition,
+  });
+  const donneesSeance = await ajouterTarifSnapshotIntervenant({
+    ...donneesProposees,
+    ...affectation,
+  }, { seanceExistante: seanceSource });
   const erreurs = await validerPropositionCommeCreation(donneesSeance, req.utilisateur, {
     seanceExistante: seanceSource,
   });
@@ -401,6 +454,11 @@ async function accepterPropositionSeance(req, res) {
   }
 
   const resultat = await executerTransactionImmediate(async () => {
+    // Une proposition peut exceptionnellement lever l'indisponibilité de son
+    // professeur cible, mais elle ne doit jamais permettre au Handler de
+    // créer une séance lorsqu'aucun professeur actif de l'équipe n'est
+    // disponible.
+    await verifierDisponibiliteCollectiveHandler(donneesSeance);
     await recupererConflitIndisponibiliteObligatoire(donneesSeance);
 
     const seance = seanceSource

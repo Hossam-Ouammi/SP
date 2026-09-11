@@ -3,6 +3,7 @@ const {
   mettreAJourReglagesCalendrier,
   mettreAJourReglagesCalendrierPublic,
   listerAvertissementsPlageCalendrierFuture,
+  assurerJetonCalendrierPublicStable,
   regenererJetonCalendrierPublic,
 } = require("../models/workspace-settings.model");
 const { creerEntreeHistorique } = require("../models/historique.model");
@@ -16,6 +17,10 @@ const {
   obtenirDefinitionFuseauCalendrierPublic,
   validerOffsetCalendrierPublic,
 } = require("../utils/public-calendar-timezone");
+const {
+  creerJetonCalendrierPublicStable,
+  jetonCalendrierPublicStableCorrespond,
+} = require("../models/public-calendar.model");
 const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
 const { fermerFluxTempsReelPublicHandler } = require("../utils/realtime");
 
@@ -32,10 +37,10 @@ function normaliserIdentifiant(valeur) {
 
 function normaliserFuseauCalendrierPublic(valeur) {
   const fuseau = validerOffsetCalendrierPublic(valeur);
-  if (!fuseau) {
+  if (!new Set(["GMT+1", "GMT+2", "GMT+3", "GMT+4"]).has(fuseau)) {
     throw creerErreurHttp(
       400,
-      "Le décalage du calendrier public doit être GMT, GMT+1 ou GMT+2."
+      "Le décalage du calendrier public doit être GMT+1, GMT+2, GMT+3 ou GMT+4."
     );
   }
 
@@ -99,6 +104,11 @@ function serialiserReglages(reglages, options = {}) {
   }
 
   const possedeJeton = Boolean(String(reglages.token_calendrier_public_hash || "").trim());
+  const jetonStable =
+    possedeJeton &&
+    jetonCalendrierPublicStableCorrespond(reglages.id, reglages.token_calendrier_public_hash)
+      ? creerJetonCalendrierPublicStable(reglages.id)
+      : null;
   const plage = normaliserPlageDepuisReglages(reglages);
   const fuseauPublic = obtenirDefinitionFuseauCalendrierPublic(
     reglages.public_calendar_timezone
@@ -118,7 +128,10 @@ function serialiserReglages(reglages, options = {}) {
     calendrier_public: {
       actif: Number(reglages.calendrier_public_actif) === 1,
       jeton_configure: possedeJeton,
-      lien_public: options.lienPublic || null,
+      // A raw public token is never stored. The stable HMAC representation is
+      // reproducible only by this server and is returned only in the
+      // authenticated Handler settings response.
+      lien_public: options.lienPublic || (jetonStable ? `/reservation/${jetonStable}` : null),
       public_calendar_timezone: fuseauPublic.identifiant,
       public_calendar_offset_minutes: fuseauPublic.offsetMinutes,
       public_calendar_offset_label: fuseauPublic.libelle,
@@ -343,6 +356,16 @@ async function modifierReglagesCalendrierPublic(req, res, next) {
       ? normaliserFuseauCalendrierPublic(req.body?.public_calendar_timezone)
       : undefined;
     const avant = await trouverReglagesEspace(handlerId);
+    // Saving the public configuration creates the one Handler URL on first
+    // use and reuses it afterward. Deactivation deliberately retains it, so
+    // a later save re-enables the exact same link.
+    const doitAssurerLien = contientFuseau || actif === true;
+    if (doitAssurerLien) {
+      const reglagesAvecLien = await assurerJetonCalendrierPublicStable(handlerId);
+      if (!reglagesAvecLien) {
+        throw creerErreurHttp(404, "Reglages introuvables.");
+      }
+    }
     if (!avant) {
       throw creerErreurHttp(404, "Réglages introuvables.");
     }
@@ -413,24 +436,20 @@ async function regenererLienCalendrierPublic(req, res, next) {
     }
 
     const lienPublic = `/reservation/${encodeURIComponent(resultat.token)}`;
-    const fluxTempsReelFermes = fermerFluxTempsReelPublicHandler(handlerId, {
-      reason: "public_calendar_link_regenerated",
-    });
     await journaliserReglage(req, {
-      actionType: "lien_calendrier_public_regenere",
-      actionLabel: "Régénération du lien de calendrier public",
+      actionType: "lien_calendrier_public_enregistre",
+      actionLabel: "Enregistrement du lien de calendrier public",
       details: { calendrier_public_actif: true },
     });
     res.locals.realtimeScope = { handlerId };
 
-    return res.status(201).json({
-      message:
-        "Nouveau lien public généré. L'ancien lien a été immédiatement révoqué.",
+    return res.json({
+      message: "Lien public enregistré.",
       reglages: serialiserReglages(resultat.reglages, {
         lienPublic,
         modifiable: true,
       }),
-      flux_temps_reel_fermes: fluxTempsReelFermes,
+      flux_temps_reel_fermes: 0,
     });
   } catch (erreur) {
     return next(erreur);

@@ -1,11 +1,13 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { verifierSecretConfigurePourProduction } = require("../utils/production-secret");
 
 const secretPath = path.join(__dirname, "..", "database", ".session-secret");
 
 function recupererSecretSession() {
   if (process.env.SESSION_SECRET) {
+    verifierSecretConfigurePourProduction("SESSION_SECRET", process.env.SESSION_SECRET);
     return process.env.SESSION_SECRET;
   }
 

@@ -16,8 +16,10 @@ const {
   refuserDemandeInscription,
   creerNouveauJetonActivationPourDemande,
   creerJetonReinitialisationMotDePasse,
+  invaliderJetonReinitialisationMotDePasse,
   activerCompteAvecJeton,
   reinitialiserMotDePasseAvecJeton,
+  verifierJetonCompte,
 } = require("../models/account-lifecycle.model");
 const { motDePasseRespectePolitique } = require("../utils/security");
 const {
@@ -75,6 +77,9 @@ function reponseResetPublique() {
   return {
     message:
       "Si un compte actif correspond à ces informations, un email de réinitialisation vient d'être envoyé.",
+    // The client can show its confirmation then return to the login form. It
+    // remains identical for existing, unknown, and repeated requests.
+    redirect_after_seconds: 12,
   };
 }
 
@@ -136,7 +141,7 @@ async function journaliserHistoriqueDemande(
       actionType,
       actionLabel,
       acteurId: req.utilisateur?.id || null,
-      acteurNom: req.utilisateur?.nom || "SystÃ¨me",
+      acteurNom: req.utilisateur?.nom || "Système",
       details: {
         demande_id: normaliserIdEntier(demande?.id),
         role_demande: demande?.role_demande || null,
@@ -314,12 +319,22 @@ async function demanderReinitialisationMotDePasse(req, res, next) {
       expiresInMinutes: RESET_PASSWORD_TOKEN_TTL_MINUTES,
     });
 
-    if (resultat) {
+    if (resultat?.resetToken) {
       const livraison = await envoyerEmailReinitialisationMotDePasse({
         email: resultat.utilisateur.email,
         nom: resultat.utilisateur.nom,
         token: resultat.resetToken,
+        expiresInMinutes: RESET_PASSWORD_TOKEN_TTL_MINUTES,
       });
+
+      // Do not leave an unreachable link active when delivery is known to
+      // fail. A later click can then safely create one fresh link. The public
+      // response stays generic so this never becomes an account oracle.
+      if (!livraison.envoye) {
+        await invaliderJetonReinitialisationMotDePasse({
+          token: resultat.resetToken,
+        }).catch(() => {});
+      }
 
       journaliserEnArrierePlan(req, {
         utilisateurId: resultat.utilisateur.id,
@@ -327,6 +342,15 @@ async function demanderReinitialisationMotDePasse(req, res, next) {
         actionType: "password_reset_request",
         resultat: livraison.envoye ? "accepted_email_sent" : "accepted_email_not_sent",
         details: { delivery_reason: livraison.raison || null },
+      });
+    } else if (resultat?.dejaActif) {
+      // The existing valid URL was already delivered. Repeated clicks do not
+      // produce another email containing a different, immediately revoked URL.
+      journaliserEnArrierePlan(req, {
+        utilisateurId: resultat.utilisateur.id,
+        identifiant,
+        actionType: "password_reset_request",
+        resultat: "accepted_existing_active_link",
       });
     } else {
       journaliserEnArrierePlan(req, {
@@ -356,7 +380,7 @@ async function activerCompte(req, res, next) {
     if (!motDePasseRespectePolitique(nouveauMotDePasse)) {
       return res.status(400).json({
         message:
-          "Le mot de passe doit contenir au moins 12 caractères, avec une minuscule, une majuscule, un chiffre et un caractère spécial.",
+          "Le mot de passe doit contenir entre 12 caractères et 72 octets UTF-8, avec une minuscule, une majuscule, un chiffre et un caractère spécial.",
       });
     }
 
@@ -392,6 +416,14 @@ async function activerCompte(req, res, next) {
   }
 }
 
+async function verifierLienCycleCompte(req, res, next) {
+  try {
+    const token = normaliserJeton(req.body?.token);
+    const valide = token && await verifierJetonCompte({ type: req.body?.type, token });
+    return res.json({ valide: Boolean(valide) });
+  } catch (error) { return next(error); }
+}
+
 async function confirmerReinitialisationMotDePasse(req, res, next) {
   try {
     const token = normaliserJeton(req.body?.token);
@@ -406,7 +438,7 @@ async function confirmerReinitialisationMotDePasse(req, res, next) {
     if (!motDePasseRespectePolitique(nouveauMotDePasse)) {
       return res.status(400).json({
         message:
-          "Le mot de passe doit contenir au moins 12 caractères, avec une minuscule, une majuscule, un chiffre et un caractère spécial.",
+          "Le mot de passe doit contenir entre 12 caractères et 72 octets UTF-8, avec une minuscule, une majuscule, un chiffre et un caractère spécial.",
       });
     }
 
@@ -643,6 +675,7 @@ module.exports = {
   soumettreDemandeInscription,
   demanderReinitialisationMotDePasse,
   activerCompte,
+  verifierLienCycleCompte,
   confirmerReinitialisationMotDePasse,
   listerDemandesEnAttente,
   approuverDemande,

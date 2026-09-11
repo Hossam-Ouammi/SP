@@ -39,6 +39,10 @@ const {
   fermerBaseDeDonnees,
   run: executerSql,
 } = require("../models/db");
+const {
+  listerMatieresHandler,
+  mettreAJourTarifsMatieresHandler,
+} = require("../models/tarification-matieres.model");
 
 function assertStatus(response, expectedStatus, label) {
   assert.equal(
@@ -234,6 +238,57 @@ async function creerHandler({ nom, email, motDePasse, publicId, roles = ["handle
   return resultat.id;
 }
 
+async function creerSeanceMonetisation({
+  handlerId,
+  intervenantId,
+  marqueur,
+  date,
+  statut = "faite",
+  estEssai = 0,
+  tarifHoraire = 100,
+}) {
+  return executerSql(
+    `
+      INSERT INTO seances (
+        titre, etudiant, parent, matiere, compte, est_essai, date,
+        heure_debut, heure_fin, duree_minutes, statut_seance, prix,
+        statut_paiement, description, cree_par, modifie_par, utilisateur_id,
+        handler_id, intervenant_id, tarif_horaire_applique
+      )
+      VALUES (?, ?, '', 'Maths', 'Cours', ?, ?, '09:00', '10:00',
+        60, ?, 0, 'non_payee', '', ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      `Maths - ${marqueur}`,
+      marqueur,
+      estEssai ? 1 : 0,
+      date,
+      statut,
+      handlerId,
+      handlerId,
+      handlerId,
+      handlerId,
+      intervenantId,
+      tarifHoraire,
+    ]
+  );
+}
+
+async function configurerTarifMaths(handlerId, intervenantIds, tarifHoraire = 100) {
+  const matieres = await listerMatieresHandler(handlerId);
+  const maths = matieres.find((matiere) => matiere.libelle === "Maths");
+  assert.ok(maths?.id, "La matière Maths du Handler doit être initialisée.");
+  await mettreAJourTarifsMatieresHandler(
+    handlerId,
+    intervenantIds.map((intervenantId) => ({
+      intervenant_id: intervenantId,
+      matiere_id: maths.id,
+      tarif_horaire: tarifHoraire,
+    })),
+    new Date("1970-01-01T00:00:00.000Z")
+  );
+}
+
 async function preparerBase() {
   await initialiserBaseDeDonnees();
   await executerSql(
@@ -255,9 +310,134 @@ async function preparerBase() {
     motDePasse: "Beta!Handler2026",
     publicId: "HD-902",
   });
+  const professeurAlphaId = await creerHandler({
+    nom: "Professeur Alpha Isolation",
+    email: "professeur-alpha-isolation@example.test",
+    motDePasse: "Professeur!Alpha2026",
+    publicId: "PR-901",
+    roles: ["professeur"],
+  });
+  const professeurBravoId = await creerHandler({
+    // Two realisateurs can legitimately have the same display name. The
+    // monetary DTO and statement must still keep their totals separate.
+    nom: "Professeur Alpha Isolation",
+    email: "professeur-bravo-monetisation@example.test",
+    motDePasse: "Professeur!Bravo2026",
+    publicId: "PR-902",
+    roles: ["professeur"],
+  });
+
+  await executerSql(
+    `
+      INSERT INTO rattachements_professeurs (
+        handler_id,
+        professeur_id,
+        actif,
+        cree_par
+      )
+      VALUES (?, ?, 1, ?)
+    `,
+    [alphaId, professeurAlphaId, alphaId]
+  );
+  await executerSql(
+    `
+      INSERT INTO rattachements_professeurs (
+        handler_id,
+        professeur_id,
+        actif,
+        cree_par
+      )
+      VALUES (?, ?, 1, ?)
+    `,
+    [alphaId, professeurBravoId, alphaId]
+  );
+
+  await configurerTarifMaths(alphaId, [alphaId, professeurAlphaId, professeurBravoId]);
+  await configurerTarifMaths(betaId, [betaId]);
+
+  await creerSeanceMonetisation({
+    handlerId: alphaId,
+    intervenantId: alphaId,
+    marqueur: "Handler monétisation",
+    date: "2020-01-08",
+    tarifHoraire: 80,
+  });
+  await creerSeanceMonetisation({
+    handlerId: alphaId,
+    intervenantId: professeurAlphaId,
+    marqueur: "Professeur Alpha payante",
+    date: "2020-01-10",
+    tarifHoraire: 110,
+  });
+  await creerSeanceMonetisation({
+    handlerId: alphaId,
+    intervenantId: professeurAlphaId,
+    marqueur: "Professeur Alpha gratuite",
+    date: "2020-01-11",
+    estEssai: 1,
+    tarifHoraire: 110,
+  });
+  await creerSeanceMonetisation({
+    handlerId: alphaId,
+    intervenantId: professeurAlphaId,
+    marqueur: "Professeur Alpha non faite",
+    date: "2020-01-12",
+    statut: "annulee",
+    tarifHoraire: 110,
+  });
+  await creerSeanceMonetisation({
+    handlerId: alphaId,
+    intervenantId: professeurBravoId,
+    marqueur: "Professeur homonyme payante",
+    date: "2020-01-13",
+    tarifHoraire: 150,
+  });
+  // Les séances historiques peuvent ne pas avoir de Réalisateur associé.
+  // Elles ne doivent jamais générer de faux comptes sélectionnables dans la
+  // monétisation à partir de leur propre identifiant de séance.
+  await creerSeanceMonetisation({
+    handlerId: alphaId,
+    intervenantId: null,
+    marqueur: "Historique sans réalisateur 1",
+    date: "2020-02-20",
+  });
+  await creerSeanceMonetisation({
+    handlerId: alphaId,
+    intervenantId: null,
+    marqueur: "Historique sans réalisateur 2",
+    date: "2020-02-21",
+  });
+  // Cette séance appartient à un autre Handler : elle permet de vérifier que
+  // `globale=1` agrège toutes les dates du périmètre courant, jamais celles
+  // d'un autre espace.
+  await creerSeanceMonetisation({
+    handlerId: betaId,
+    intervenantId: betaId,
+    marqueur: "Handler Beta historique",
+    date: "2019-12-20",
+    tarifHoraire: 120,
+  });
 
   await fermerBaseDeDonnees();
-  return { alphaId, betaId };
+  return { alphaId, betaId, professeurAlphaId, professeurBravoId };
+}
+
+function obtenirDateCentraleIso() {
+  const parties = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Casablanca",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(new Date())
+    .reduce((resultat, partie) => {
+      if (partie.type !== "literal") {
+        resultat[partie.type] = partie.value;
+      }
+      return resultat;
+    }, {});
+
+  return `${parties.year}-${parties.month}-${parties.day}`;
 }
 
 function donneesSeance(marker, date, heureDebut) {
@@ -303,13 +483,16 @@ function verifierCollectionScopee(elements, { handlerId, intervenantId, idAttend
   }
 }
 
-async function connecter(client, email, motDePasse, label) {
+async function connecter(client, email, motDePasse, label, roleAttendu = "handler") {
   const response = await client.request("POST", "/api/auth/login", {
     username: email,
     mot_de_passe: motDePasse,
   });
   assertStatus(response, 200, `${label} connexion`);
-  assert.ok(response.json?.scope?.roles?.includes("handler"), `${label} doit etre Handler.`);
+  assert.ok(
+    response.json?.scope?.roles?.includes(roleAttendu),
+    `${label} doit avoir le role ${roleAttendu}.`
+  );
   assert.ok(client.csrfToken, `${label} doit recevoir un jeton CSRF.`);
 }
 
@@ -318,7 +501,7 @@ async function run() {
   let stderr = "";
 
   try {
-    const { alphaId, betaId } = await preparerBase();
+    const { alphaId, betaId, professeurAlphaId, professeurBravoId } = await preparerBase();
     const port = await obtenirPortLibre();
     const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -333,6 +516,7 @@ async function run() {
         SEED_DEMO_DATA: "",
         SESSION_SECRET: sessionSecret,
         AUDIT_SECRET: auditSecret,
+        CENTRAL_CALENDAR_TIMEZONE: "Africa/Casablanca",
         PUSH_ENABLE_IN_MEMORY_REMINDERS: "false",
         BACKUP_SEANCES_ENABLED: "false",
       },
@@ -347,12 +531,158 @@ async function run() {
 
     const alpha = new SessionClient(baseUrl);
     const beta = new SessionClient(baseUrl);
+    const professeurAlpha = new SessionClient(baseUrl);
+
+    // bcrypt truncates after 72 UTF-8 bytes. The login endpoint must reject
+    // an overlong spelling even when its first bytes match a valid password.
+    const clientMotDePasseTropLong = new SessionClient(baseUrl);
+    let response = await clientMotDePasseTropLong.request("POST", "/api/auth/login", {
+      username: "handler-alpha-isolation@example.test",
+      mot_de_passe: `${"Alpha!Handler2026"}${"x".repeat(80)}`,
+    });
+    assertStatus(response, 400, "login refuse un mot de passe au-dela de la limite bcrypt");
+
     await connecter(alpha, "handler-alpha-isolation@example.test", "Alpha!Handler2026", "Alpha");
     await connecter(beta, "handler-beta-isolation@example.test", "Beta!Handler2026", "Beta");
+    await connecter(
+      professeurAlpha,
+      "professeur-alpha-isolation@example.test",
+      "Professeur!Alpha2026",
+      "Professeur Alpha",
+      "professeur"
+    );
 
-    // A Handler must not create a session or an availability rule inside a
-    // second Handler's space, even when it knows their opaque numeric ID.
-    let response = await alpha.request("POST", "/api/seances", {
+    // Monétisation : une plage personnalisée et plusieurs réalisateurs doivent
+    // rester dans le scope Handler. Les noms sont les seuls libellés exposés à
+    // l'interface ; les identifiants ne servent qu'au filtrage interne.
+    response = await alpha.request(
+      "GET",
+      `/api/monetisation?du=2020-01-01&au=2020-01-31&intervenant_id=${professeurAlphaId}&intervenant_id=${professeurBravoId}`
+    );
+    assertStatus(response, 200, "monétisation multi-réalisateurs sur période");
+    assert.equal(response.json?.monetisation?.periode?.mode_selectionne, "custom");
+    assert.deepEqual(
+      response.json?.monetisation?.periode?.intervenant_ids,
+      [professeurAlphaId, professeurBravoId],
+      "La période doit mémoriser tous les réalisateurs demandés."
+    );
+    assert.equal(response.json?.monetisation?.montant_total, 260);
+    assert.equal(response.json?.monetisation?.lignes?.length, 3);
+    assert.deepEqual(
+      response.json?.monetisation?.intervenants?.map((intervenant) => Number(intervenant.intervenant_id)).sort(
+        (premier, second) => premier - second
+      ),
+      [professeurAlphaId, professeurBravoId],
+      "Les totaux doivent contenir chaque réalisateur sélectionné, même sans séance dans la période."
+    );
+    assert.ok(
+      response.json?.monetisation?.intervenants_disponibles?.every(
+        (intervenant) => !/^(?:HD|PR)-/i.test(String(intervenant.nom || ""))
+      ),
+      "Le catalogue de monétisation ne doit pas afficher d'identifiant public dans les libellés."
+    );
+    assert.deepEqual(
+      response.json?.monetisation?.intervenants_disponibles
+        ?.map((intervenant) => Number(intervenant.intervenant_id))
+        .sort((premier, second) => premier - second),
+      [alphaId, professeurAlphaId, professeurBravoId].sort((premier, second) => premier - second),
+      "Les séances historiques sans réalisateur ne doivent jamais créer de faux Réalisateurs sélectionnables."
+    );
+
+    response = await alpha.request(
+      "GET",
+      `/api/monetisation/releve?format=html&du=2020-01-01&au=2020-01-31&intervenant_id=${professeurAlphaId}&intervenant_id=${professeurBravoId}`
+    );
+    assertStatus(response, 200, "relevé multi-réalisateurs sur période");
+    assert.match(response.text, /Réalisateurs inclus/);
+    assert.match(response.text, /Professeur Alpha Isolation/);
+    assert.doesNotMatch(response.text, /PR-901/);
+    const recapitulatif = response.text.match(
+      /<section class="report-section">\s*<h2>Résumé par réalisateur<\/h2>[\s\S]*?<\/section>/
+    )?.[0];
+    assert.ok(recapitulatif, "Le relevé doit contenir le récapitulatif par réalisateur.");
+    assert.match(
+      recapitulatif,
+      /<td>Professeur Alpha Isolation<\/td>\s*<td>1<\/td>\s*<td>1<\/td>\s*<td class="amount-cell">110 dh<\/td>/,
+      "Le premier homonyme doit conserver son total propre."
+    );
+    assert.match(
+      recapitulatif,
+      /<td>Professeur Alpha Isolation<\/td>\s*<td>1<\/td>\s*<td>0<\/td>\s*<td class="amount-cell">150 dh<\/td>/,
+      "Le second homonyme doit conserver son total propre."
+    );
+
+    response = await alpha.request(
+      "GET",
+      "/api/monetisation/releve?format=html&mois=2020-01&compte=Professeur%20Alpha%20Isolation"
+    );
+    assertStatus(response, 200, "compatibilité relevé par ancien libellé de compte");
+    assert.match(response.text, /Professeur Alpha Isolation/);
+
+    response = await alpha.request("GET", "/api/monetisation?intervenant_id=invalide");
+    assertStatus(response, 400, "validation identifiant réalisateur monétisation");
+
+    response = await alpha.request(
+      "GET",
+      "/api/statistiques?du=2020-01-01&au=2020-01-31"
+    );
+    assertStatus(response, 200, "statistiques renommées");
+    assert.equal(response.json?.statistiques?.seances_payantes, 3);
+    assert.equal(response.json?.statistiques?.seances_gratuites, 1);
+    assert.equal(response.json?.statistiques?.seances_non_faites, 1);
+    assert.equal(
+      Object.hasOwn(response.json?.statistiques || {}, "seances_reportees"),
+      false,
+      "Le métrique Reportées ne doit plus être exposé."
+    );
+    assert.equal(
+      Object.hasOwn(response.json?.statistiques || {}, "seances_annulees"),
+      false,
+      "Les annulations doivent être regroupées dans Non faites."
+    );
+
+    response = await alpha.request("GET", "/api/statistiques?globale=1");
+    assertStatus(response, 200, "statistiques globales de la portee Handler");
+    assert.deepEqual(
+      response.json?.periode,
+      { du: null, au: null, globale: true },
+      "La periode globale doit etre explicite et sans bornes de date."
+    );
+    assert.equal(
+      response.json?.statistiques?.total_seances,
+      7,
+      "La periode globale Handler doit inclure tout son historique."
+    );
+    assert.ok(
+      !response.json?.statistiques?.intervenants?.some(
+        (intervenant) => Number(intervenant.intervenant_id) === betaId
+      ),
+      "La periode globale Handler ne doit jamais inclure un autre espace."
+    );
+
+    response = await professeurAlpha.request("GET", "/api/statistiques?globale=1");
+    assertStatus(response, 200, "statistiques globales du Professeur");
+    assert.equal(
+      response.json?.statistiques?.total_seances,
+      3,
+      "Le Professeur ne doit agreger que ses propres seances."
+    );
+    assert.ok(
+      response.json?.statistiques?.intervenants?.every(
+        (intervenant) => Number(intervenant.intervenant_id) === professeurAlphaId
+      ),
+      "Le detail global du Professeur ne doit contenir aucun autre Realisateur."
+    );
+
+    response = await alpha.request(
+      "GET",
+      "/api/statistiques?globale=1&du=2020-01-01&au=2020-01-31"
+    );
+    assertStatus(response, 400, "refus du melange periode globale et dates");
+
+    // A Handler must not create a session inside a second Handler's space,
+    // and the retired availability-rules API is closed to every Handler.
+    response = await alpha.request("POST", "/api/seances", {
       ...donneesSeance("alpha-cross-write", "2035-01-13", "08:00"),
       handler_id: betaId,
       intervenant_id: betaId,
@@ -364,7 +694,8 @@ async function run() {
       handler_id: betaId,
       intervenant_id: betaId,
     });
-    assertStatus(response, 404, "ecriture croisee de disponibilite");
+    assertStatus(response, 403, "Handler cannot write retired availability rule");
+    assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
 
     response = await alpha.request("POST", "/api/seances", {
       ...donneesSeance("alpha-privee", "2035-01-13", "10:00"),
@@ -374,6 +705,61 @@ async function run() {
     const alphaSeanceId = Number(response.json?.seance?.id);
     assert.ok(alphaSeanceId > 0, "La seance Alpha doit avoir un identifiant.");
 
+    // Le flux "Aujourd'hui" repose sur la même lecture privée que le reste
+    // de l'interface. On crée deux séances à la date centrale du jour : une
+    // du Handler et une de son professeur, afin de verrouiller le contrat
+    // voulu dans la liste front (qui ne fait ensuite qu'un filtre de date).
+    const dateAujourdhui = obtenirDateCentraleIso();
+    response = await alpha.request("POST", "/api/seances", {
+      ...donneesSeance("aujourdhui-handler-alpha", dateAujourdhui, "08:00"),
+      intervenant_id: alphaId,
+    });
+    assertStatus(response, 201, "creation seance Aujourd'hui Handler Alpha");
+    const seanceAujourdhuiHandlerId = Number(response.json?.seance?.id);
+
+    response = await alpha.request("POST", "/api/seances", {
+      ...donneesSeance("aujourdhui-professeur-alpha", dateAujourdhui, "10:00"),
+      intervenant_id: professeurAlphaId,
+    });
+    assertStatus(response, 201, "creation seance Aujourd'hui Professeur Alpha");
+    const seanceAujourdhuiProfesseurId = Number(response.json?.seance?.id);
+
+    response = await alpha.request("GET", "/api/seances");
+    assertStatus(response, 200, "lecture Aujourd'hui Handler Alpha");
+    assert.ok(
+      response.json?.seances?.some(
+        (seance) => Number(seance.id) === seanceAujourdhuiHandlerId
+      ),
+      "Le Handler doit recevoir sa propre séance d'aujourd'hui."
+    );
+    assert.ok(
+      response.json?.seances?.some(
+        (seance) => Number(seance.id) === seanceAujourdhuiProfesseurId
+      ),
+      "Le Handler doit recevoir la séance d'aujourd'hui de son professeur."
+    );
+
+    response = await professeurAlpha.request("GET", "/api/seances");
+    assertStatus(response, 200, "lecture Aujourd'hui Professeur Alpha");
+    assert.ok(
+      response.json?.seances?.some(
+        (seance) => Number(seance.id) === seanceAujourdhuiProfesseurId
+      ),
+      "Le professeur doit recevoir sa propre séance d'aujourd'hui."
+    );
+    assert.ok(
+      !response.json?.seances?.some(
+        (seance) => Number(seance.id) === seanceAujourdhuiHandlerId
+      ),
+      "Le professeur ne doit jamais recevoir la séance du Handler."
+    );
+    assert.ok(
+      response.json?.seances?.every(
+        (seance) => Number(seance.intervenant_id) === professeurAlphaId
+      ),
+      "Le professeur ne doit recevoir que ses propres séances."
+    );
+
     response = await beta.request("POST", "/api/seances", {
       ...donneesSeance("beta-privee", "2035-01-13", "10:00"),
       intervenant_id: betaId,
@@ -382,21 +768,18 @@ async function run() {
     const betaSeanceId = Number(response.json?.seance?.id);
     assert.ok(betaSeanceId > 0, "La seance Beta doit avoir un identifiant.");
 
-    response = await alpha.request("POST", "/api/disponibilites/regles", {
-      ...donneesDisponibilite("2035-01-14", "09:00", "10:00"),
-      intervenant_id: alphaId,
+    // Professor declarations remain personal. The Handler receives their
+    // blocks through the dedicated central-calendar projection, never through
+    // the management endpoints.
+    response = await professeurAlpha.request("POST", "/api/indisponibilites", {
+      date: "2035-01-14",
+      heure_debut: "09:00",
+      heure_fin: "10:00",
+      jour_complet: false,
     });
-    assertStatus(response, 201, "creation disponibilite Alpha");
-    const alphaRegleId = Number(response.json?.regle?.id);
-    assert.ok(alphaRegleId > 0, "La regle Alpha doit avoir un identifiant.");
-
-    response = await beta.request("POST", "/api/disponibilites/regles", {
-      ...donneesDisponibilite("2035-01-14", "09:00", "10:00"),
-      intervenant_id: betaId,
-    });
-    assertStatus(response, 201, "creation disponibilite Beta");
-    const betaRegleId = Number(response.json?.regle?.id);
-    assert.ok(betaRegleId > 0, "La regle Beta doit avoir un identifiant.");
+    assertStatus(response, 201, "creation indisponibilite Professeur Alpha");
+    const alphaIndisponibiliteId = Number(response.json?.indisponibilite?.id);
+    assert.ok(alphaIndisponibiliteId > 0, "L'indisponibilite Professeur Alpha doit avoir un identifiant.");
 
     response = await alpha.request("GET", "/api/seances");
     assertStatus(response, 200, "lecture seances Alpha");
@@ -424,42 +807,49 @@ async function run() {
       "Beta ne doit jamais recevoir la seance Alpha."
     );
 
-    response = await alpha.request("GET", "/api/disponibilites/regles");
-    assertStatus(response, 200, "lecture disponibilites Alpha");
-    verifierCollectionScopee(response.json?.regles, {
+    response = await alpha.request("GET", "/api/dashboard/indisponibilites");
+    assertStatus(response, 200, "lecture projection indisponibilites Alpha");
+    verifierCollectionScopee(response.json?.indisponibilites, {
       handlerId: alphaId,
-      intervenantId: alphaId,
-      idAttendu: alphaRegleId,
-      label: "lecture disponibilites Alpha",
+      intervenantId: professeurAlphaId,
+      idAttendu: alphaIndisponibiliteId,
+      label: "lecture projection indisponibilites Alpha",
     });
     assert.ok(
-      !response.json.regles.some((regle) => Number(regle.id) === betaRegleId),
-      "Alpha ne doit jamais recevoir la disponibilite Beta."
+      response.json.indisponibilites.every(
+        (indisponibilite) => Number(indisponibilite.intervenant_id) !== alphaId
+      ),
+      "La projection Handler ne doit jamais inclure une indisponibilite personnelle du Handler."
     );
 
-    response = await beta.request("GET", "/api/disponibilites/regles");
-    assertStatus(response, 200, "lecture disponibilites Beta");
-    verifierCollectionScopee(response.json?.regles, {
-      handlerId: betaId,
-      intervenantId: betaId,
-      idAttendu: betaRegleId,
-      label: "lecture disponibilites Beta",
-    });
+    response = await beta.request("GET", "/api/dashboard/indisponibilites");
+    assertStatus(response, 200, "lecture projection indisponibilites Beta");
     assert.ok(
-      !response.json.regles.some((regle) => Number(regle.id) === alphaRegleId),
-      "Beta ne doit jamais recevoir la disponibilite Alpha."
+      !response.json.indisponibilites.some(
+        (indisponibilite) => Number(indisponibilite.id) === alphaIndisponibiliteId
+      ),
+      "Beta ne doit jamais recevoir l'indisponibilite de l'equipe Alpha."
     );
 
     response = await beta.request("GET", `/api/seances/${alphaSeanceId}`);
     assertStatus(response, 404, "lecture directe seance Alpha par Beta");
 
-    response = await beta.request("GET", `/api/disponibilites/regles?intervenant_id=${alphaId}`);
-    assertStatus(response, 404, "lecture ciblee disponibilite Alpha par Beta");
+    response = await beta.request("GET", "/api/indisponibilites");
+    assertStatus(response, 403, "Handler Beta cannot read unavailability management API");
+    assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
+    response = await beta.request("GET", "/api/disponibilites/regles");
+    assertStatus(response, 403, "Handler Beta cannot read retired availability rules");
+    assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
 
-    response = await beta.request("PATCH", `/api/disponibilites/regles/${alphaRegleId}`, {
-      actif: false,
+    // The Admin API must enforce the same Professor-only rule as the UI. A
+    // crafted request cannot toggle a Handler's now-removed menu flag.
+    response = await alpha.request("PATCH", "/api/admin/unavailability-access", {
+      utilisateur_id: betaId,
+      peut_voir_indisponibilites: true,
+      mot_de_passe_actuel: "Alpha!Handler2026",
     });
-    assertStatus(response, 404, "modification disponibilite Alpha par Beta");
+    assertStatus(response, 400, "Admin cannot configure unavailability access for Handler Beta");
+    assert.equal(response.json?.code, "PROFESSOR_UNAVAILABILITY_TARGET_REQUIRED");
 
     // Read-only status must apply to every proposal mutation, including the
     // Handler-only acceptance paths that historically did not carry the

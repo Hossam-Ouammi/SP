@@ -1,5 +1,10 @@
 # Changelog — évolution multi-utilisateur
 
+> **Historique des changements — non normatif.** Les lignes ci-dessous ne sont
+> pas une spécification de la version actuelle et peuvent décrire des workflows
+> retirés. Pour l'état actuel, suivre le code, [l'audit actuel](AUDIT-ACTUEL-2026-09-10.md)
+> et le [guide de déploiement](DEPLOIEMENT-MULTI-UTILISATEUR.md).
+
 ## 2026-09-07 — rôles, espaces Handler et cycle de vie sécurisé
 
 Cette évolution est intégrée au projet Express/EJS/SQLite existant. Elle remplace les règles d'accès liées à un nom de compte par des rôles et des scopes serveur, sans créer d'application ou de base parallèle.

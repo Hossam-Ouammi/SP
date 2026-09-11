@@ -193,7 +193,7 @@ async function creerUtilisateur({
   peutVoirAujourdhui = 0,
   peutVoirIndisponibilites = 0,
   doitChangerMotDePasse = 1,
-  tarifHoraire = 100,
+  tarifHoraire = 90,
 }) {
   const emailNormalise = normaliserEmailUtilisateur(email);
 

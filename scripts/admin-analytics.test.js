@@ -418,6 +418,28 @@ async function run() {
     });
     assertStatus(reponse, 200, "drapeau legacy sans role reste un compte ordinaire");
 
+    // Suspending changes both the access flag and status. A later admin
+    // reactivation must restore `active`, otherwise the login middleware
+    // keeps rejecting the account despite a green access switch.
+    reponse = await alpha.request("PATCH", "/api/admin/access", {
+      utilisateur_id: ancienDrapeauAdminId,
+      acces_active: true,
+      mot_de_passe_actuel: "Alpha!Analytics2026",
+    });
+    assertStatus(reponse, 200, "reactivation d'un compte suspendu");
+    const compteReactive = await lireLigneBase(
+      "SELECT acces_active, statut_compte FROM utilisateurs WHERE id = ?",
+      [ancienDrapeauAdminId]
+    );
+    assert.deepEqual(compteReactive, { acces_active: 1, statut_compte: "active" });
+    const ancienDrapeauReactive = new SessionClient(baseUrl);
+    await connecter(
+      ancienDrapeauReactive,
+      "ancien-drapeau-admin@example.test",
+      "Legacy!Flag2026",
+      "Ancien drapeau reactiver"
+    );
+
     const endpointPartage = "https://push.example.test/subscriptions/shared-owner";
     const abonnementA = {
       endpoint: endpointPartage,

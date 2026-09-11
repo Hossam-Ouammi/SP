@@ -1,5 +1,8 @@
 const { all, get, run, executerTransactionImmediate } = require("./db");
-const { creerJetonCalendrierPublic } = require("./public-calendar.model");
+const {
+  creerJetonCalendrierPublicStable,
+  hacherJetonCalendrierPublic,
+} = require("./public-calendar.model");
 const {
   convertirHeureCalendrierEnMinutes,
   intervalleEstDansPlageCalendrier,
@@ -266,13 +269,51 @@ async function definirEtatCalendrierPublic(handlerId, actif) {
   return mettreAJourReglagesCalendrierPublic(handlerId, { actif });
 }
 
+/**
+ * Creates (or migrates) the one stable opaque URL owned by a Handler. Only its
+ * SHA-256 hash is persisted. Repeating this call never changes the URL, which
+ * lets the authenticated settings screen safely offer Copy after a reload.
+ */
+async function assurerJetonCalendrierPublicStable(handlerId) {
+  const id = normaliserIdentifiant(handlerId);
+  if (!id) {
+    return null;
+  }
+
+  return executerTransactionImmediate(async () => {
+    const existant = await trouverReglagesEspace(id);
+    if (!existant) {
+      return null;
+    }
+
+    const token = creerJetonCalendrierPublicStable(id);
+    const tokenHash = hacherJetonCalendrierPublic(token);
+    if (!token || !tokenHash) {
+      return null;
+    }
+
+    if (String(existant.token_calendrier_public_hash || "") !== tokenHash) {
+      await run(
+        "UPDATE utilisateurs SET token_calendrier_public_hash = ? WHERE id = ?",
+        [tokenHash, id]
+      );
+    }
+
+    return trouverReglagesEspace(id);
+  });
+}
+
 async function regenererJetonCalendrierPublic(handlerId) {
   const id = normaliserIdentifiant(handlerId);
   if (!id) {
     return null;
   }
 
-  const jeton = creerJetonCalendrierPublic();
+  const token = creerJetonCalendrierPublicStable(id);
+  const tokenHash = hacherJetonCalendrierPublic(token);
+  if (!token || !tokenHash) {
+    return null;
+  }
 
   const reglages = await executerTransactionImmediate(async () => {
     const existant = await trouverReglagesEspace(id);
@@ -288,13 +329,15 @@ async function regenererJetonCalendrierPublic(handlerId) {
           calendrier_public_actif = 1
         WHERE id = ?
       `,
-      [jeton.tokenHash, id]
+      [tokenHash, id]
     );
 
     return trouverReglagesEspace(id);
   });
 
-  return reglages ? { reglages, token: jeton.token } : null;
+  // Historical route compatibility: its old "regenerate" name must never
+  // rotate the unique Handler URL.
+  return reglages ? { reglages, token } : null;
 }
 
 module.exports = {
@@ -303,5 +346,6 @@ module.exports = {
   mettreAJourReglagesCalendrierPublic,
   listerAvertissementsPlageCalendrierFuture,
   definirEtatCalendrierPublic,
+  assurerJetonCalendrierPublicStable,
   regenererJetonCalendrierPublic,
 };

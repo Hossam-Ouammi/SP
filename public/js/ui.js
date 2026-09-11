@@ -6,22 +6,13 @@ import {
 } from "./auth.js";
 import {
   recupererVueAdministration,
-  ajouterElementCatalogueAdmin,
-  supprimerElementCatalogueAdmin,
-  restaurerElementCatalogueAdmin,
-  creerUtilisateurAdmin,
-  supprimerUtilisateurAdmin,
-  reinitialiserMotDePasseCompte,
   mettreAJourAccesCompte,
   mettreAJourLectureSeuleCompte,
   mettreAJourAccesMonetisationCompte,
-  mettreAJourTarifHoraireCompte as mettreAJourTarifHoraireCompteAdmin,
   mettreAJourAccesAujourdhuiCompte,
   mettreAJourAccesIndisponibilitesCompte,
   revoquerSessionsUtilisateurAdmin,
   revoquerSessionAdmin,
-  supprimerToutesLesSeancesAdmin,
-  supprimerToutHistoriqueAdmin,
   executerMaintenanceSqliteAdmin,
   recupererJournalAuthAdmin,
   recupererSessionsAdmin,
@@ -30,6 +21,7 @@ import {
   bloquerIpAdmin,
   debloquerIpAdmin,
   revoquerAppareilAutoLoginAdmin,
+  supprimerCompteAdmin,
 } from "./admin.js";
 import {
   recupererSeances,
@@ -39,17 +31,14 @@ import {
   supprimerSeance,
   changerStatutSeance,
   recupererIndisponibilites,
+  recupererIndisponibilitesCalendrierCentral,
   creerIndisponibilite,
   modifierIndisponibilite,
   supprimerIndisponibilite,
-  recupererPropositionsSeances,
-  creerPropositionSeance,
-  modifierPropositionSeance,
-  accepterPropositionSeance,
-  refuserPropositionSeance,
   recupererHistoriqueActions,
   recupererDetailHistorique,
   supprimerEntreeHistorique as supprimerEntreeHistoriqueApi,
+  recupererStatistiques,
   recupererMonetisation,
   telechargerReleveMonetisation,
 } from "./seances.js";
@@ -58,7 +47,8 @@ import {
   mettreAJourEvenements,
   mettreAJourHorlogeCalendrier,
   mettreAJourPlageHoraireCalendrier,
-} from "./calendrier.js?v=20260907-central-public-timezone";
+  creerPalettesDisponibiliteProfesseurs,
+} from "./calendrier.js?v=20260909-unified-dashboard";
 import {
   recupererEtatNotificationsPush,
   synchroniserNotificationsPushActuelles,
@@ -83,24 +73,21 @@ import {
 } from "./account-lifecycle.js";
 import {
   recupererProfesseursEquipe,
+  recupererTarificationEquipe,
+  ajouterMatiereEquipe,
+  modifierMatiereEquipe,
+  supprimerMatiereEquipe,
+  modifierTarificationEquipe,
   modifierProfesseurEquipe,
   envoyerLienResetProfesseur,
 } from "./equipe.js";
 import {
-  recupererDisponibilitesDeclarees,
-  creerRegleDisponibilite,
-  supprimerRegleDisponibilite,
-  creerExceptionDisponibilite,
-  supprimerExceptionDisponibilite,
-} from "./disponibilites.js";
-import { afficherApercuDisponibilites } from "./availability-overview.js";
-import {
   recupererReglagesEspace,
   modifierReglagesCalendrierEspace,
   modifierEtatCalendrierPublic,
-  regenererLienCalendrierPublic,
 } from "./workspace-settings.js";
 import { recupererAnalysesGlobalesAdministration } from "./admin-analytics.js";
+import { envoyerRequete } from "./http.js";
 
 const libellesStatutSeance = {
   planifiee: "Planifiée",
@@ -126,7 +113,7 @@ const libellesCreationHistorique = {
   etudiant: "Étudiant",
   parent: "Parent",
   matiere: "Matière",
-  compte: "Compte",
+  compte: "Réalisateur",
   est_essai: "Type de séance",
   date: "Date",
   heure_debut: "Heure de début",
@@ -146,37 +133,70 @@ const minutesFinIndisponibiliteDisponibles = ["00", "30", "59"];
 let comptesMonetisationPrincipaux = [];
 const cleConnexionMemorisee = "gestion-seances-connexion-memorisee";
 const delaiTripleClicIndisponibiliteMs = 1200;
+const selecteurElementsFocusablesModal = [
+  "a[href]",
+  "area[href]",
+  "button:not([disabled])",
+  "input:not([disabled]):not([type='hidden'])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[contenteditable='true']",
+  "[tabindex]:not([tabindex='-1'])",
+].join(", ");
+const retoursFocusDesModales = new WeakMap();
 
 function creerCatalogueVide() {
   return {
     matieres: [],
     comptes: [],
+    intervenants: [],
   };
 }
+
+// Au chargement du module, les réglages serveur ne sont pas encore disponibles.
+// Ces valeurs initiales ne doivent donc pas appeler les helpers du calendrier :
+// ceux-ci lisent `etat`, qui est précisément en cours d'initialisation ici.
+// Les filtres sont ensuite normalisés avec le fuseau central dès que les
+// réglages sont chargés.
+const dateInitialeApplication = new Date();
+const anneeInitialeApplication = String(dateInitialeApplication.getFullYear());
+const moisInitialApplication = `${anneeInitialeApplication}-${String(
+  dateInitialeApplication.getMonth() + 1
+).padStart(2, "0")}`;
+const jourInitialApplication = `${moisInitialApplication}-${String(
+  dateInitialeApplication.getDate()
+).padStart(2, "0")}`;
 
 const etat = {
   utilisateur: null,
   cycleCompte: null,
   seances: [],
   indisponibilites: [],
-  disponibilitesDeclarees: {
-    regles: [],
-    exceptions: [],
-    intervenants: [],
-  },
-  propositionsSeances: [],
   equipe: [],
+  tarificationEquipe: { matieres: [], realisateurs: [] },
   demandesEquipe: [],
   demandesAdministration: [],
+  equipesDisponibles: [],
   reglagesEspace: null,
   historique: [],
   monetisation: null,
   monetisationPeriodeMode: "monthly",
-  monetisationFiltreAnnee: obtenirAnneeCouranteIso(),
-  monetisationFiltreMoisVue: obtenirMoisCourantIso(),
-  monetisationFiltreMois: obtenirMoisCourantIso(),
+  monetisationFiltreAnnee: anneeInitialeApplication,
+  monetisationFiltreMoisVue: moisInitialApplication,
+  monetisationFiltreMois: moisInitialApplication,
   monetisationComptesSelectionnes: [],
   monetisationSelectionInitialisee: false,
+  monetisationDateDebut: `${moisInitialApplication}-01`,
+  monetisationDateFin: jourInitialApplication,
+  monetisationGlobales: false,
+  monetisationIntervenantsSelectionnes: [],
+  monetisationResultatsVisibles: false,
+  statistiques: null,
+  statistiquesDateDebut: `${moisInitialApplication}-01`,
+  statistiquesDateFin: jourInitialApplication,
+  statistiquesGlobales: false,
+  statistiquesResultatsVisibles: false,
+  statistiquesRequeteVersion: 0,
   administration: null,
   analysesGlobalesAdministration: null,
   adminVueActive: "accounts",
@@ -184,7 +204,6 @@ const etat = {
   historiqueSelection: null,
   seanceSelectionnee: null,
   indisponibiliteSelectionnee: null,
-  propositionEditionId: null,
   clicIndisponibilite: {
     id: null,
     count: 0,
@@ -203,43 +222,34 @@ const etat = {
 const vuesAdministration = {
   accounts: {
     titre: "Comptes",
-    note: "Créez, sécurisez ou retirez les comptes collaborateurs.",
   },
   catalogue: {
     titre: "Catalogue",
-    note: "Gérez les comptes de séance et les tarifs utilisés dans l'application.",
   },
   access: {
     titre: "Accès",
-    note: "Activez les modules disponibles pour chaque compte sans modifier les séances existantes.",
   },
   analytics: {
     titre: "Analyses globales",
-    note: "Agrégats strictement réservés au Super Admin, séparés des données opérationnelles Handler.",
   },
   security: {
     titre: "Sécurité",
-    note: "Surveillez les sessions, les appareils auto-login, l'audit et les IP bloquées.",
   },
   maintenance: {
     titre: "Maintenance",
-    note: "Exécutez des contrôles SQLite légers et adaptés à une petite instance Oracle.",
   },
   password: {
     titre: "MDP",
-    note: "Changez le mot de passe du compte connecté.",
   },
   notifications: {
     titre: "Notifications",
-    note: "Activez ou testez les notifications push sur cet appareil.",
   },
   danger: {
     titre: "Zone critique",
-    note: "Actions destructrices à utiliser seulement après vérification.",
   },
 };
 const vuesAdministrationValides = new Set(Object.keys(vuesAdministration));
-const vuesIndisponibilitesValides = new Set(["declaration", "propositions"]);
+const vuesIndisponibilitesValides = new Set(["declaration"]);
 const connexionTempsReel = {
   source: null,
   synchronisationProgrammee: null,
@@ -301,6 +311,13 @@ const elements = {
   todayList: document.getElementById("today-list"),
   teamList: document.getElementById("team-list"),
   teamPendingRequests: document.getElementById("team-pending-requests"),
+  teamSubjectForm: document.getElementById("team-subject-form"),
+  teamSubjectInput: document.getElementById("team-subject-input"),
+  teamSubjectAddButton: document.getElementById("team-subject-add-button"),
+  teamSubjectList: document.getElementById("team-subject-list"),
+  teamTarificationForm: document.getElementById("team-tarification-form"),
+  teamTarificationTable: document.getElementById("team-tarification-table"),
+  teamTarificationSaveButton: document.getElementById("team-tarification-save-button"),
   workspaceSettingsCard: document.getElementById("workspace-settings-card"),
   workspaceSettingsForm: document.getElementById("workspace-settings-form"),
   calendarStartTime: document.getElementById("calendar-start-time"),
@@ -313,42 +330,16 @@ const elements = {
   publicCalendarTimezoneError: document.getElementById("public-calendar-timezone-error"),
   publicCalendarTimezoneButton: document.getElementById("public-calendar-timezone-button"),
   publicCalendarStatus: document.getElementById("public-calendar-status"),
-  publicCalendarTokenStatus: document.getElementById("public-calendar-token-status"),
-  publicCalendarHelp: document.getElementById("public-calendar-help"),
   publicCalendarLink: document.getElementById("public-calendar-link"),
   publicCalendarToggleButton: document.getElementById("public-calendar-toggle-button"),
-  publicCalendarRegenerateButton: document.getElementById(
-    "public-calendar-regenerate-button"
-  ),
   publicCalendarCopyButton: document.getElementById("public-calendar-copy-button"),
-  availabilityOverview: document.getElementById("availability-overview"),
-  availabilityRuleForm: document.getElementById("availability-rule-form"),
-  availabilityRuleIntervenant: document.getElementById("availability-rule-intervenant"),
-  availabilityRuleType: document.getElementById("availability-rule-type"),
-  availabilityRuleDayField: document.getElementById("availability-rule-day-field"),
-  availabilityRuleDay: document.getElementById("availability-rule-day"),
-  availabilityRuleDateField: document.getElementById("availability-rule-date-field"),
-  availabilityRuleDate: document.getElementById("availability-rule-date"),
-  availabilityRuleStart: document.getElementById("availability-rule-start"),
-  availabilityRuleEnd: document.getElementById("availability-rule-end"),
-  availabilityRuleError: document.getElementById("availability-rule-error"),
-  availabilityRuleButton: document.getElementById("availability-rule-button"),
-  availabilityRulesList: document.getElementById("availability-rules-list"),
-  availabilityExceptionForm: document.getElementById("availability-exception-form"),
-  availabilityExceptionIntervenant: document.getElementById("availability-exception-intervenant"),
-  availabilityExceptionType: document.getElementById("availability-exception-type"),
-  availabilityExceptionDate: document.getElementById("availability-exception-date"),
-  availabilityExceptionStart: document.getElementById("availability-exception-start"),
-  availabilityExceptionEnd: document.getElementById("availability-exception-end"),
-  availabilityExceptionReason: document.getElementById("availability-exception-reason"),
-  availabilityExceptionError: document.getElementById("availability-exception-error"),
-  availabilityExceptionButton: document.getElementById("availability-exception-button"),
-  availabilityExceptionsList: document.getElementById("availability-exceptions-list"),
   currentUserName: document.getElementById("current-user-name"),
+  currentUserPublicId: document.getElementById("current-user-public-id"),
+  userNavLabel: document.getElementById("user-nav-label"),
+  teamRequestBadge: document.getElementById("team-request-badge"),
+  adminRequestBadge: document.getElementById("admin-request-badge"),
   adminPanelTitle: document.getElementById("admin-panel-title"),
-  adminPanelNote: document.getElementById("admin-panel-note"),
   adminGuideTitle: document.getElementById("admin-guide-title"),
-  adminGuideNote: document.getElementById("admin-guide-note"),
   userUsername: document.getElementById("user-username"),
   userRoleBadge: document.getElementById("user-role-badge"),
   userAccessBadge: document.getElementById("user-access-badge"),
@@ -361,13 +352,18 @@ const elements = {
   adminGroupItems: Array.from(document.querySelectorAll("[data-admin-group]")),
   adminGroupShells: Array.from(document.querySelectorAll("[data-admin-group-shell]")),
   adminActionsTitle: document.getElementById("admin-actions-title"),
-  adminActionsNote: document.getElementById("admin-actions-note"),
   userPasswordForm: document.getElementById("user-password-form"),
   userPasswordError: document.getElementById("user-password-error"),
   currentPassword: document.getElementById("current-password"),
   newPassword: document.getElementById("new-password"),
   confirmPassword: document.getElementById("confirm-password"),
   savePasswordButton: document.getElementById("save-password-button"),
+  teamMembershipCard: document.getElementById("team-membership-card"),
+  teamMembershipForm: document.getElementById("team-membership-form"),
+  teamMembershipHandler: document.getElementById("team-membership-handler"),
+  teamMembershipDescription: document.getElementById("team-membership-description"),
+  teamMembershipError: document.getElementById("team-membership-error"),
+  teamMembershipSubmit: document.getElementById("team-membership-submit"),
   pushSettingsCard: document.getElementById("push-settings-card"),
   pushStatusLabel: document.getElementById("push-status-label"),
   pushPermissionLabel: document.getElementById("push-permission-label"),
@@ -395,17 +391,6 @@ const elements = {
   adminGlobalAnalyticsIntervenants: document.getElementById(
     "admin-global-analytics-intervenants"
   ),
-  adminCreateUserForm: document.getElementById("admin-create-user-form"),
-  adminCreateUserName: document.getElementById("admin-new-user-name"),
-  adminCreateUserEmail: document.getElementById("admin-new-user-email"),
-  adminAddAccountForm: document.getElementById("admin-add-account-form"),
-  adminNewAccountName: document.getElementById("admin-new-account-name"),
-  adminAccountList: document.getElementById("admin-account-list"),
-  adminAddAccountCurrentPassword: document.getElementById(
-    "admin-add-account-current-password"
-  ),
-  adminAddAccountError: document.getElementById("admin-add-account-error"),
-  adminAddAccountButton: document.getElementById("admin-add-account-button"),
   adminUnavailabilityForm: document.getElementById("admin-unavailability-form"),
   adminUnavailabilityDate: document.getElementById("admin-unavailability-date"),
   adminUnavailabilityFullDay: document.getElementById("admin-unavailability-full-day"),
@@ -417,20 +402,13 @@ const elements = {
   ),
   adminUnavailabilityStart: document.getElementById("admin-unavailability-start"),
   adminUnavailabilityEnd: document.getElementById("admin-unavailability-end"),
-  adminUnavailabilityList: document.getElementById("admin-unavailability-list"),
   adminUnavailabilityError: document.getElementById("admin-unavailability-error"),
   adminUnavailabilityButton: document.getElementById("admin-unavailability-button"),
   unavailabilityViewTabs: Array.from(document.querySelectorAll("[data-unavailability-view]")),
+  unavailabilityWorkbenchNav: document.getElementById("unavailability-workbench-nav"),
   unavailabilityPanels: Array.from(document.querySelectorAll("[data-unavailability-panel]")),
-  unavailabilityPropositionsTab: document.getElementById("unavailability-propositions-tab"),
-  unavailabilityPropositionsBadge: document.getElementById(
-    "unavailability-propositions-badge"
-  ),
   unavailabilityDeclarationPanel: document.getElementById(
     "unavailability-declaration-panel"
-  ),
-  unavailabilityPropositionsPanel: document.getElementById(
-    "unavailability-propositions-panel"
   ),
   unavailabilityCalendar: document.getElementById("unavailability-calendar"),
   unavailabilityDetailModal: document.getElementById("unavailability-detail-modal"),
@@ -480,9 +458,6 @@ const elements = {
     "cancel-unavailability-form-button"
   ),
   saveUnavailabilityButton: document.getElementById("save-unavailability-button"),
-  adminCreateUserCurrentPassword: document.getElementById(
-    "admin-create-user-current-password"
-  ),
   adminSessionForm: document.getElementById("admin-session-form"),
   adminSessionCurrentPassword: document.getElementById("admin-session-current-password"),
   adminSessionError: document.getElementById("admin-session-error"),
@@ -510,22 +485,6 @@ const elements = {
   adminBlockIpPassword: document.getElementById("admin-block-ip-password"),
   adminBlockIpError: document.getElementById("admin-block-ip-error"),
   adminBlockedIpsList: document.getElementById("admin-blocked-ips-list"),
-  adminCreateUserError: document.getElementById("admin-create-user-error"),
-  adminCreateUserResult: document.getElementById("admin-create-user-result"),
-  adminCreateUserButton: document.getElementById("admin-create-user-button"),
-  adminDeleteUserForm: document.getElementById("admin-delete-user-form"),
-  adminDeleteUserId: document.getElementById("admin-delete-user-id"),
-  adminDeleteUserCurrentPassword: document.getElementById(
-    "admin-delete-user-current-password"
-  ),
-  adminDeleteUserError: document.getElementById("admin-delete-user-error"),
-  adminDeleteUserButton: document.getElementById("admin-delete-user-button"),
-  adminResetPasswordForm: document.getElementById("admin-reset-password-form"),
-  adminResetUserId: document.getElementById("admin-reset-user-id"),
-  adminResetPasswordError: document.getElementById("admin-reset-password-error"),
-  adminResetPasswordResult: document.getElementById("admin-reset-password-result"),
-  adminResetCurrentPassword: document.getElementById("admin-reset-current-password"),
-  adminResetPasswordButton: document.getElementById("admin-reset-password-button"),
   adminToggleAccessForm: document.getElementById("admin-toggle-access-form"),
   adminAccessUserId: document.getElementById("admin-access-user-id"),
   adminToggleAccessStatus: document.getElementById("admin-toggle-access-status"),
@@ -572,30 +531,16 @@ const elements = {
   ),
   adminMonetisationError: document.getElementById("admin-monetisation-error"),
   adminMonetisationButton: document.getElementById("admin-monetisation-button"),
-  adminRateForm: document.getElementById("admin-rate-form"),
-  adminRateUserId: document.getElementById("admin-rate-user-id"),
-  adminRateStatus: document.getElementById("admin-rate-status"),
-  adminRateValue: document.getElementById("admin-rate-value"),
-  adminRateCurrentPassword: document.getElementById("admin-rate-current-password"),
-  adminRateError: document.getElementById("admin-rate-error"),
-  adminRateButton: document.getElementById("admin-rate-button"),
   adminLogoutUserForm: document.getElementById("admin-logout-user-form"),
   adminLogoutUserId: document.getElementById("admin-logout-user-id"),
   adminLogoutCurrentPassword: document.getElementById("admin-logout-current-password"),
+  adminDeleteUserForm: document.getElementById("admin-delete-user-form"),
+  adminDeleteUserId: document.getElementById("admin-delete-user-id"),
+  adminDeleteUserPassword: document.getElementById("admin-delete-user-password"),
+  adminDeleteUserError: document.getElementById("admin-delete-user-error"),
+  adminDeleteUserButton: document.getElementById("admin-delete-user-button"),
   adminLogoutUserError: document.getElementById("admin-logout-user-error"),
   adminLogoutUserButton: document.getElementById("admin-logout-user-button"),
-  adminClearSeancesForm: document.getElementById("admin-clear-seances-form"),
-  adminClearSeancesError: document.getElementById("admin-clear-seances-error"),
-  adminClearSeancesCurrentPassword: document.getElementById(
-    "admin-clear-seances-current-password"
-  ),
-  adminClearSeancesButton: document.getElementById("admin-clear-seances-button"),
-  adminClearHistoryForm: document.getElementById("admin-clear-history-form"),
-  adminClearHistoryError: document.getElementById("admin-clear-history-error"),
-  adminClearHistoryCurrentPassword: document.getElementById(
-    "admin-clear-history-current-password"
-  ),
-  adminClearHistoryButton: document.getElementById("admin-clear-history-button"),
   adminMaintenanceSqliteForm: document.getElementById("admin-maintenance-sqlite-form"),
   adminMaintenanceSqliteStatus: document.getElementById("admin-maintenance-sqlite-status"),
   adminMaintenanceSqliteCurrentPassword: document.getElementById(
@@ -605,9 +550,27 @@ const elements = {
   adminMaintenanceSqliteResult: document.getElementById("admin-maintenance-sqlite-result"),
   adminMaintenanceSqliteButton: document.getElementById("admin-maintenance-sqlite-button"),
   calendar: document.getElementById("calendar"),
+  statsFilterForm: document.getElementById("stats-filter-form"),
+  statsDateStart: document.getElementById("stats-date-start"),
+  statsDateEnd: document.getElementById("stats-date-end"),
+  statsGlobalToggle: document.getElementById("stats-global-toggle"),
+  statsCalculateButton: document.getElementById("stats-calculate-button"),
+  statsFilterError: document.getElementById("stats-filter-error"),
+  statsResults: document.getElementById("stats-results"),
   totalCount: document.getElementById("total-count"),
   statsAccountsOverview: document.getElementById("stats-accounts-overview"),
   statsAccountsTable: document.getElementById("stats-accounts-table"),
+  monetisationFilterForm: document.getElementById("monetisation-filter-form"),
+  monetisationDateStart: document.getElementById("monetisation-date-start"),
+  monetisationDateEnd: document.getElementById("monetisation-date-end"),
+  monetisationGlobalToggle: document.getElementById("monetisation-global-toggle"),
+  monetisationCalculateButton: document.getElementById("monetisation-calculate-button"),
+  monetisationFilterError: document.getElementById("monetisation-filter-error"),
+  monetisationResults: document.getElementById("monetisation-results"),
+  monetisationTotalsByIntervenant: document.getElementById(
+    "monetisation-totals-by-intervenant"
+  ),
+  monetisationDetails: document.getElementById("monetisation-details"),
   monetisationTotalAmount: document.getElementById("monetisation-total-amount"),
   monetisationPeriodTitle: document.getElementById("monetisation-period-title"),
   monetisationPreviousMonthButton: document.getElementById(
@@ -649,6 +612,9 @@ const elements = {
   monetisationExtraAccounts: document.getElementById("monetisation-extra-accounts"),
   monetisationReportAccountsSection: document.getElementById(
     "monetisation-report-accounts-section"
+  ),
+  monetisationReportAccountsSummary: document.getElementById(
+    "monetisation-report-accounts-summary"
   ),
   monetisationReportAccountsNote: document.getElementById("monetisation-report-accounts-note"),
   monetisationReportAccounts: document.getElementById("monetisation-report-accounts"),
@@ -706,6 +672,8 @@ const elements = {
   compteOptions: document.getElementById("compte-options"),
   matiereCheckboxes: [],
   compteCheckboxes: [],
+  seanceIntervenantField: document.getElementById("seance-intervenant-field"),
+  seanceIntervenant: document.getElementById("seance-intervenant"),
   statusOptions: Array.from(document.querySelectorAll(".status-option")),
   date: document.getElementById("date"),
   heureDebut: document.getElementById("heure_debut"),
@@ -718,6 +686,8 @@ const elements = {
   descriptionSection: document.getElementById("description-section"),
   statusSection: document.getElementById("status-section"),
   description: document.getElementById("description"),
+  seanceChoiceModal: document.getElementById("seance-choice-modal"),
+  seanceChoiceList: document.getElementById("seance-choice-list"),
   detailModal: document.getElementById("detail-modal"),
   detailTitle: document.getElementById("detail-title"),
   detailStatusBadge: document.getElementById("detail-status-badge"),
@@ -867,30 +837,142 @@ function utilisateurDoitChangerMotDePasse() {
   return Number(etat.utilisateur?.doit_changer_mot_de_passe) === 1;
 }
 
-function rafraichirEvenementsCalendrier() {
-  [etat.calendrier, etat.calendrierIndisponibilites].forEach((calendrier) => {
-    if (!calendrier) {
+function obtenirProfesseursCalendrierCentral() {
+  const equipe = Array.isArray(etat.equipe) ? etat.equipe : [];
+  const idHandler = Number(etat.utilisateur?.id || 0);
+  const professeursParId = new Map();
+
+  equipe.forEach((professeur) => {
+    const id = Number(professeur?.id || 0);
+    if (!Number.isInteger(id) || id <= 0 || id === idHandler) {
       return;
     }
 
-    mettreAJourEvenements(
-      calendrier,
-      etat.seances,
-      etat.indisponibilites,
-      etat.propositionsSeances
-    );
+    if (
+      professeur?.acces_active === false ||
+      Number(professeur?.acces_active) === 0 ||
+      String(professeur?.statut_compte || "active").toLowerCase() !== "active"
+    ) {
+      return;
+    }
+
+    professeursParId.set(id, {
+      ...professeur,
+      id,
+    });
   });
 
-  actualiserApercuDisponibilitesCalendrier();
+  return Array.from(professeursParId.values()).sort(
+    (premier, second) =>
+      String(premier.public_id || premier.nom || "").localeCompare(
+        String(second.public_id || second.nom || ""),
+        "fr"
+      ) || premier.id - second.id
+  );
+}
+
+function construireDonneesDisponibiliteCalendrierCentral() {
+  return {
+    // Le fond collectif ne dépend que des Professeurs rattachés : le Handler
+    // reste réservable même si tous les Professeurs sont indisponibles.
+    professeurs: obtenirProfesseursCalendrierCentral(),
+    seances: etat.seances,
+    indisponibilites: etat.indisponibilites,
+    handlerId: Number(etat.utilisateur?.id || 0) || null,
+    plageHoraire: obtenirPlageCalendrierEffective(),
+  };
+}
+
+function obtenirPasCreneauCalendrierCentral() {
+  return 30;
+}
+
+function appliquerCouleursEquipeAuxSeancesCalendrier(seances = []) {
+  if (!utilisateurEstHandler()) {
+    return seances;
+  }
+
+  const realisateurs = [
+    {
+      ...etat.utilisateur,
+      id: Number(etat.utilisateur?.id || 0),
+      acces_active: etat.utilisateur?.acces_active ?? 1,
+      statut_compte: etat.utilisateur?.statut_compte || "active",
+    },
+    ...obtenirProfesseursCalendrierCentral(),
+  ].filter((intervenant) => Number(intervenant?.id || 0) > 0);
+  const couleursParIntervenant = new Map(
+    Array.from(creerPalettesDisponibiliteProfesseurs(realisateurs).entries()).map(
+      ([intervenantId, palette]) => [
+      Number(intervenantId),
+      String(palette?.backgroundColor || "").trim(),
+      ]
+    )
+  );
+
+  if (couleursParIntervenant.size === 0) {
+    return seances;
+  }
+
+  return (Array.isArray(seances) ? seances : []).map((seance) => {
+    const couleur = couleursParIntervenant.get(Number(seance?.intervenant_id));
+    return couleur ? { ...seance, intervenant_couleur_calendrier: couleur } : seance;
+  });
+}
+
+function mettreAJourFiltreCalendrierCentral() {
+  if (elements.calendar) {
+    elements.calendar.dataset.centralCalendarMode = utilisateurEstHandler() ? "central" : "";
+  }
+}
+
+function obtenirDonneesCalendrierIndisponibilitesPersonnelles() {
+  const realisateurId = Number(etat.utilisateur?.id || 0);
+  const estPropre = (element) => Number(element?.intervenant_id) === realisateurId;
+
+  return {
+    seances: (Array.isArray(etat.seances) ? etat.seances : []).filter(estPropre),
+    indisponibilites: (Array.isArray(etat.indisponibilites)
+      ? etat.indisponibilites
+      : []
+    ).filter(estPropre),
+  };
+}
+
+function rafraichirEvenementsCalendrier() {
+  if (etat.calendrier) {
+    const seancesCalendrier = appliquerCouleursEquipeAuxSeancesCalendrier(etat.seances);
+    mettreAJourEvenements(
+      etat.calendrier,
+      seancesCalendrier,
+      etat.indisponibilites,
+      utilisateurEstHandler()
+        ? {
+            vue: "central",
+            disponibilites: construireDonneesDisponibiliteCalendrierCentral(),
+          }
+        : undefined
+    );
+  }
+
+  if (etat.calendrierIndisponibilites) {
+    const donneesPersonnelles = obtenirDonneesCalendrierIndisponibilitesPersonnelles();
+    mettreAJourEvenements(
+      etat.calendrierIndisponibilites,
+      donneesPersonnelles.seances,
+      donneesPersonnelles.indisponibilites
+    );
+  }
+
+  mettreAJourFiltreCalendrierCentral();
 }
 
 function viderDonneesApplication() {
   arreterHorlogeCalendriers();
   etat.seances = [];
   etat.indisponibilites = [];
-  etat.disponibilitesDeclarees = { regles: [], exceptions: [], intervenants: [] };
-  etat.propositionsSeances = [];
   etat.equipe = [];
+  etat.tarificationEquipe = { matieres: [], realisateurs: [] };
   etat.demandesEquipe = [];
   etat.demandesAdministration = [];
   etat.reglagesEspace = null;
@@ -902,12 +984,22 @@ function viderDonneesApplication() {
   etat.monetisationFiltreMois = obtenirMoisCourantIso();
   etat.monetisationComptesSelectionnes = [];
   etat.monetisationSelectionInitialisee = false;
+  etat.monetisationDateDebut = `${obtenirMoisCourantIso()}-01`;
+  etat.monetisationDateFin = obtenirDateLocaleIso();
+  etat.monetisationGlobales = false;
+  etat.monetisationIntervenantsSelectionnes = [];
+  etat.monetisationResultatsVisibles = false;
+  etat.statistiques = null;
+  etat.statistiquesDateDebut = `${obtenirMoisCourantIso()}-01`;
+  etat.statistiquesDateFin = obtenirDateLocaleIso();
+  etat.statistiquesGlobales = false;
+  etat.statistiquesResultatsVisibles = false;
+  etat.statistiquesRequeteVersion += 1;
   etat.administration = null;
   etat.catalogue = creerCatalogueVide();
   etat.historiqueSelection = null;
   etat.seanceSelectionnee = null;
   etat.indisponibiliteSelectionnee = null;
-  etat.propositionEditionId = null;
   etat.vueIndisponibilitesActive = "declaration";
 
   if (etat.calendrier || etat.calendrierIndisponibilites) {
@@ -919,8 +1011,6 @@ function viderDonneesApplication() {
   viderDetailHistorique();
   viderMonetisation();
   viderAdministration();
-  afficherListeIndisponibilitesAdministration();
-  afficherDisponibilitesDeclarees();
   afficherEquipe();
   afficherReglagesEspace();
   rendreOptionsCatalogueSeance();
@@ -936,13 +1026,12 @@ async function chargerDonneesApplication() {
     chargerOptionsSeancesDisponibles(),
     chargerSeances(),
     chargerIndisponibilites(),
-    chargerDisponibilitesDeclareesSiAutorise(),
-    chargerPropositionsSeancesSiAutorise(),
     chargerEquipeSiAutorise(),
     chargerHistorique(),
     chargerMonetisationSiAutorise(),
     chargerAdministrationSiAutorise(),
     chargerReglagesEspaceSiAutorise(),
+    chargerEquipesDisponiblesSiProfesseur(),
   ]);
 }
 
@@ -955,11 +1044,19 @@ async function initialiserApplication() {
   initialiserChoixHeuresIndisponibilite();
   synchroniserChoixHeuresCalendrier();
   initialiserFormulaireIndisponibilite();
-  mettreAJourChampsTypeRegleDisponibilite();
   initialiserCatalogueSeanceParDefaut();
   reinitialiserEtatNotificationsPush();
   attacherEcouteurs();
   mettreAJourCarteNotificationsPush();
+
+  // login-lifecycle.js intentionally takes over the root page for a public
+  // activation/reset URL, including when that URL is opened from an already
+  // signed-in browser. Do not let the normal /auth/me bootstrap replace the
+  // one-time-password form with the dashboard.
+  if (window.__gestionSeancesLifecycleRoutePublique === true) {
+    afficherConnexion({ preserveFeedback: true });
+    return;
+  }
 
   try {
     const utilisateur = await recupererUtilisateurCourant();
@@ -1117,30 +1214,6 @@ function synchroniserChoixHeuresCalendrier() {
   );
   initialiserChoixHeuresIndisponibilite();
 
-  const debutTexte = formaterMinutesCalendrierClient(debut);
-  const finTexte = formaterMinutesCalendrierClient(fin, { fin: true });
-  [elements.availabilityRuleStart, elements.availabilityExceptionStart].forEach((input) => {
-    if (input) input.dataset.calendarStartTime = debutTexte;
-  });
-  [elements.availabilityRuleEnd, elements.availabilityExceptionEnd].forEach((input) => {
-    if (input) input.dataset.calendarEndTime = finTexte;
-  });
-  const finParDefaut = formaterMinutesCalendrierClient(Math.min(fin, debut + 60), {
-    fin: true,
-  });
-  const corrigerIntervalleDisponibilite = (debutInput, finInput) => {
-    if (!debutInput || !finInput) return;
-    if (!intervalleEstDansPlageCalendrierClient(debutInput.value, finInput.value)) {
-      debutInput.value = debutTexte;
-      finInput.value = finParDefaut;
-    }
-  };
-
-  corrigerIntervalleDisponibilite(elements.availabilityRuleStart, elements.availabilityRuleEnd);
-  corrigerIntervalleDisponibilite(
-    elements.availabilityExceptionStart,
-    elements.availabilityExceptionEnd
-  );
 }
 
 function selectContientValeur(select, valeur) {
@@ -1479,6 +1552,32 @@ function normaliserListeCatalogue(valeurs, valeursParDefaut = []) {
   return uniques.length > 0 ? uniques : [...valeursParDefaut];
 }
 
+function normaliserIntervenantsSeance(valeurs) {
+  const parId = new Map();
+
+  (Array.isArray(valeurs) ? valeurs : []).forEach((intervenant) => {
+    const id = Number(intervenant?.id || 0);
+    if (!Number.isInteger(id) || id <= 0) {
+      return;
+    }
+
+    parId.set(id, {
+      ...intervenant,
+      id,
+      nom: String(intervenant?.nom || "").trim(),
+      public_id: String(intervenant?.public_id || "").trim() || null,
+    });
+  });
+
+  return Array.from(parId.values()).sort(
+    (premier, second) =>
+      String(premier.public_id || premier.nom || "").localeCompare(
+        String(second.public_id || second.nom || ""),
+        "fr"
+      ) || premier.id - second.id
+  );
+}
+
 function obtenirMatieresDisponibles() {
   return normaliserListeCatalogue(etat.catalogue?.matieres);
 }
@@ -1548,18 +1647,15 @@ function creerOptionCatalogueCheckbox({ nomChamp, classe, valeur }) {
 }
 
 function rendreOptionsCatalogueSeance() {
-  if (!elements.matiereOptions || !elements.compteOptions) {
+  if (!elements.matiereOptions) {
     return;
   }
 
   const matiereSelectionnee = recupererValeurSelectionnee(elements.matiereCheckboxes);
-  const compteSelectionne = recupererValeurSelectionnee(elements.compteCheckboxes);
   const matieres = obtenirMatieresDisponibles();
-  const comptes = obtenirComptesDisponibles();
   const seanceEnEdition =
     elements.seanceForm?.dataset.mode === "modification" ? etat.seanceSelectionnee : null;
   const matieresAffichees = ajouterValeurCatalogueLegacy(matieres, seanceEnEdition?.matiere);
-  const comptesAffiches = ajouterValeurCatalogueLegacy(comptes, seanceEnEdition?.compte);
 
   elements.matiereOptions.innerHTML = "";
   matieresAffichees.forEach((matiere) => {
@@ -1572,44 +1668,279 @@ function rendreOptionsCatalogueSeance() {
     );
   });
 
-  elements.compteOptions.innerHTML = "";
-  comptesAffiches.forEach((compte) => {
-    elements.compteOptions.appendChild(
-      creerOptionCatalogueCheckbox({
-        nomChamp: "compte",
-        classe: "compte-checkbox",
-        valeur: compte,
-      })
-    );
-  });
-
   elements.matiereCheckboxes = Array.from(
     elements.matiereOptions.querySelectorAll(".matiere-checkbox")
   );
-  elements.compteCheckboxes = Array.from(
-    elements.compteOptions.querySelectorAll(".compte-checkbox")
-  );
+  elements.compteCheckboxes = [];
 
-  attacherSelectionUnique(elements.matiereCheckboxes);
-  attacherSelectionUnique(elements.compteCheckboxes);
+  attacherSelectionUnique(elements.matiereCheckboxes, mettreAJourEtapesFormulaireSeance);
 
   definirValeurSelectionnee(
     elements.matiereCheckboxes,
-    matieresAffichees.includes(matiereSelectionnee)
-      ? matiereSelectionnee
-      : seanceEnEdition?.matiere || obtenirMatiereParDefaut()
+    seanceEnEdition
+      ? obtenirValeurCatalogueActiveOuDefaut(
+          matieresAffichees,
+          seanceEnEdition.matiere,
+          obtenirMatiereParDefaut()
+        )
+      : matieresAffichees.includes(matiereSelectionnee)
+        ? matiereSelectionnee
+        : ""
   );
-  definirValeurSelectionnee(
-    elements.compteCheckboxes,
-    comptesAffiches.includes(compteSelectionne)
-      ? compteSelectionne
-      : seanceEnEdition?.compte || obtenirCompteParDefaut()
-  );
+  rendreOptionsIntervenantsSeance();
 }
 
 function initialiserCatalogueSeanceParDefaut() {
   etat.catalogue = creerCatalogueVide();
   rendreOptionsCatalogueSeance();
+}
+
+function obtenirIntervenantsSeance() {
+  return normaliserIntervenantsSeance(etat.catalogue?.intervenants);
+}
+
+function libelleIntervenantSeance(intervenant) {
+  const nom = String(intervenant?.nom || "").trim();
+  const identifiant = String(intervenant?.public_id || "").trim();
+  const estUtilisateurCourant = Number(intervenant?.id) === Number(etat.utilisateur?.id);
+  const base = nom || identifiant || "Réalisateur";
+  return estUtilisateurCourant ? `${base} (vous)` : base;
+}
+
+function obtenirCreneauSelectionnePourIntervenants() {
+  const date = String(elements.date?.value || "").trim();
+  const heureDebut = String(elements.heureDebut?.value || "").trim();
+  const dureeMinutes = recupererDureeSelectionnee();
+  const heureFin = calculerHeureFin(heureDebut, dureeMinutes);
+
+  if (!estDateIsoValide(date) || !estHeureDebutSeanceValide(heureDebut) || !heureFin) {
+    return null;
+  }
+
+  return {
+    date,
+    heure_debut: heureDebut,
+    heure_fin: heureFin,
+  };
+}
+
+function intervenantEstDisponiblePourCreneau(intervenantId, creneau, options = {}) {
+  const id = Number(intervenantId || 0);
+  const idHandler = Number(etat.utilisateur?.id || 0);
+  const ignorerSeanceId = options.ignorerSeanceId || null;
+
+  if (!id || !creneau) {
+    return false;
+  }
+
+  const conflitSeance = trouverSeanceChevauchanteLocale({
+    ...creneau,
+    intervenantId: id,
+    ignorerSeanceId,
+  });
+
+  if (conflitSeance) {
+    return false;
+  }
+
+  // Le Handler peut placer sa propre séance sur n'importe quel créneau de sa
+  // journée. Ses indisponibilités historiques ne doivent pas l'empêcher de
+  // remplir le créneau collectif grisé.
+  if (id === idHandler) {
+    return true;
+  }
+
+  return !(
+    estJourIntegralementIndisponible(creneau.date, id) ||
+    trouverIndisponibiliteChevauchanteLocale({
+      ...creneau,
+      intervenantId: id,
+    })
+  );
+}
+
+function obtenirIntervenantsEligiblesPourCreneauSeance() {
+  const intervenants = obtenirIntervenantsSeance();
+  const creneau = obtenirCreneauSelectionnePourIntervenants();
+  const mode = elements.seanceForm?.dataset.mode || "creation";
+  const seanceEnEdition = mode === "modification" ? etat.seanceSelectionnee : null;
+  const intervenantEditionId = Number(seanceEnEdition?.intervenant_id || 0);
+  const creneauEstCeluiDeLaSeanceEnEdition =
+    Boolean(seanceEnEdition) &&
+    String(seanceEnEdition.date || "") === creneau?.date &&
+    String(seanceEnEdition.heure_debut || "") === creneau?.heure_debut &&
+    String(seanceEnEdition.heure_fin || "") === creneau?.heure_fin;
+
+  if (!creneau) {
+    return mode === "modification" ? intervenants : [];
+  }
+
+  return intervenants.filter((intervenant) => {
+    // Une modification uniquement descriptive doit rester possible si une
+    // indisponibilité a été déclarée après la séance existante.
+    if (
+      mode === "modification" &&
+      creneauEstCeluiDeLaSeanceEnEdition &&
+      intervenant.id === intervenantEditionId
+    ) {
+      return true;
+    }
+
+    return intervenantEstDisponiblePourCreneau(intervenant.id, creneau, {
+      ignorerSeanceId: seanceEnEdition?.id || null,
+    });
+  });
+}
+
+function definirIntervenantSeanceSelectionne(intervenantId, { obligatoire = false } = {}) {
+  const select = elements.seanceIntervenant;
+  const champ = elements.seanceIntervenantField;
+  const estHandler = utilisateurEstHandler();
+
+  if (!select || !champ) {
+    return null;
+  }
+
+  champ.classList.toggle("hidden", !estHandler);
+  select.required = estHandler && obligatoire;
+  select.disabled = !estHandler || !utilisateurPeutModifierDonnees();
+
+  if (!estHandler) {
+    select.value = "";
+    return Number(etat.utilisateur?.id || 0) || null;
+  }
+
+  const intervenants = obtenirIntervenantsEligiblesPourCreneauSeance();
+  const idDemande = Number(intervenantId || 0);
+  const optionExiste = intervenants.some((intervenant) => intervenant.id === idDemande);
+  const idParDefaut = optionExiste && idDemande ? idDemande : null;
+
+  if (idParDefaut && !Array.from(select.options).some((option) => Number(option.value) === idParDefaut)) {
+    const intervenant = intervenants.find((item) => item.id === idParDefaut);
+    const option = new Option(
+      intervenant ? libelleIntervenantSeance(intervenant) : "Intervenant",
+      String(idParDefaut)
+    );
+    select.add(option);
+  }
+
+  select.value = idParDefaut ? String(idParDefaut) : "";
+  return idParDefaut;
+}
+
+function rendreOptionsIntervenantsSeance() {
+  const select = elements.seanceIntervenant;
+  const champ = elements.seanceIntervenantField;
+
+  if (!select || !champ) {
+    return;
+  }
+
+  const valeurCourante = Number(select.value || 0);
+  const seanceEnEdition =
+    elements.seanceForm?.dataset.mode === "modification" ? etat.seanceSelectionnee : null;
+  const intervenantSeance = Number(seanceEnEdition?.intervenant_id || 0);
+  const intervenants = obtenirIntervenantsEligiblesPourCreneauSeance();
+
+  select.replaceChildren();
+  if (intervenants.length === 0) {
+    select.appendChild(new Option("Aucun réalisateur disponible", ""));
+  } else {
+    select.appendChild(new Option("Choisir un réalisateur", ""));
+    intervenants.forEach((intervenant) => {
+      select.appendChild(new Option(libelleIntervenantSeance(intervenant), String(intervenant.id)));
+    });
+  }
+
+  definirIntervenantSeanceSelectionne(
+    intervenantSeance || valeurCourante,
+    { obligatoire: true }
+  );
+}
+
+function definirChampsSeanceDesactives(champs, desactives) {
+  champs.filter(Boolean).forEach((champ) => {
+    champ.disabled = Boolean(desactives);
+  });
+}
+
+function definirProgressionCreationSeance({ dateConfirmee = false, horaireConfirme = false } = {}) {
+  if (!elements.seanceForm) {
+    return;
+  }
+
+  elements.seanceForm.dataset.dateConfirmed = dateConfirmee ? "true" : "false";
+  elements.seanceForm.dataset.timeConfirmed = horaireConfirme ? "true" : "false";
+}
+
+function marquerDateSeanceCommeChoisie() {
+  if (!elements.seanceForm) {
+    return;
+  }
+
+  elements.seanceForm.dataset.dateConfirmed = "true";
+  // Un changement de date doit être suivi d'un choix explicite de l'horaire.
+  elements.seanceForm.dataset.timeConfirmed = "false";
+  mettreAJourEtapesFormulaireSeance();
+}
+
+function marquerHoraireSeanceCommeChoisi() {
+  if (elements.seanceForm) {
+    elements.seanceForm.dataset.timeConfirmed = "true";
+  }
+}
+
+function mettreAJourEtapesFormulaireSeance() {
+  if (!elements.seanceForm) {
+    return;
+  }
+
+  const mode = elements.seanceForm.dataset.mode || "creation";
+  const estModification = mode === "modification";
+  const modifiable = utilisateurPeutModifierDonnees();
+  const informationsValides = Boolean(
+    String(elements.etudiant?.value || "").trim() &&
+      recupererValeurSelectionnee(elements.matiereCheckboxes)
+  );
+  const dateValide = estDateIsoValide(String(elements.date?.value || ""));
+  const creneauValide = Boolean(obtenirCreneauSelectionnePourIntervenants());
+  const horaireConfirme = elements.seanceForm.dataset.timeConfirmed === "true";
+  const autoriserDate = modifiable;
+  const autoriserHoraire = modifiable;
+  const autoriserRealisateur = modifiable && creneauValide && horaireConfirme;
+
+  definirChampsSeanceDesactives([elements.date], !autoriserDate);
+  definirChampsSeanceDesactives(
+    [elements.heureDebutHourSelect, elements.heureDebutMinuteSelect],
+    !autoriserHoraire
+  );
+  definirChampsSeanceDesactives(elements.dureeCheckboxes, !autoriserHoraire);
+
+  if (utilisateurEstHandler()) {
+    rendreOptionsIntervenantsSeance();
+    if (elements.seanceIntervenant) {
+      elements.seanceIntervenant.disabled = !autoriserRealisateur;
+    }
+  }
+
+  const intervenantSelectionne = obtenirIntervenantCibleSeance();
+  definirChampsSeanceDesactives(elements.essaiCheckboxes, !modifiable);
+  definirChampsSeanceDesactives(elements.statutCheckboxes, !modifiable);
+
+  if (elements.description) {
+    elements.description.disabled = !modifiable;
+  }
+
+  if (elements.saveSeanceButton) {
+    elements.saveSeanceButton.disabled = !(
+      modifiable &&
+      informationsValides &&
+      dateValide &&
+      creneauValide &&
+      autoriserRealisateur &&
+      intervenantSelectionne
+    );
+  }
 }
 
 function masquerFormulairesCycleCompte(excepte = null) {
@@ -1737,6 +2068,13 @@ async function gererDemandeResetMotDePasse(event) {
 }
 
 function initialiserCycleCompteDepuisHash() {
+  // login-lifecycle.js owns the one-time-link fragment when it has completed
+  // its setup. Its flow deliberately preserves the fragment until successful
+  // submission so a simple refresh does not discard a valid reset link.
+  if (window.__gestionSeancesLoginLifecycle) {
+    return;
+  }
+
   const hash = String(window.location.hash || "").replace(/^#/, "");
   const correspondance = /^(activation|reset-password)\?token=([A-Za-z0-9_-]{43})$/.exec(hash);
 
@@ -1789,22 +2127,28 @@ async function gererCycleCompteAvecJeton(event) {
 
 function attacherEcouteurs() {
   elements.loginForm?.addEventListener("submit", gererConnexion);
-  elements.showAccountRequestButton?.addEventListener("click", ouvrirDemandeCompte);
-  elements.showPasswordResetButton?.addEventListener("click", ouvrirDemandeResetMotDePasse);
-  elements.accountRequestRole?.addEventListener("change", mettreAJourChampHandlerDemande);
-  elements.accountRequestForm?.addEventListener("submit", gererDemandeCompte);
-  elements.passwordResetRequestForm?.addEventListener("submit", gererDemandeResetMotDePasse);
-  elements.accountTokenForm?.addEventListener("submit", gererCycleCompteAvecJeton);
-  elements.loginShowPassword?.addEventListener(
-    "change",
-    mettreAJourVisibiliteMotDePasseConnexion
-  );
+  // The public lifecycle has its own small, failure-isolated script loaded
+  // before this module. Keeping a single event owner avoids duplicate reset
+  // emails/submissions once the main application has initialised.
+  if (!window.__gestionSeancesLoginLifecycle) {
+    elements.showAccountRequestButton?.addEventListener("click", ouvrirDemandeCompte);
+    elements.showPasswordResetButton?.addEventListener("click", ouvrirDemandeResetMotDePasse);
+    elements.accountRequestRole?.addEventListener("change", mettreAJourChampHandlerDemande);
+    elements.accountRequestForm?.addEventListener("submit", gererDemandeCompte);
+    elements.passwordResetRequestForm?.addEventListener("submit", gererDemandeResetMotDePasse);
+    elements.accountTokenForm?.addEventListener("submit", gererCycleCompteAvecJeton);
+    elements.loginShowPassword?.addEventListener(
+      "change",
+      mettreAJourVisibiliteMotDePasseConnexion
+    );
+  }
   elements.loginRemember?.addEventListener("change", () => {
     if (!elements.loginRemember.checked) {
       effacerConnexionMemorisee();
     }
   });
   elements.userPasswordForm?.addEventListener("submit", gererModificationMotDePasse);
+  elements.teamMembershipForm?.addEventListener("submit", gererDemandeRattachementEquipe);
   elements.adminViewTabs.forEach((bouton) => {
     bouton?.addEventListener("click", () => {
       afficherVueAdministration(bouton.dataset.adminView);
@@ -1815,24 +2159,11 @@ function attacherEcouteurs() {
       afficherVueIndisponibilites(bouton.dataset.unavailabilityView);
     });
   });
-  elements.adminAddAccountForm?.addEventListener("submit", gererAjoutCompteAdministration);
   elements.adminGlobalAnalyticsForm?.addEventListener(
     "submit",
     gererActualisationAnalysesGlobalesAdministration
   );
   elements.adminUnavailabilityForm?.addEventListener("submit", gererCreationIndisponibilite);
-  elements.availabilityRuleForm?.addEventListener(
-    "submit",
-    gererAjoutRegleDisponibilite
-  );
-  elements.availabilityExceptionForm?.addEventListener(
-    "submit",
-    gererAjoutExceptionDisponibilite
-  );
-  elements.availabilityRuleType?.addEventListener(
-    "change",
-    mettreAJourChampsTypeRegleDisponibilite
-  );
   elements.workspaceSettingsForm?.addEventListener("submit", gererModificationReglagesCalendrier);
   elements.publicCalendarTimezoneForm?.addEventListener(
     "submit",
@@ -1842,16 +2173,11 @@ function attacherEcouteurs() {
     "click",
     gererBasculeCalendrierPublic
   );
-  elements.publicCalendarRegenerateButton?.addEventListener(
-    "click",
-    gererRegenerationLienCalendrierPublic
-  );
   elements.publicCalendarCopyButton?.addEventListener("click", copierLienCalendrierPublic);
-  elements.adminCreateUserForm?.addEventListener("submit", gererCreationUtilisateurAdmin);
-  elements.adminDeleteUserForm?.addEventListener("submit", gererSuppressionUtilisateurAdmin);
-  elements.adminResetPasswordForm?.addEventListener(
+  elements.teamSubjectForm?.addEventListener("submit", gererAjoutMatiereEquipe);
+  elements.teamTarificationForm?.addEventListener(
     "submit",
-    gererReinitialisationMotDePasseCompte
+    gererEnregistrementTarificationEquipe
   );
   elements.adminToggleAccessForm?.addEventListener(
     "submit",
@@ -1870,11 +2196,11 @@ function attacherEcouteurs() {
     "submit",
     gererMiseAJourAccesMonetisationUtilisateur
   );
-  elements.adminRateForm?.addEventListener("submit", gererMiseAJourTarifHoraireUtilisateur);
   elements.adminLogoutUserForm?.addEventListener(
     "submit",
     gererRevoquerSessionsUtilisateur
   );
+  elements.adminDeleteUserForm?.addEventListener("submit", gererSuppressionCompteAdministration);
   elements.pushEnableButton?.addEventListener("click", gererActivationNotificationsPush);
   elements.pushDisableButton?.addEventListener("click", gererDesactivationNotificationsPush);
   elements.pushTestButton?.addEventListener("click", gererTestNotificationsPush);
@@ -1886,9 +2212,7 @@ function attacherEcouteurs() {
     mettreAJourControlesAdministration
   );
   elements.adminMonetisationUserId?.addEventListener("change", mettreAJourControlesAdministration);
-  elements.adminRateUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.adminLogoutUserId?.addEventListener("change", mettreAJourControlesAdministration);
-  elements.adminDeleteUserId?.addEventListener("change", mettreAJourControlesAdministration);
   elements.monetisationPreviousMonthButton?.addEventListener("click", () => {
     naviguerPeriodeMonetisation("precedent");
   });
@@ -1897,14 +2221,24 @@ function attacherEcouteurs() {
   });
   elements.monetisationModeOptionOneButton?.addEventListener("click", gererClicModePeriodeMonetisation);
   elements.monetisationModeOptionTwoButton?.addEventListener("click", gererClicModePeriodeMonetisation);
+  elements.monetisationFilterForm?.addEventListener("submit", gererCalculMonetisation);
+  elements.monetisationDateStart?.addEventListener("input", gererChangementFiltreMonetisation);
+  elements.monetisationDateStart?.addEventListener("change", gererChangementFiltreMonetisation);
+  elements.monetisationDateEnd?.addEventListener("input", gererChangementFiltreMonetisation);
+  elements.monetisationDateEnd?.addEventListener("change", gererChangementFiltreMonetisation);
+  elements.monetisationGlobalToggle?.addEventListener(
+    "change",
+    gererChangementModeMonetisationGlobales
+  );
+  elements.statsFilterForm?.addEventListener("submit", gererCalculStatistiques);
+  elements.statsDateStart?.addEventListener("input", gererChangementFiltreStatistiques);
+  elements.statsDateStart?.addEventListener("change", gererChangementFiltreStatistiques);
+  elements.statsDateEnd?.addEventListener("input", gererChangementFiltreStatistiques);
+  elements.statsDateEnd?.addEventListener("change", gererChangementFiltreStatistiques);
+  elements.statsGlobalToggle?.addEventListener("change", gererChangementModeStatistiquesGlobales);
   elements.monetisationDownloadStatementButton?.addEventListener(
     "click",
     gererTelechargementReleveMonetisation
-  );
-  elements.adminClearSeancesForm?.addEventListener("submit", gererSuppressionToutesLesSeances);
-  elements.adminClearHistoryForm?.addEventListener(
-    "submit",
-    gererSuppressionToutHistorique
   );
   elements.adminMaintenanceSqliteForm?.addEventListener(
     "submit",
@@ -1959,10 +2293,19 @@ function attacherEcouteurs() {
     ouvrirFormulaireCreation();
   });
   elements.seanceForm?.addEventListener("submit", gererSoumissionSeance);
-  elements.heureDebutHourSelect?.addEventListener("change", mettreAJourHeureDebutSelectionnee);
+  elements.etudiant?.addEventListener("input", mettreAJourEtapesFormulaireSeance);
+  elements.date?.addEventListener("change", marquerDateSeanceCommeChoisie);
+  elements.seanceIntervenant?.addEventListener("change", mettreAJourEtapesFormulaireSeance);
+  elements.heureDebutHourSelect?.addEventListener("change", () => {
+    marquerHoraireSeanceCommeChoisi();
+    mettreAJourHeureDebutSelectionnee();
+  });
   elements.heureDebutMinuteSelect?.addEventListener(
     "change",
-    mettreAJourHeureDebutSelectionnee
+    () => {
+      marquerHoraireSeanceCommeChoisi();
+      mettreAJourHeureDebutSelectionnee();
+    }
   );
   elements.editSeanceButton?.addEventListener("click", ouvrirFormulaireModification);
   elements.duplicateSeanceButton?.addEventListener("click", ouvrirFormulaireDuplication);
@@ -1970,7 +2313,11 @@ function attacherEcouteurs() {
   elements.adminBlockIpForm?.addEventListener("submit", gererBlocageIpAdmin);
 
   attacherSelectionUnique(elements.statutCheckboxes);
-  attacherSelectionUnique(elements.dureeCheckboxes, mettreAJourHeureFinCalculee);
+  attacherSelectionUnique(elements.dureeCheckboxes, () => {
+    marquerHoraireSeanceCommeChoisi();
+    mettreAJourHeureFinCalculee();
+    mettreAJourEtapesFormulaireSeance();
+  });
   attacherSelectionUnique(elements.essaiCheckboxes);
 
   elements.quickStatusButtons.forEach((bouton) => {
@@ -1989,6 +2336,7 @@ function attacherEcouteurs() {
       fermerModal(document.getElementById(element.dataset.closeModal));
     });
   });
+  document.addEventListener("keydown", gererNavigationClavierModales);
 }
 
 function afficherConnexion(options = {}) {
@@ -2015,12 +2363,19 @@ function afficherApplication() {
   elements.loginView.classList.add("hidden");
   elements.appView.classList.remove("hidden");
   elements.currentUserName.textContent = etat.utilisateur.nom;
+  if (elements.currentUserPublicId) {
+    elements.currentUserPublicId.textContent = `ID : ${etat.utilisateur.public_id || "-"}`;
+  }
   synchroniserIdentifiantsFormulairesMotDePasse();
   mettreAJourResumeCompteConnecte();
   elements.adminToolsPanel.classList.toggle("hidden", !utilisateurPeutVoirAdministration());
   mettreAJourPanneauAdministration();
   mettreAJourVueAujourdhui();
+  mettreAJourFormulaireStatistiques();
+  mettreAJourVisibiliteResultatsStatistiques();
   mettreAJourNavigationProtegee();
+  mettreAJourFiltreCalendrierCentral();
+  mettreAJourEspaceIndisponibilites();
   mettreAJourCarteNotificationsPush();
   afficherSectionApplication(utilisateurDoitChangerMotDePasse() ? "utilisateur" : etat.sectionActive);
   demarrerConnexionTempsReel();
@@ -2136,8 +2491,6 @@ async function synchroniserApplicationDepuisTempsReel() {
           : {}
       ),
       chargerIndisponibilites(),
-      chargerDisponibilitesDeclareesSiAutorise(),
-      chargerPropositionsSeancesSiAutorise(),
       chargerEquipeSiAutorise(),
       chargerHistorique(),
       chargerMonetisationSiAutorise(),
@@ -2161,11 +2514,17 @@ function initialiserCalendrierSiNecessaire() {
 
   etat.calendrier = initialiserCalendrier(elements.calendar, {
     plageHoraire: obtenirPlageCalendrierEffective(),
+    pasCreneauMinutes: obtenirPasCreneauCalendrierCentral(),
     timezoneCentrale: obtenirFuseauHoraireCalendrierCentral(),
-    onDateClick: gererClicDateCalendrier,
-    onEventClick: ouvrirDetailSeance,
+    onSlotClick: gererClicCreneauCalendrierSeance,
+    onSelect: gererSelectionCalendrierSeance,
+    onEventClick: ouvrirDetailsOuChoixSeance,
     onIndisponibiliteClick: gererClicIndisponibilite,
-    onPropositionClick: gererClicPropositionCalendrier,
+    onDatesSet: () => {
+      if (utilisateurEstHandler()) {
+        rafraichirEvenementsCalendrier();
+      }
+    },
   });
 
   demarrerHorlogeCalendriers();
@@ -2173,7 +2532,11 @@ function initialiserCalendrierSiNecessaire() {
 }
 
 function initialiserCalendrierIndisponibilitesSiNecessaire() {
-  if (etat.calendrierIndisponibilites || !elements.unavailabilityCalendar) {
+  if (
+    etat.calendrierIndisponibilites ||
+    !elements.unavailabilityCalendar ||
+    !utilisateurPeutGererIndisponibilites()
+  ) {
     return;
   }
 
@@ -2191,7 +2554,6 @@ function initialiserCalendrierIndisponibilitesSiNecessaire() {
 
       gererClicIndisponibilite(indisponibilite);
     },
-    onPropositionClick: gererClicPropositionCalendrier,
     selectionMobileRapide: true,
   });
 
@@ -2222,7 +2584,8 @@ function rafraichirCalendrierSiVisible(sectionDemandee = etat.sectionActive) {
 
   if (
     sectionDemandee !== "indisponibilites" ||
-    etat.vueIndisponibilitesActive !== "declaration"
+    etat.vueIndisponibilitesActive !== "declaration" ||
+    !utilisateurPeutGererIndisponibilites()
   ) {
     return;
   }
@@ -2267,7 +2630,18 @@ function afficherSectionApplication(section) {
   });
 
   elements.navTabs.forEach((bouton) => {
-    bouton.classList.toggle("is-active", bouton.dataset.sectionTarget === sectionDemandee);
+    const estActive = bouton.dataset.sectionTarget === sectionDemandee;
+    bouton.classList.toggle("is-active", estActive);
+
+    if (estActive) {
+      bouton.setAttribute("aria-current", "page");
+      // On mobile the workspace navigation intentionally scrolls horizontally.
+      // Keep the selected destination entirely readable instead of leaving its
+      // label clipped against an edge of the scroll container.
+      bouton.scrollIntoView({ block: "nearest", inline: "center" });
+    } else {
+      bouton.removeAttribute("aria-current");
+    }
   });
 
   if (sectionDemandee === "utilisateur") {
@@ -2279,6 +2653,11 @@ function afficherSectionApplication(section) {
 
   if (sectionDemandee === "monetisation" && etat.monetisation) {
     mettreAJourMonetisation();
+  }
+
+  if (sectionDemandee === "statistiques") {
+    mettreAJourFormulaireStatistiques();
+    mettreAJourStatistiques();
   }
 
   if (sectionDemandee === "indisponibilites") {
@@ -2308,7 +2687,7 @@ function afficherVueIndisponibilites(vueDemandee = "declaration") {
     panneau.classList.toggle("hidden", panneau.dataset.unavailabilityPanel !== vue);
   });
 
-  afficherListeIndisponibilitesAdministration();
+  mettreAJourEspaceIndisponibilites();
   rafraichirCalendrierSiVisible("indisponibilites");
 }
 
@@ -2328,35 +2707,102 @@ function utilisateurEstProfesseur() {
   return rolesUtilisateurCourant().includes("professeur");
 }
 
+function mettreAJourBadge(element, nombre) {
+  if (!element) return;
+  const total = Math.max(0, Number(nombre) || 0);
+  element.textContent = total > 99 ? "99+" : String(total);
+  element.classList.toggle("hidden", total === 0);
+}
+
+async function chargerEquipesDisponiblesSiProfesseur() {
+  if ((!utilisateurEstProfesseur() && !utilisateurEstHandler()) || utilisateurDoitChangerMotDePasse()) {
+    etat.equipesDisponibles = [];
+    afficherDemandeRattachementEquipe();
+    return;
+  }
+  try {
+    const resultat = await envoyerRequete("/api/team-memberships/available");
+    etat.equipesDisponibles = Array.isArray(resultat.equipes) ? resultat.equipes : [];
+  } catch (_) {
+    etat.equipesDisponibles = [];
+  }
+  afficherDemandeRattachementEquipe();
+}
+
+function afficherDemandeRattachementEquipe() {
+  const visible = (utilisateurEstProfesseur() || utilisateurEstHandler()) && !utilisateurDoitChangerMotDePasse();
+  elements.teamMembershipCard?.classList.toggle("hidden", !visible);
+  if (!visible || !elements.teamMembershipHandler) return;
+  elements.teamMembershipHandler.replaceChildren(new Option("Choisir une equipe", ""));
+  etat.equipesDisponibles.forEach((equipe) => {
+    elements.teamMembershipHandler.appendChild(
+      new Option(`${equipe.public_id} - ${equipe.nom}`, String(equipe.id))
+    );
+  });
+  elements.teamMembershipSubmit.disabled = etat.equipesDisponibles.length === 0;
+}
+
+async function gererDemandeRattachementEquipe(event) {
+  event.preventDefault();
+  masquerErreur(elements.teamMembershipError);
+  if (!elements.teamMembershipForm?.reportValidity()) return;
+  elements.teamMembershipSubmit.disabled = true;
+  try {
+    const resultat = await envoyerRequete("/api/team-memberships/requests", {
+      method: "POST",
+      body: {
+        handler_id: Number(elements.teamMembershipHandler.value),
+        description: elements.teamMembershipDescription.value,
+      },
+    });
+    elements.teamMembershipForm.reset();
+    afficherToast(resultat.message || "Demande envoyee.", "success");
+    await chargerEquipesDisponiblesSiProfesseur();
+  } catch (error) {
+    afficherErreur(elements.teamMembershipError, error.message);
+    elements.teamMembershipSubmit.disabled = false;
+  }
+}
+
 function utilisateurPeutVoirAdministration() {
   return utilisateurEstAdministrateur() && !utilisateurDoitChangerMotDePasse();
 }
 
 function utilisateurPeutVoirMonetisation() {
   return (
-    (utilisateurEstHandler() ||
-      (utilisateurEstProfesseur() &&
-        Number(etat.utilisateur?.peut_voir_monetisation) === 1)) &&
+    (utilisateurEstHandler() || utilisateurEstProfesseur()) &&
     !utilisateurDoitChangerMotDePasse()
   );
 }
 
 function utilisateurPeutVoirAujourdhui() {
   return (
-    (utilisateurEstHandler() ||
-      (utilisateurEstProfesseur() &&
-        Number(etat.utilisateur?.peut_voir_aujourdhui) === 1)) &&
+    (utilisateurEstHandler() || utilisateurEstProfesseur()) &&
     !utilisateurDoitChangerMotDePasse()
   );
 }
 
 function utilisateurPeutVoirIndisponibilites() {
+  // Indisponibilites are personal declarations of Professors. A Handler
+  // consults them only through the central Dashboard, not a separate panel.
   return (
-    (utilisateurEstHandler() ||
-      (utilisateurEstProfesseur() &&
-        Number(etat.utilisateur?.peut_voir_indisponibilites) === 1)) &&
+    utilisateurEstProfesseur() &&
+    !utilisateurEstHandler() &&
     !utilisateurDoitChangerMotDePasse()
   );
+}
+
+function utilisateurPeutGererIndisponibilites() {
+  return utilisateurPeutVoirIndisponibilites();
+}
+
+function mettreAJourEspaceIndisponibilites() {
+  const peutGerer = utilisateurPeutGererIndisponibilites();
+
+  // This section is intentionally a single personal calendar: positive
+  // availability rules and exceptions are not part of it.
+  elements.unavailabilityWorkbenchNav?.classList.add("hidden");
+  elements.unavailabilityDeclarationPanel?.classList.toggle("hidden", !peutGerer);
 }
 
 function utilisateurPeutVoirEquipe() {
@@ -2390,53 +2836,8 @@ function appliquerConfigurationCalendrier() {
   });
   demarrerHorlogeCalendriers();
   synchroniserChoixHeuresCalendrier();
-  actualiserApercuDisponibilitesCalendrier();
+  rafraichirEvenementsCalendrier();
   mettreAJourVueAujourdhui();
-}
-
-function actualiserApercuDisponibilitesCalendrier() {
-  if (!elements.availabilityOverview) {
-    return;
-  }
-
-  if (!utilisateurPeutVoirIndisponibilites()) {
-    elements.availabilityOverview.classList.add("hidden");
-    elements.availabilityOverview.replaceChildren();
-    return;
-  }
-
-  const couleurParProfesseur = new Map(
-    (Array.isArray(etat.equipe) ? etat.equipe : []).map((professeur) => [
-      Number(professeur.id),
-      professeur,
-    ])
-  );
-  const intervenants = (etat.disponibilitesDeclarees?.intervenants || []).map(
-    (intervenant) => {
-      const professeur = couleurParProfesseur.get(Number(intervenant.id));
-      return professeur
-        ? {
-            ...intervenant,
-            public_id: professeur.public_id || intervenant.public_id,
-            nom: professeur.nom || intervenant.nom,
-            couleur_calendrier:
-              professeur.couleur_calendrier || intervenant.couleur_calendrier,
-          }
-        : intervenant;
-    }
-  );
-
-  afficherApercuDisponibilites(elements.availabilityOverview, {
-    dateIso: obtenirDateLocaleIso(),
-    afficherEquipe: utilisateurEstHandler(),
-    utilisateurCourantId: etat.utilisateur?.id || null,
-    intervenants,
-    regles: etat.disponibilitesDeclarees?.regles || [],
-    exceptions: etat.disponibilitesDeclarees?.exceptions || [],
-    seances: etat.seances,
-    indisponibilites: etat.indisponibilites,
-    plageHoraire: obtenirPlageCalendrierEffective(),
-  });
 }
 
 function lienPublicAbsolu(lien) {
@@ -2519,31 +2920,13 @@ function afficherReglagesEspace() {
   if (elements.publicCalendarStatus) {
     elements.publicCalendarStatus.textContent = actif ? "Actif" : "Désactivé";
   }
-  if (elements.publicCalendarTokenStatus) {
-    elements.publicCalendarTokenStatus.textContent = possedeJeton ? "Oui" : "Non";
-  }
-  if (elements.publicCalendarHelp) {
-    elements.publicCalendarHelp.textContent = lien
-      ? "Copiez ce nouveau lien maintenant : le jeton n'est jamais conservé en clair."
-      : possedeJeton
-        ? "Le lien est déjà configuré. Régénérez-le si vous devez le partager de nouveau ; l'ancien sera révoqué."
-        : "Générez un lien pour publier un calendrier informatif ne révélant que les disponibilités.";
-  }
   if (elements.publicCalendarLink) {
     elements.publicCalendarLink.value = lien;
     elements.publicCalendarLink.classList.toggle("hidden", !lien);
   }
   if (elements.publicCalendarToggleButton) {
-    elements.publicCalendarToggleButton.disabled = !modifiable || !possedeJeton;
-    elements.publicCalendarToggleButton.textContent = actif
-      ? "Désactiver le calendrier"
-      : "Activer le calendrier";
-  }
-  if (elements.publicCalendarRegenerateButton) {
-    elements.publicCalendarRegenerateButton.disabled = !modifiable;
-    elements.publicCalendarRegenerateButton.textContent = possedeJeton
-      ? "Régénérer le lien"
-      : "Générer un lien";
+    elements.publicCalendarToggleButton.disabled = !modifiable || !possedeJeton || !actif;
+    elements.publicCalendarToggleButton.textContent = "Désactiver le lien";
   }
   if (elements.publicCalendarCopyButton) {
     elements.publicCalendarCopyButton.disabled = !lien;
@@ -2632,7 +3015,10 @@ async function gererModificationReglagesCalendrier(event) {
 }
 
 function obtenirFuseauHoraireCalendrierPublic(reglages = etat.reglagesEspace) {
-  return String(reglages?.calendrier_public?.public_calendar_timezone || "GMT").trim() || "GMT";
+  return (
+    String(reglages?.calendrier_public?.public_calendar_timezone || "GMT+1").trim() ||
+    "GMT+1"
+  );
 }
 
 function synchroniserOptionFuseauCalendrierPublic(select, fuseau) {
@@ -2640,11 +3026,11 @@ function synchroniserOptionFuseauCalendrierPublic(select, fuseau) {
     return;
   }
 
-  const valeur = String(fuseau || "GMT").trim() || "GMT";
-  const valeursSimples = new Set(["GMT", "GMT+1", "GMT+2"]);
+  const valeur = String(fuseau || "GMT+1").trim() || "GMT+1";
+  const valeursSimples = new Set(["GMT+1", "GMT+2", "GMT+3", "GMT+4"]);
   // Le contrat produit n'admet plus de zone IANA historique : la migration
-  // normalise toute valeur persistée vers GMT avant ce rendu.
-  select.value = valeursSimples.has(valeur) ? valeur : "GMT";
+  // normalise toute valeur persistée vers GMT+1 avant ce rendu.
+  select.value = valeursSimples.has(valeur) ? valeur : "GMT+1";
 }
 
 async function gererModificationFuseauCalendrierPublic(event) {
@@ -2672,6 +3058,7 @@ async function gererModificationFuseauCalendrierPublic(event) {
   try {
     const resultat = await modifierEtatCalendrierPublic({
       public_calendar_timezone: publicCalendarTimezone,
+      actif: true,
     });
     memoriserReglagesEspace(resultat.reglages);
     afficherReglagesEspace();
@@ -2685,36 +3072,13 @@ async function gererModificationFuseauCalendrierPublic(event) {
 
 async function gererBasculeCalendrierPublic() {
   const calendrierPublic = etat.reglagesEspace?.calendrier_public || {};
-  if (!calendrierPublic.jeton_configure) {
-    await gererRegenerationLienCalendrierPublic();
+  if (!calendrierPublic.jeton_configure || !calendrierPublic.actif) {
     return;
   }
 
-  const prochainEtat = !calendrierPublic.actif;
   elements.publicCalendarToggleButton.disabled = true;
   try {
-    const resultat = await modifierEtatCalendrierPublic(prochainEtat);
-    memoriserReglagesEspace(resultat.reglages);
-    afficherReglagesEspace();
-    afficherToast(resultat.message, "success");
-  } catch (erreur) {
-    afficherToast(erreur.message, "error");
-    afficherReglagesEspace();
-  }
-}
-
-async function gererRegenerationLienCalendrierPublic() {
-  const possedeJeton = etat.reglagesEspace?.calendrier_public?.jeton_configure === true;
-  if (
-    possedeJeton &&
-    !window.confirm("Régénérer ce lien révoquera immédiatement l'ancien. Continuer ?")
-  ) {
-    return;
-  }
-
-  elements.publicCalendarRegenerateButton.disabled = true;
-  try {
-    const resultat = await regenererLienCalendrierPublic();
+    const resultat = await modifierEtatCalendrierPublic(false);
     memoriserReglagesEspace(resultat.reglages);
     afficherReglagesEspace();
     afficherToast(resultat.message, "success");
@@ -2742,10 +3106,6 @@ async function copierLienCalendrierPublic() {
   } catch (erreur) {
     afficherToast("Copiez le lien affiché manuellement.", "warning");
   }
-}
-
-function utilisateurPeutGererIndisponibilites() {
-  return (utilisateurEstHandler() || utilisateurEstProfesseur()) && !utilisateurDoitChangerMotDePasse();
 }
 
 function reinitialiserEtatNotificationsPush() {
@@ -2860,30 +3220,19 @@ function obtenirMessageSeanceConfidentielle() {
   return "Ce créneau est réservé et visible uniquement par l'administrateur.";
 }
 
-function obtenirSeancesPourStatistiques() {
-  return etat.seances.filter((seance) => !seanceEstMasqueePourConfidentialite(seance));
-}
-
 function seanceDoitEtreMasqueeDansAujourdhui(seance) {
   if (utilisateurEstAdministrateur()) {
     return false;
   }
 
-  if (seanceEstMasqueePourConfidentialite(seance)) {
-    return true;
-  }
-
-  if (estJourIntegralementIndisponible(seance?.date)) {
-    return true;
-  }
-
-  return Boolean(
-    trouverIndisponibiliteChevauchanteLocale({
-      date: seance?.date,
-      heure_debut: seance?.heure_debut,
-      heure_fin: seance?.heure_fin,
-    })
-  );
+  // La liste "Aujourd'hui" doit refléter les séances reçues dans le scope
+  // privé de l'utilisateur. Une indisponibilité est une règle de création,
+  // pas une raison de faire disparaître une séance existante : pour un
+  // Handler, `etat.indisponibilites` contient celles de toute son équipe et
+  // pouvait donc masquer la séance du professeur B à cause de celle du
+  // professeur A. Seules les séances explicitement confidentielles restent
+  // masquées pour un non-administrateur.
+  return seanceEstMasqueePourConfidentialite(seance);
 }
 
 function utilisateurEstEnLectureSeule() {
@@ -2941,16 +3290,6 @@ function mettreAJourNavigationProtegee() {
 function reinitialiserFormulaireUtilisateur() {
   elements.userPasswordForm.reset();
   masquerErreur(elements.userPasswordError);
-  elements.adminAddAccountForm.reset();
-  masquerErreur(elements.adminAddAccountError);
-  elements.adminCreateUserForm.reset();
-  masquerErreur(elements.adminCreateUserError);
-  masquerInfo(elements.adminCreateUserResult);
-  elements.adminDeleteUserForm.reset();
-  masquerErreur(elements.adminDeleteUserError);
-  elements.adminResetPasswordForm.reset();
-  masquerErreur(elements.adminResetPasswordError);
-  masquerInfo(elements.adminResetPasswordResult);
   elements.adminToggleAccessForm.reset();
   masquerErreur(elements.adminToggleAccessError);
   elements.adminReadonlyForm.reset();
@@ -2961,9 +3300,6 @@ function reinitialiserFormulaireUtilisateur() {
   masquerErreur(elements.adminUnavailabilityAccessError);
   elements.adminMonetisationForm.reset();
   masquerErreur(elements.adminMonetisationError);
-  elements.adminRateForm.reset();
-  elements.adminRateValue.dataset.boundAccountId = "";
-  masquerErreur(elements.adminRateError);
   masquerErreur(elements.pushSettingsError);
   elements.adminLogoutUserForm.reset();
   masquerErreur(elements.adminLogoutUserError);
@@ -2971,10 +3307,6 @@ function reinitialiserFormulaireUtilisateur() {
   masquerErreur(elements.adminSessionError);
   elements.adminTrustedDeviceCurrentPassword.value = "";
   masquerErreur(elements.adminTrustedDeviceError);
-  elements.adminClearSeancesForm.reset();
-  masquerErreur(elements.adminClearSeancesError);
-  elements.adminClearHistoryForm.reset();
-  masquerErreur(elements.adminClearHistoryError);
   elements.adminMaintenanceSqliteForm.reset();
   masquerErreur(elements.adminMaintenanceSqliteError);
   masquerInfo(elements.adminMaintenanceSqliteResult);
@@ -2999,10 +3331,9 @@ function elementAdministrationAppartientVue(element, vue) {
 
 function mettreAJourVisibiliteGroupesAdministration(vue) {
   elements.adminGroupItems.forEach((element) => {
-    const workflowLegacyDesactive = element.dataset.legacyAdminWorkflow === "true";
     element.classList.toggle(
       "hidden",
-      workflowLegacyDesactive || !elementAdministrationAppartientVue(element, vue)
+      !elementAdministrationAppartientVue(element, vue)
     );
   });
 
@@ -3042,10 +3373,6 @@ function afficherVueAdministration(vueDemandee = "accounts") {
     elements.adminActionsTitle.textContent = configuration.titre;
   }
 
-  if (elements.adminActionsNote) {
-    elements.adminActionsNote.textContent = configuration.note;
-  }
-
   mettreAJourVisibiliteGroupesAdministration(vue);
 
   if (vue === "analytics") {
@@ -3074,6 +3401,9 @@ function mettreAJourResumeCompteConnecte() {
   const statsIdentite = carteOutilsSensibles?.parentElement || null;
 
   elements.userUsername.textContent = etat.utilisateur?.nom || "-";
+  if (elements.currentUserPublicId) {
+    elements.currentUserPublicId.textContent = `ID : ${etat.utilisateur?.public_id || "-"}`;
+  }
   elements.userSecurityStatus.textContent = motDePasseAChanger
     ? "Mot de passe temporaire détecté. Changez-le pour débloquer l'application."
     : lectureSeule
@@ -3087,18 +3417,14 @@ function mettreAJourResumeCompteConnecte() {
     ? formatDateHeureSecondes(etat.utilisateur.dernier_login_at)
     : "Jamais";
   elements.adminPanelTitle.textContent = estAdministrateur ? "Panneau admin" : "Espace utilisateur";
-  elements.adminPanelNote.textContent = estAdministrateur
-    ? "Sécurité du compte et outils de contrôle réservés au Super Admin."
-    : "Sécurité du compte et modification du mot de passe.";
   elements.adminGuideTitle.textContent = estAdministrateur
     ? "Contrôle global"
     : "Espace utilisateur";
-  elements.adminGuideNote.textContent = estAdministrateur
-    ? "Ajout d'utilisateurs, sessions actives, lecture seule et actions sensibles sont centralisés ici. Les indisponibilités ont maintenant leur menu dédié."
-    : "Modifiez votre mot de passe et consultez votre derniere connexion depuis cet espace.";
 
   if (boutonUtilisateur) {
-    boutonUtilisateur.textContent = estAdministrateur ? "Panneau admin" : "Espace utilisateur";
+    if (elements.userNavLabel) {
+      elements.userNavLabel.textContent = estAdministrateur ? "Panneau admin" : "Espace utilisateur";
+    }
   }
 
   definirBadgeAdmin(
@@ -3132,7 +3458,7 @@ async function gererConnexion(event) {
   masquerErreur(elements.loginError);
   elements.loginButton.disabled = true;
   const originalText = elements.loginButton.textContent;
-  elements.loginButton.textContent = "Connexion en cours...";
+  let verrouilleParRateLimit = false;
   elements.loginButton.textContent = "Connexion...";
 
   try {
@@ -3156,6 +3482,7 @@ async function gererConnexion(event) {
     if (erreur.status === 429 && erreur.retryAfter) {
       let restantes = parseInt(erreur.retryAfter, 10);
       if (!isNaN(restantes)) {
+        verrouilleParRateLimit = true;
         if (elements.loginButton) elements.loginButton.disabled = true;
         afficherErreur(elements.loginError, "Trop de tentatives. Réessayez dans " + restantes + "s");
         const timer = setInterval(() => {
@@ -3176,7 +3503,7 @@ async function gererConnexion(event) {
     }
     afficherErreur(elements.loginError, erreur.message);
   } finally {
-    if (!elements.loginButton.disabled) {
+    if (!verrouilleParRateLimit) {
       elements.loginButton.disabled = false;
       elements.loginButton.textContent = originalText;
     }
@@ -3305,291 +3632,7 @@ async function gererTestNotificationsPush() {
   }
 }
 
-async function gererCreationUtilisateurAdmin(event) {
-  event.preventDefault();
-  masquerErreur(elements.adminCreateUserError);
-  masquerInfo(elements.adminCreateUserResult);
 
-  if (!utilisateurPeutVoirAdministration()) {
-    elements.adminToolsPanel.classList.add("hidden");
-    return;
-  }
-
-  elements.adminCreateUserButton.disabled = true;
-  elements.adminCreateUserButton.textContent = "Création...";
-
-  try {
-    const resultat = await creerUtilisateurAdmin({
-      nom: elements.adminCreateUserName.value.trim(),
-      email: elements.adminCreateUserEmail.value.trim(),
-      mot_de_passe_actuel: elements.adminCreateUserCurrentPassword.value,
-    });
-    const motDePasseTemporaire = String(resultat?.mot_de_passe_temporaire || "");
-    elements.adminCreateUserForm.reset();
-    if (motDePasseTemporaire) {
-      afficherInfo(
-        elements.adminCreateUserResult,
-        `Code temporaire pour ${resultat?.utilisateur?.nom || "le nouvel utilisateur"} : ${motDePasseTemporaire}`
-      );
-    }
-    await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Utilisateur ajouté.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      elements.adminToolsPanel.classList.add("hidden");
-      afficherSectionApplication("dashboard");
-      afficherToast(erreur.message, "error");
-      return;
-    }
-
-    afficherErreur(elements.adminCreateUserError, erreur.message);
-  } finally {
-    elements.adminCreateUserButton.disabled = false;
-    elements.adminCreateUserButton.textContent = "Ajouter l'utilisateur";
-  }
-}
-
-async function gererSuppressionUtilisateurAdmin(event) {
-  event.preventDefault();
-  masquerErreur(elements.adminDeleteUserError);
-
-  if (!utilisateurPeutVoirAdministration()) {
-    elements.adminToolsPanel.classList.add("hidden");
-    return;
-  }
-
-  const utilisateurId = Number(elements.adminDeleteUserId.value);
-  const compte = obtenirCompteAdministrationParId(utilisateurId);
-
-  if (!compte) {
-    afficherErreur(elements.adminDeleteUserError, "Sélectionnez un compte valide.");
-    return;
-  }
-
-  const confirmation = window.confirm(
-    `Supprimer définitivement le compte ${compte.nom} ?`
-  );
-
-  if (!confirmation) {
-    return;
-  }
-
-  elements.adminDeleteUserButton.disabled = true;
-  elements.adminDeleteUserButton.textContent = "Suppression...";
-
-  try {
-    const resultat = await supprimerUtilisateurAdmin(
-      utilisateurId,
-      elements.adminDeleteUserCurrentPassword.value
-    );
-    elements.adminDeleteUserForm.reset();
-    await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Utilisateur supprimé.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      elements.adminToolsPanel.classList.add("hidden");
-      afficherSectionApplication("dashboard");
-      afficherToast(erreur.message, "error");
-      return;
-    }
-
-    afficherErreur(elements.adminDeleteUserError, erreur.message);
-  } finally {
-    elements.adminDeleteUserButton.disabled = false;
-    elements.adminDeleteUserButton.textContent = "Supprimer l'utilisateur";
-    mettreAJourControlesAdministration();
-  }
-}
-
-async function gererAjoutElementCatalogueAdministration({
-  type,
-  valeur,
-  motDePasseActuel,
-  form,
-  erreurElement,
-  bouton,
-  libelleChargement,
-  libelleBouton,
-  messageSucces,
-}) {
-  masquerErreur(erreurElement);
-
-  if (!utilisateurPeutVoirAdministration()) {
-    elements.adminToolsPanel.classList.add("hidden");
-    return;
-  }
-
-  bouton.disabled = true;
-  bouton.textContent = libelleChargement;
-
-  try {
-    const resultat = await ajouterElementCatalogueAdmin(type, valeur, motDePasseActuel);
-    form.reset();
-    await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || messageSucces);
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      elements.adminToolsPanel.classList.add("hidden");
-      afficherSectionApplication("dashboard");
-      afficherToast(erreur.message, "error");
-      return;
-    }
-
-    afficherErreur(erreurElement, erreur.message);
-  } finally {
-    bouton.disabled = false;
-    bouton.textContent = libelleBouton;
-  }
-}
-
-async function gererAjoutCompteAdministration(event) {
-  event.preventDefault();
-
-  await gererAjoutElementCatalogueAdministration({
-    type: "compte",
-    valeur: elements.adminNewAccountName.value.trim(),
-    motDePasseActuel: elements.adminAddAccountCurrentPassword.value,
-    form: elements.adminAddAccountForm,
-    erreurElement: elements.adminAddAccountError,
-    bouton: elements.adminAddAccountButton,
-    libelleChargement: "Ajout...",
-    libelleBouton: "Ajouter le compte",
-    messageSucces: "Compte ajouté.",
-  });
-}
-
-async function gererSuppressionElementCatalogueAdministration({
-  type,
-  elementCatalogue,
-  motDePasseInput,
-  erreurElement,
-  bouton,
-}) {
-  masquerErreur(erreurElement);
-
-  if (!utilisateurPeutVoirAdministration()) {
-    elements.adminToolsPanel.classList.add("hidden");
-    return;
-  }
-
-  const motDePasseActuel = String(motDePasseInput?.value || "");
-
-  if (!motDePasseActuel) {
-    afficherErreur(
-      erreurElement,
-      "Saisissez votre mot de passe actuel avant de supprimer cet element."
-    );
-    return;
-  }
-
-  const libelleType = type === "matiere" ? "matière" : "compte";
-  const confirmation = window.confirm(
-    `Supprimer ${libelleType} ${elementCatalogue.valeur} du catalogue ? Les séances existantes seront conservées.`
-  );
-
-  if (!confirmation) {
-    return;
-  }
-
-  bouton.disabled = true;
-
-  try {
-    const resultat = await supprimerElementCatalogueAdmin(
-      elementCatalogue.id,
-      motDePasseActuel
-    );
-    if (motDePasseInput) {
-      motDePasseInput.value = "";
-    }
-    await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Élément du catalogue supprimé.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      elements.adminToolsPanel.classList.add("hidden");
-      afficherSectionApplication("dashboard");
-      afficherToast(erreur.message, "error");
-      return;
-    }
-
-    afficherErreur(erreurElement, erreur.message);
-  } finally {
-    bouton.disabled = false;
-  }
-}
-
-async function gererRestaurationElementCatalogueAdministration({
-  elementCatalogue,
-  motDePasseInput,
-  erreurElement,
-  bouton,
-}) {
-  masquerErreur(erreurElement);
-
-  if (!utilisateurPeutVoirAdministration()) {
-    elements.adminToolsPanel.classList.add("hidden");
-    return;
-  }
-
-  const motDePasseActuel = String(motDePasseInput?.value || "");
-
-  if (!motDePasseActuel) {
-    afficherErreur(
-      erreurElement,
-      "Saisissez votre mot de passe actuel avant de restaurer cet element."
-    );
-    return;
-  }
-
-  bouton.disabled = true;
-
-  try {
-    const resultat = await restaurerElementCatalogueAdmin(
-      elementCatalogue.id,
-      motDePasseActuel
-    );
-    if (motDePasseInput) {
-      motDePasseInput.value = "";
-    }
-    await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Élément du catalogue restauré.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      elements.adminToolsPanel.classList.add("hidden");
-      afficherSectionApplication("dashboard");
-      afficherToast(erreur.message, "error");
-      return;
-    }
-
-    afficherErreur(erreurElement, erreur.message);
-  } finally {
-    bouton.disabled = false;
-  }
-}
 
 async function gererCreationIndisponibilite(event) {
   event.preventDefault();
@@ -3656,6 +3699,11 @@ async function gererSuppressionIndisponibilite(indisponibiliteId) {
   );
 
   if (!indisponibilite) {
+    return;
+  }
+
+  if (!indisponibiliteAppartientAuRealisateurCourant(indisponibilite)) {
+    afficherToast("Vous pouvez modifier uniquement vos propres indisponibilités.", "warning");
     return;
   }
 
@@ -3739,6 +3787,13 @@ function construirePlageIndisponibilite(indisponibilite) {
 function trouverIndisponibiliteLocale(indisponibiliteId) {
   return etat.indisponibilites.find(
     (indisponibilite) => Number(indisponibilite.id) === Number(indisponibiliteId)
+  );
+}
+
+function indisponibiliteAppartientAuRealisateurCourant(indisponibilite) {
+  return (
+    Number(indisponibilite?.intervenant_id) > 0 &&
+    Number(indisponibilite?.intervenant_id) === Number(etat.utilisateur?.id)
   );
 }
 
@@ -3939,14 +3994,21 @@ function ouvrirDetailIndisponibilite(indisponibilite, options = {}) {
   elements.unavailabilityDetailCreatedAt.textContent = indisponibiliteLocale.created_at
     ? formatDateHeureSecondes(indisponibiliteLocale.created_at)
     : "-";
-  definirActionsDetailIndisponibiliteVisibles(utilisateurPeutGererIndisponibilites());
+  definirActionsDetailIndisponibiliteVisibles(
+    utilisateurPeutGererIndisponibilites() &&
+      indisponibiliteAppartientAuRealisateurCourant(indisponibiliteLocale)
+  );
   masquerFormulaireIndisponibiliteModal();
   definirModeConfirmationIndisponibilite(Boolean(options.confirmation));
   ouvrirModal(elements.unavailabilityDetailModal);
 }
 
 function ouvrirFormulaireModificationIndisponibilite() {
-  if (!etat.indisponibiliteSelectionnee || !utilisateurPeutGererIndisponibilites()) {
+  if (
+    !etat.indisponibiliteSelectionnee ||
+    !utilisateurPeutGererIndisponibilites() ||
+    !indisponibiliteAppartientAuRealisateurCourant(etat.indisponibiliteSelectionnee)
+  ) {
     return;
   }
 
@@ -3965,7 +4027,11 @@ function ouvrirFormulaireModificationIndisponibilite() {
 }
 
 function ouvrirFormulaireDuplicationIndisponibilite() {
-  if (!etat.indisponibiliteSelectionnee || !utilisateurPeutGererIndisponibilites()) {
+  if (
+    !etat.indisponibiliteSelectionnee ||
+    !utilisateurPeutGererIndisponibilites() ||
+    !indisponibiliteAppartientAuRealisateurCourant(etat.indisponibiliteSelectionnee)
+  ) {
     return;
   }
 
@@ -3997,6 +4063,18 @@ async function gererSoumissionIndisponibiliteModal(event) {
   const controles = obtenirControlesIndisponibiliteModal();
   const mode = controles.form?.dataset.mode || "modification";
   const indisponibiliteId = Number(controles.form?.dataset.indisponibiliteId || 0);
+
+  if (
+    mode === "modification" &&
+    !indisponibiliteAppartientAuRealisateurCourant(etat.indisponibiliteSelectionnee)
+  ) {
+    afficherErreur(
+      controles.errorElement,
+      "Vous pouvez modifier uniquement vos propres indisponibilités."
+    );
+    return;
+  }
+
   const donneesIndisponibilite = lireDonneesIndisponibiliteDepuisControles(controles);
 
   masquerErreur(controles.errorElement);
@@ -4079,86 +4157,6 @@ async function gererSoumissionIndisponibiliteModal(event) {
   }
 }
 
-async function gererReinitialisationMotDePasseCompte(event) {
-  event.preventDefault();
-  masquerErreur(elements.adminResetPasswordError);
-  masquerInfo(elements.adminResetPasswordResult);
-
-  if (!utilisateurPeutVoirAdministration()) {
-    elements.adminToolsPanel.classList.add("hidden");
-    return;
-  }
-
-  const utilisateurId = Number(elements.adminResetUserId.value);
-  const compte = obtenirCompteAdministrationParId(utilisateurId);
-
-  if (!compte) {
-    afficherErreur(elements.adminResetPasswordError, "Sélectionnez un compte valide.");
-    return;
-  }
-
-  const confirmation = window.confirm(
-    `Réinitialiser le mot de passe de ${compte.nom} et générer un nouveau code temporaire ?`
-  );
-
-  if (!confirmation) {
-    return;
-  }
-
-  elements.adminResetPasswordButton.disabled = true;
-  elements.adminResetPasswordButton.textContent = "Réinitialisation...";
-
-  try {
-    const resultat = await reinitialiserMotDePasseCompte(
-      utilisateurId,
-      elements.adminResetCurrentPassword.value
-    );
-    const motDePasseTemporaire = String(resultat?.mot_de_passe_temporaire || "");
-    elements.adminResetPasswordForm.reset();
-    if (motDePasseTemporaire) {
-      afficherInfo(
-        elements.adminResetPasswordResult,
-        `Code temporaire pour ${compte.nom} : ${motDePasseTemporaire}`
-      );
-    } else {
-      masquerInfo(elements.adminResetPasswordResult);
-    }
-
-    if (resultat.must_reauthenticate) {
-      await deconnecterUtilisateur().catch(() => {});
-      etat.utilisateur = null;
-      viderDonneesApplication();
-      etat.sectionActive = "utilisateur";
-      afficherConnexion();
-      afficherToast(
-        motDePasseTemporaire
-          ? `Votre nouveau code temporaire est ${motDePasseTemporaire}. Reconnectez-vous.`
-          : "Votre mot de passe a été réinitialisé. Reconnectez-vous."
-      );
-      return;
-    }
-
-    await chargerAdministrationSiAutorise();
-    afficherToast(resultat.message || "Mot de passe réinitialisé.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      elements.adminToolsPanel.classList.add("hidden");
-      afficherSectionApplication("dashboard");
-      afficherToast(erreur.message, "error");
-      return;
-    }
-
-    afficherErreur(elements.adminResetPasswordError, erreur.message);
-  } finally {
-    elements.adminResetPasswordButton.disabled = false;
-    elements.adminResetPasswordButton.textContent = "Réinitialiser le mot de passe";
-  }
-}
 
 async function gererMiseAJourAccesUtilisateur(event) {
   event.preventDefault();
@@ -4484,116 +4482,7 @@ async function gererDeblocageIpAdmin(ip) {
   }
 }
 
-async function gererSuppressionToutesLesSeances(event) {
-  event.preventDefault();
-  masquerErreur(elements.adminClearSeancesError);
 
-  if (!utilisateurPeutVoirAdministration()) {
-    elements.adminToolsPanel.classList.add("hidden");
-    return;
-  }
-
-  const confirmation = window.confirm(
-    "Supprimer définitivement toutes les séances ?"
-  );
-
-  if (!confirmation) {
-    return;
-  }
-
-  elements.adminClearSeancesButton.disabled = true;
-  elements.adminClearSeancesButton.textContent = "Suppression...";
-
-  try {
-    const resultat = await supprimerToutesLesSeancesAdmin(
-      elements.adminClearSeancesCurrentPassword.value
-    );
-    elements.adminClearSeancesForm.reset();
-
-    if (!elements.detailModal.classList.contains("hidden")) {
-      fermerModal(elements.detailModal);
-    }
-
-    if (!elements.seanceModal.classList.contains("hidden")) {
-      fermerModal(elements.seanceModal);
-    }
-
-    etat.seanceSelectionnee = null;
-
-    await Promise.all([
-      chargerSeances(),
-      chargerHistorique(),
-      chargerMonetisationSiAutorise(),
-      chargerAdministrationSiAutorise(),
-    ]);
-
-    afficherToast(resultat.message);
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      elements.adminToolsPanel.classList.add("hidden");
-      afficherSectionApplication("dashboard");
-      afficherToast(erreur.message, "error");
-      return;
-    }
-
-    afficherErreur(elements.adminClearSeancesError, erreur.message);
-  } finally {
-    elements.adminClearSeancesButton.disabled = false;
-    elements.adminClearSeancesButton.textContent = "Supprimer toutes les séances";
-  }
-}
-
-async function gererSuppressionToutHistorique(event) {
-  event.preventDefault();
-  masquerErreur(elements.adminClearHistoryError);
-
-  if (!utilisateurPeutVoirAdministration()) {
-    elements.adminToolsPanel.classList.add("hidden");
-    return;
-  }
-
-  const confirmation = window.confirm(
-    "Supprimer tout l'historique des actions ?"
-  );
-
-  if (!confirmation) {
-    return;
-  }
-
-  elements.adminClearHistoryButton.disabled = true;
-  elements.adminClearHistoryButton.textContent = "Suppression...";
-
-  try {
-    const resultat = await supprimerToutHistoriqueAdmin(
-      elements.adminClearHistoryCurrentPassword.value
-    );
-    elements.adminClearHistoryForm.reset();
-    await Promise.all([chargerHistorique(), chargerAdministrationSiAutorise()]);
-    afficherToast(resultat.message);
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      elements.adminToolsPanel.classList.add("hidden");
-      afficherSectionApplication("dashboard");
-      afficherToast(erreur.message, "error");
-      return;
-    }
-
-    afficherErreur(elements.adminClearHistoryError, erreur.message);
-  } finally {
-    elements.adminClearHistoryButton.disabled = false;
-    elements.adminClearHistoryButton.textContent = "Supprimer tout l'historique";
-  }
-}
 
 function formaterResultatCheckpointSqlite(checkpoint) {
   if (!checkpoint || typeof checkpoint !== "object") {
@@ -4912,70 +4801,23 @@ async function gererMiseAJourAccesMonetisationUtilisateur(event) {
   }
 }
 
-async function gererMiseAJourTarifHoraireUtilisateur(event) {
+async function gererSuppressionCompteAdministration(event) {
   event.preventDefault();
-  masquerErreur(elements.adminRateError);
-
-  if (!utilisateurPeutVoirAdministration()) {
-    elements.adminToolsPanel.classList.add("hidden");
-    return;
-  }
-
-  const compte = obtenirCompteCatalogueAdministrationParId(elements.adminRateUserId.value);
-
-  if (!compte) {
-    afficherErreur(elements.adminRateError, "Sélectionnez un compte de séance valide.");
-    return;
-  }
-
-  const tarifHoraire = Number(elements.adminRateValue.value);
-
-  if (!Number.isInteger(tarifHoraire) || tarifHoraire < 0 || tarifHoraire > 5000) {
-    afficherErreur(
-      elements.adminRateError,
-      "Entrez un tarif horaire entier entre 0 et 5000."
-    );
-    return;
-  }
-
-  const confirmation = window.confirm(
-    `Définir le tarif horaire du compte ${compte.valeur} à ${tarifHoraire} dh ?`
-  );
-
-  if (!confirmation) {
-    return;
-  }
-
-  elements.adminRateButton.disabled = true;
-  elements.adminRateButton.textContent = "Mise à jour...";
-
+  masquerErreur(elements.adminDeleteUserError);
+  const utilisateurId = Number(elements.adminDeleteUserId?.value || 0);
+  const compte = obtenirCompteAdministrationParId(utilisateurId);
+  if (!compte || !elements.adminDeleteUserPassword?.value) return;
+  if (!window.confirm(`Supprimer définitivement le compte ${compte.nom} ?`)) return;
+  elements.adminDeleteUserButton.disabled = true;
   try {
-    const resultat = await mettreAJourTarifHoraireCompteAdmin(
-      compte.id,
-      tarifHoraire,
-      elements.adminRateCurrentPassword.value
-    );
-    elements.adminRateForm.reset();
-    elements.adminRateValue.dataset.boundAccountId = "";
-    await Promise.all([chargerAdministrationSiAutorise(), chargerMonetisationSiAutorise()]);
-    afficherToast(resultat.message);
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      elements.adminToolsPanel.classList.add("hidden");
-      afficherSectionApplication("dashboard");
-      afficherToast(erreur.message, "error");
-      return;
-    }
-
-    afficherErreur(elements.adminRateError, erreur.message);
+    const resultat = await supprimerCompteAdmin(utilisateurId, elements.adminDeleteUserPassword.value);
+    elements.adminDeleteUserForm.reset();
+    await chargerAdministrationSiAutorise();
+    afficherToast(resultat.message || "Compte supprimé.", "success");
+  } catch (error) {
+    afficherErreur(elements.adminDeleteUserError, error.message);
   } finally {
-    elements.adminRateButton.disabled = false;
-    mettreAJourControlesAdministration();
+    elements.adminDeleteUserButton.disabled = false;
   }
 }
 
@@ -5051,10 +4893,10 @@ async function gererMiseAJourAccesIndisponibilitesUtilisateur(event) {
   const utilisateurId = Number(elements.adminUnavailabilityAccessUserId.value);
   const compte = obtenirCompteAdministrationParId(utilisateurId);
 
-  if (!compte) {
+  if (!compte || !comptePeutGererIndisponibilitesAdministration(compte)) {
     afficherErreur(
       elements.adminUnavailabilityAccessError,
-      "Sélectionnez un compte valide."
+      "Sélectionnez un professeur valide."
     );
     return;
   }
@@ -5131,9 +4973,13 @@ async function chargerSeances(options = {}) {
 
 async function chargerIndisponibilites() {
   try {
-    etat.indisponibilites = await recupererIndisponibilites();
+    // A Handler never opens the personal unavailability module. Its central
+    // calendar receives only the minimal, team-scoped projection required to
+    // draw collective unavailable slots. A Professor keeps the personal API.
+    etat.indisponibilites = utilisateurEstHandler()
+      ? await recupererIndisponibilitesCalendrierCentral()
+      : await recupererIndisponibilites();
     rafraichirEvenementsCalendrier();
-    afficherListeIndisponibilitesAdministration();
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -5143,7 +4989,6 @@ async function chargerIndisponibilites() {
     if (erreur.status === 403) {
       etat.indisponibilites = [];
       rafraichirEvenementsCalendrier();
-      afficherListeIndisponibilitesAdministration();
 
       if (etat.sectionActive === "indisponibilites") {
         afficherSectionApplication(
@@ -5156,307 +5001,6 @@ async function chargerIndisponibilites() {
 
     etat.indisponibilites = [];
     rafraichirEvenementsCalendrier();
-    afficherListeIndisponibilitesAdministration();
-    afficherToast(erreur.message, "error");
-  }
-}
-
-const libellesJoursDisponibilite = [
-  "Lundi",
-  "Mardi",
-  "Mercredi",
-  "Jeudi",
-  "Vendredi",
-  "Samedi",
-  "Dimanche",
-];
-
-function libelleIntervenantDisponibilite(intervenant) {
-  const idPublic = String(intervenant?.public_id || "").trim();
-  const nom = String(intervenant?.nom || "").trim();
-  return idPublic && nom ? `${idPublic} — ${nom}` : idPublic || nom || "Intervenant";
-}
-
-function mettreAJourChampsTypeRegleDisponibilite() {
-  const ponctuelle = elements.availabilityRuleType?.value === "ponctuelle";
-  elements.availabilityRuleDayField?.classList.toggle("hidden", ponctuelle);
-  elements.availabilityRuleDateField?.classList.toggle("hidden", !ponctuelle);
-  if (elements.availabilityRuleDay) {
-    elements.availabilityRuleDay.required = !ponctuelle;
-  }
-  if (elements.availabilityRuleDate) {
-    elements.availabilityRuleDate.required = ponctuelle;
-  }
-}
-
-function remplirIntervenantsDisponibilite() {
-  const intervenants = Array.isArray(etat.disponibilitesDeclarees?.intervenants)
-    ? etat.disponibilitesDeclarees.intervenants
-    : [];
-  [elements.availabilityRuleIntervenant, elements.availabilityExceptionIntervenant].forEach(
-    (select) => {
-      if (!select) return;
-      const valeurCourante = String(select.value || "");
-      select.innerHTML = "";
-      intervenants.forEach((intervenant) => {
-        const option = document.createElement("option");
-        option.value = String(intervenant.id);
-        option.textContent = libelleIntervenantDisponibilite(intervenant);
-        select.appendChild(option);
-      });
-      const valeurToujoursDisponible = intervenants.some(
-        (intervenant) => String(intervenant.id) === valeurCourante
-      );
-      if (valeurToujoursDisponible) {
-        select.value = valeurCourante;
-      }
-      select.disabled = intervenants.length === 0 || !utilisateurPeutModifierDonnees();
-    }
-  );
-}
-
-function obtenirIntervenantDisponibilite(id) {
-  return (etat.disponibilitesDeclarees?.intervenants || []).find(
-    (intervenant) => Number(intervenant.id) === Number(id)
-  );
-}
-
-function creerBoutonSuppressionDisponibilite({ texte, action }) {
-  const bouton = document.createElement("button");
-  bouton.type = "button";
-  bouton.className = "button secondary";
-  bouton.textContent = texte;
-  bouton.disabled = !utilisateurPeutModifierDonnees();
-  bouton.addEventListener("click", action);
-  return bouton;
-}
-
-function creerCarteRegleDisponibilite(regle) {
-  const carte = document.createElement("article");
-  carte.className = "admin-session-item availability-item";
-  const contenu = document.createElement("div");
-  contenu.className = "admin-session-main";
-  const titre = document.createElement("h4");
-  titre.className = "admin-session-title";
-  const intervenant = obtenirIntervenantDisponibilite(regle.intervenant_id);
-  titre.textContent = libelleIntervenantDisponibilite(intervenant);
-  const meta = document.createElement("div");
-  meta.className = "admin-session-meta";
-  const calendrier =
-    regle.type === "ponctuelle"
-      ? `Le ${formatDate(regle.date)}`
-      : `${libellesJoursDisponibilite[Number(regle.jour_semaine)] || "Jour"} de chaque semaine`;
-  meta.textContent = `${calendrier} · ${regle.heure_debut}–${regle.heure_fin}${
-    Number(regle.actif) === 1 ? "" : " · inactive"
-  }`;
-  contenu.append(titre, meta);
-  const actions = document.createElement("div");
-  actions.className = "admin-session-actions";
-  actions.appendChild(
-    creerBoutonSuppressionDisponibilite({
-      texte: "Supprimer",
-      action: async () => {
-        if (!window.confirm("Supprimer cette règle de disponibilité ?")) return;
-        try {
-          await supprimerRegleDisponibilite(regle.id);
-          await chargerDisponibilitesDeclareesSiAutorise();
-          afficherToast("Règle de disponibilité supprimée.", "success");
-        } catch (erreur) {
-          afficherToast(erreur.message, "error");
-        }
-      },
-    })
-  );
-  carte.append(contenu, actions);
-  return carte;
-}
-
-function creerCarteExceptionDisponibilite(exception) {
-  const carte = document.createElement("article");
-  carte.className = "admin-session-item availability-item";
-  const contenu = document.createElement("div");
-  contenu.className = "admin-session-main";
-  const titre = document.createElement("h4");
-  titre.className = "admin-session-title";
-  const intervenant = obtenirIntervenantDisponibilite(exception.intervenant_id);
-  titre.textContent = `${libelleIntervenantDisponibilite(intervenant)} · ${
-    exception.type === "disponible" ? "Ouverture" : "Fermeture"
-  } exceptionnelle`;
-  const meta = document.createElement("div");
-  meta.className = "admin-session-meta";
-  const plage = exception.heure_debut ? ` · ${exception.heure_debut}–${exception.heure_fin}` : "";
-  meta.textContent = `${formatDate(exception.date)}${plage}${
-    exception.raison ? ` · ${exception.raison}` : ""
-  }`;
-  contenu.append(titre, meta);
-  const actions = document.createElement("div");
-  actions.className = "admin-session-actions";
-  actions.appendChild(
-    creerBoutonSuppressionDisponibilite({
-      texte: "Supprimer",
-      action: async () => {
-        if (!window.confirm("Supprimer cette exception ?")) return;
-        try {
-          await supprimerExceptionDisponibilite(exception.id);
-          await chargerDisponibilitesDeclareesSiAutorise();
-          afficherToast("Exception supprimée.", "success");
-        } catch (erreur) {
-          afficherToast(erreur.message, "error");
-        }
-      },
-    })
-  );
-  carte.append(contenu, actions);
-  return carte;
-}
-
-function afficherDisponibilitesDeclarees() {
-  if (!elements.availabilityRulesList || !elements.availabilityExceptionsList) return;
-  remplirIntervenantsDisponibilite();
-  const regles = etat.disponibilitesDeclarees?.regles || [];
-  const exceptions = etat.disponibilitesDeclarees?.exceptions || [];
-  elements.availabilityRulesList.innerHTML = "";
-  elements.availabilityExceptionsList.innerHTML = "";
-  if (regles.length === 0) {
-    elements.availabilityRulesList.appendChild(
-      creerEmptyState("Aucune disponibilité déclarée.", "admin-session-empty")
-    );
-  } else {
-    regles.forEach((regle) => elements.availabilityRulesList.appendChild(creerCarteRegleDisponibilite(regle)));
-  }
-  if (exceptions.length === 0) {
-    elements.availabilityExceptionsList.appendChild(
-      creerEmptyState("Aucune exception déclarée.", "admin-session-empty")
-    );
-  } else {
-    exceptions.forEach((exception) =>
-      elements.availabilityExceptionsList.appendChild(creerCarteExceptionDisponibilite(exception))
-    );
-  }
-  actualiserApercuDisponibilitesCalendrier();
-}
-
-async function chargerDisponibilitesDeclareesSiAutorise() {
-  if (!utilisateurPeutVoirIndisponibilites()) {
-    etat.disponibilitesDeclarees = { regles: [], exceptions: [], intervenants: [] };
-    afficherDisponibilitesDeclarees();
-    return;
-  }
-  try {
-    const resultat = await recupererDisponibilitesDeclarees();
-    etat.disponibilitesDeclarees = {
-      regles: Array.isArray(resultat.regles) ? resultat.regles : [],
-      exceptions: Array.isArray(resultat.exceptions) ? resultat.exceptions : [],
-      intervenants: Array.isArray(resultat.intervenants) ? resultat.intervenants : [],
-    };
-    afficherDisponibilitesDeclarees();
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-    etat.disponibilitesDeclarees = { regles: [], exceptions: [], intervenants: [] };
-    afficherDisponibilitesDeclarees();
-    if (erreur.status !== 403) afficherToast(erreur.message, "error");
-  }
-}
-
-async function gererAjoutRegleDisponibilite(event) {
-  event.preventDefault();
-  if (!utilisateurPeutModifierDonnees()) {
-    afficherToast("Votre compte est en lecture seule.", "warning");
-    return;
-  }
-  const type = elements.availabilityRuleType.value;
-  const donnees = {
-    intervenant_id: Number(elements.availabilityRuleIntervenant.value),
-    type,
-    heure_debut: elements.availabilityRuleStart.value,
-    heure_fin: elements.availabilityRuleEnd.value,
-  };
-  if (type === "ponctuelle") {
-    donnees.date = elements.availabilityRuleDate.value;
-  } else {
-    donnees.jour_semaine = Number(elements.availabilityRuleDay.value);
-  }
-  masquerErreur(elements.availabilityRuleError);
-  if (!intervalleEstDansPlageCalendrierClient(donnees.heure_debut, donnees.heure_fin)) {
-    afficherErreur(elements.availabilityRuleError, messagePlageCalendrierClient());
-    return;
-  }
-  elements.availabilityRuleButton.disabled = true;
-  try {
-    await creerRegleDisponibilite(donnees);
-    await chargerDisponibilitesDeclareesSiAutorise();
-    afficherToast("Disponibilité ajoutée.", "success");
-  } catch (erreur) {
-    afficherErreur(elements.availabilityRuleError, erreur.message);
-  } finally {
-    elements.availabilityRuleButton.disabled = !utilisateurPeutModifierDonnees();
-  }
-}
-
-async function gererAjoutExceptionDisponibilite(event) {
-  event.preventDefault();
-  if (!utilisateurPeutModifierDonnees()) {
-    afficherToast("Votre compte est en lecture seule.", "warning");
-    return;
-  }
-  const heureDebut = elements.availabilityExceptionStart.value;
-  const heureFin = elements.availabilityExceptionEnd.value;
-  const donnees = {
-    intervenant_id: Number(elements.availabilityExceptionIntervenant.value),
-    type: elements.availabilityExceptionType.value,
-    date: elements.availabilityExceptionDate.value,
-    raison: elements.availabilityExceptionReason.value,
-  };
-  if (heureDebut || heureFin) {
-    donnees.heure_debut = heureDebut;
-    donnees.heure_fin = heureFin;
-  }
-  masquerErreur(elements.availabilityExceptionError);
-  if (
-    (heureDebut || heureFin) &&
-    !intervalleEstDansPlageCalendrierClient(heureDebut, heureFin)
-  ) {
-    afficherErreur(elements.availabilityExceptionError, messagePlageCalendrierClient());
-    return;
-  }
-  elements.availabilityExceptionButton.disabled = true;
-  try {
-    await creerExceptionDisponibilite(donnees);
-    await chargerDisponibilitesDeclareesSiAutorise();
-    afficherToast("Exception ajoutée.", "success");
-  } catch (erreur) {
-    afficherErreur(elements.availabilityExceptionError, erreur.message);
-  } finally {
-    elements.availabilityExceptionButton.disabled = !utilisateurPeutModifierDonnees();
-  }
-}
-
-async function chargerPropositionsSeancesSiAutorise() {
-  try {
-    etat.propositionsSeances = await recupererPropositionsSeances();
-    rafraichirEvenementsCalendrier();
-    afficherListeIndisponibilitesAdministration();
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    if (erreur.status === 403) {
-      etat.propositionsSeances = [];
-      etat.propositionEditionId = null;
-      rafraichirEvenementsCalendrier();
-      afficherListeIndisponibilitesAdministration();
-      return;
-    }
-
-    etat.propositionsSeances = [];
-    etat.propositionEditionId = null;
-    rafraichirEvenementsCalendrier();
-    afficherListeIndisponibilitesAdministration();
     afficherToast(erreur.message, "error");
   }
 }
@@ -5481,62 +5025,62 @@ async function chargerHistorique(options = {}) {
   viderDetailHistorique();
 }
 
-async function chargerMonetisationSiAutorise() {
+async function chargerMonetisationSiAutorise({ calculExplicite = false } = {}) {
+  // Les synchronisations automatiques servent à garder la liste des
+  // réalisateurs à jour, mais ne doivent jamais réafficher un ancien relevé.
+  // Seul le submit « Calculer » est autorisé à rendre les résultats visibles.
+  if (!calculExplicite) {
+    masquerResultatsMonetisation();
+  }
+
   if (!utilisateurPeutVoirMonetisation()) {
     etat.monetisation = null;
     viderMonetisation();
-    return;
+    return false;
   }
 
   try {
-    const modeActuel = normaliserModePeriodeMonetisation(etat.monetisationPeriodeMode);
-    synchroniserPeriodeMonetisationAuPresent();
+    normaliserPeriodePersonnaliseeMonetisation();
     etat.monetisation = await recupererMonetisation(
-      modeActuel === "monthly"
+      etat.monetisationGlobales
         ? {
-            mois: etat.monetisationFiltreMoisVue,
+            mode: "global",
+            intervenant_ids: etat.monetisationIntervenantsSelectionnes,
           }
         : {
-            mode: modeActuel,
-            annee: modeActuel === "annual" ? etat.monetisationFiltreAnnee : "",
+            du: etat.monetisationDateDebut,
+            au: etat.monetisationDateFin,
+            intervenant_ids: etat.monetisationIntervenantsSelectionnes,
           }
     );
-    etat.monetisationPeriodeMode = normaliserModePeriodeMonetisation(
-      etat.monetisation?.periode?.mode_selectionne
-    );
-    etat.monetisationFiltreAnnee = etat.monetisation?.periode?.annee_selectionnee
-      ? normaliserFiltreAnneeMonetisation(etat.monetisation.periode.annee_selectionnee)
-      : normaliserFiltreAnneeMonetisation(etat.monetisationFiltreAnnee);
-    etat.monetisationFiltreMoisVue = etat.monetisation?.periode?.mois_selectionne
-      ? normaliserFiltreMoisMonetisation(etat.monetisation.periode.mois_selectionne)
-      : normaliserFiltreMoisMonetisation(etat.monetisationFiltreMoisVue);
-    etat.monetisationFiltreMois = estMoisIsoValide(etat.monetisationFiltreMois)
-      ? etat.monetisationFiltreMois
-      : etat.monetisation?.periode?.mois_selectionne || obtenirMoisCourantIso();
+    synchroniserSelectionIntervenantsMonetisation();
     mettreAJourMonetisation();
+    return true;
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
-      return;
+      return false;
     }
 
     if (erreur.status === 403) {
       etat.monetisation = null;
       viderMonetisation();
       afficherSectionApplication(utilisateurPeutVoirAujourdhui() ? "aujourdhui" : "dashboard");
-      return;
+      return false;
     }
 
     if (erreur.status === 400) {
-      etat.monetisationPeriodeMode = "monthly";
-      etat.monetisationFiltreAnnee = obtenirAnneeCouranteIso();
-      etat.monetisationFiltreMoisVue = obtenirMoisCourantIso();
-      etat.monetisationFiltreMois = obtenirMoisCourantIso();
+      etat.monetisationDateDebut = `${obtenirMoisCourantIso()}-01`;
+      etat.monetisationDateFin = obtenirDateLocaleIso();
+      etat.monetisationGlobales = false;
       etat.monetisation = null;
       viderMonetisation();
     }
 
-    afficherToast(erreur.message, "error");
+    if (calculExplicite) {
+      afficherToast(erreur.message, "error");
+    }
+    return false;
   }
 }
 
@@ -5563,6 +5107,317 @@ function creerCaseEquipe(libelle, cochee, desactivee) {
   return { etiquette, caseACocher };
 }
 
+function normaliserTarificationEquipe(tarification) {
+  const matieres = Array.isArray(tarification?.matieres)
+    ? tarification.matieres.filter((matiere) => Number(matiere?.id) > 0)
+    : [];
+  const realisateurs = Array.isArray(tarification?.realisateurs)
+    ? tarification.realisateurs.filter((realisateur) => Number(realisateur?.id) > 0)
+    : [];
+
+  return { matieres, realisateurs };
+}
+
+function obtenirTarifEquipeParMatiere(realisateur, matiereId) {
+  const tarif = Array.isArray(realisateur?.tarifs_matieres)
+    ? realisateur.tarifs_matieres.find(
+        (element) => Number(element?.matiere_id) === Number(matiereId)
+      )
+    : null;
+  const valeur = tarif?.tarif_horaire;
+  return valeur === null || valeur === undefined || valeur === "" || !Number.isFinite(Number(valeur))
+    ? null
+    : Number(valeur);
+}
+
+function libelleRealisateurTarification(realisateur) {
+  const nom = String(realisateur?.nom || "Réalisateur").trim() || "Réalisateur";
+  return realisateur?.est_handler ? `${nom} (vous)` : nom;
+}
+
+async function actualiserTarificationEtMatieresEquipe() {
+  await Promise.all([chargerEquipeSiAutorise(), chargerOptionsSeancesDisponibles()]);
+}
+
+function creerLigneMatiereEquipe(matiere) {
+  const ligne = document.createElement("div");
+  ligne.className = "team-subject-item";
+
+  const libelle = document.createElement("span");
+  libelle.className = "team-subject-name";
+  libelle.textContent = matiere.libelle;
+  ligne.appendChild(libelle);
+
+  const actions = document.createElement("div");
+  actions.className = "team-subject-actions";
+  const modifiable = utilisateurPeutModifierDonnees();
+
+  const renommer = document.createElement("button");
+  renommer.type = "button";
+  renommer.className = "button secondary team-subject-action";
+  renommer.textContent = "Renommer";
+  renommer.disabled = !modifiable;
+  renommer.addEventListener("click", async () => {
+    if (!utilisateurPeutModifierDonnees()) {
+      afficherToast("Votre compte est en lecture seule.", "warning");
+      return;
+    }
+
+    const nouveauLibelle = window.prompt("Nom de la matière", matiere.libelle);
+    if (nouveauLibelle === null || String(nouveauLibelle).trim() === matiere.libelle) {
+      return;
+    }
+
+    renommer.disabled = true;
+    supprimer.disabled = true;
+    try {
+      const resultat = await modifierMatiereEquipe(matiere.id, nouveauLibelle);
+      await actualiserTarificationEtMatieresEquipe();
+      afficherToast(resultat.message || "Matière mise à jour.", "success");
+    } catch (erreur) {
+      afficherToast(erreur.message, "error");
+      renommer.disabled = !utilisateurPeutModifierDonnees();
+      supprimer.disabled = !utilisateurPeutModifierDonnees();
+    }
+  });
+
+  const supprimer = document.createElement("button");
+  supprimer.type = "button";
+  supprimer.className = "button secondary team-subject-action";
+  supprimer.textContent = "Supprimer";
+  supprimer.disabled = !modifiable;
+  supprimer.addEventListener("click", async () => {
+    if (!utilisateurPeutModifierDonnees()) {
+      afficherToast("Votre compte est en lecture seule.", "warning");
+      return;
+    }
+
+    if (!window.confirm(`Supprimer la matière « ${matiere.libelle} » ?`)) {
+      return;
+    }
+
+    renommer.disabled = true;
+    supprimer.disabled = true;
+    try {
+      const resultat = await supprimerMatiereEquipe(matiere.id);
+      await actualiserTarificationEtMatieresEquipe();
+      afficherToast(resultat.message || "Matière supprimée.", "success");
+    } catch (erreur) {
+      afficherToast(erreur.message, "error");
+      renommer.disabled = !utilisateurPeutModifierDonnees();
+      supprimer.disabled = !utilisateurPeutModifierDonnees();
+    }
+  });
+
+  actions.append(renommer, supprimer);
+  ligne.appendChild(actions);
+  return ligne;
+}
+
+function afficherGestionMatieresEquipe() {
+  const peutVoir = utilisateurPeutVoirEquipe();
+  const peutModifier = peutVoir && utilisateurPeutModifierDonnees();
+  const { matieres, realisateurs } = normaliserTarificationEquipe(etat.tarificationEquipe);
+
+  if (elements.teamSubjectInput) {
+    elements.teamSubjectInput.disabled = !peutModifier;
+  }
+  if (elements.teamSubjectAddButton) {
+    elements.teamSubjectAddButton.disabled = !peutModifier;
+  }
+
+  if (elements.teamSubjectList) {
+    elements.teamSubjectList.innerHTML = "";
+    if (peutVoir && matieres.length === 0) {
+      elements.teamSubjectList.appendChild(
+        creerEmptyState("Aucune matière.", "admin-user-empty")
+      );
+    } else if (peutVoir) {
+      matieres.forEach((matiere) => {
+        elements.teamSubjectList.appendChild(creerLigneMatiereEquipe(matiere));
+      });
+    }
+  }
+
+  if (!elements.teamTarificationTable) {
+    return;
+  }
+
+  elements.teamTarificationTable.innerHTML = "";
+  const peutConfigurerTarifs = peutModifier && matieres.length > 0 && realisateurs.length > 0;
+  if (elements.teamTarificationSaveButton) {
+    elements.teamTarificationSaveButton.disabled = !peutConfigurerTarifs;
+  }
+
+  if (!peutVoir || matieres.length === 0) {
+    if (peutVoir) {
+      elements.teamTarificationTable.appendChild(
+        creerEmptyState("Ajoutez une matière pour définir les tarifs.", "admin-user-empty")
+      );
+    }
+    return;
+  }
+
+  if (realisateurs.length === 0) {
+    elements.teamTarificationTable.appendChild(
+      creerEmptyState("Aucun réalisateur disponible.", "admin-user-empty")
+    );
+    return;
+  }
+
+  const tableau = document.createElement("table");
+  tableau.className = "team-tarification-table";
+  const entete = document.createElement("thead");
+  const ligneEntete = document.createElement("tr");
+  const celluleMatiere = document.createElement("th");
+  celluleMatiere.scope = "col";
+  celluleMatiere.textContent = "Matière";
+  ligneEntete.appendChild(celluleMatiere);
+
+  realisateurs.forEach((realisateur) => {
+    const cellule = document.createElement("th");
+    cellule.scope = "col";
+    cellule.textContent = libelleRealisateurTarification(realisateur);
+    if (realisateur.est_handler) {
+      cellule.classList.add("team-tarification-handler");
+    }
+    ligneEntete.appendChild(cellule);
+  });
+  entete.appendChild(ligneEntete);
+
+  const corps = document.createElement("tbody");
+  matieres.forEach((matiere) => {
+    const ligne = document.createElement("tr");
+    const celluleMatiere = document.createElement("th");
+    celluleMatiere.scope = "row";
+    celluleMatiere.textContent = matiere.libelle;
+    ligne.appendChild(celluleMatiere);
+
+    realisateurs.forEach((realisateur) => {
+      const cellule = document.createElement("td");
+      const saisie = document.createElement("input");
+      const tarif = obtenirTarifEquipeParMatiere(realisateur, matiere.id);
+      saisie.type = "number";
+      saisie.min = "0";
+      saisie.max = "100000";
+      saisie.step = "1";
+      saisie.inputMode = "numeric";
+      saisie.placeholder = "—";
+      saisie.value = tarif === null ? "" : String(tarif);
+      saisie.dataset.tarifIntervenantId = String(realisateur.id);
+      saisie.dataset.tarifMatiereId = String(matiere.id);
+      saisie.setAttribute(
+        "aria-label",
+        `Tarif horaire de ${libelleRealisateurTarification(realisateur)} en ${matiere.libelle}`
+      );
+      saisie.disabled =
+        !peutModifier || realisateur.actif === false || Number(realisateur.actif) === 0;
+      cellule.append(saisie, document.createTextNode(" dh"));
+      ligne.appendChild(cellule);
+    });
+    corps.appendChild(ligne);
+  });
+
+  tableau.append(entete, corps);
+  elements.teamTarificationTable.appendChild(tableau);
+}
+
+async function gererAjoutMatiereEquipe(event) {
+  event.preventDefault();
+  if (!utilisateurPeutModifierDonnees()) {
+    afficherToast("Votre compte est en lecture seule.", "warning");
+    return;
+  }
+
+  const libelle = String(elements.teamSubjectInput?.value || "").trim();
+  if (!libelle) {
+    elements.teamSubjectInput?.focus();
+    return;
+  }
+
+  if (elements.teamSubjectAddButton) {
+    elements.teamSubjectAddButton.disabled = true;
+  }
+  try {
+    const resultat = await ajouterMatiereEquipe(libelle);
+    if (elements.teamSubjectInput) {
+      elements.teamSubjectInput.value = "";
+    }
+    await actualiserTarificationEtMatieresEquipe();
+    afficherToast(resultat.message || "Matière ajoutée.", "success");
+  } catch (erreur) {
+    afficherToast(erreur.message, "error");
+  } finally {
+    if (elements.teamSubjectAddButton) {
+      elements.teamSubjectAddButton.disabled = !utilisateurPeutModifierDonnees();
+    }
+  }
+}
+
+function collecterTarifsEquipeFormulaire() {
+  if (!elements.teamTarificationTable) {
+    return [];
+  }
+
+  const tarifs = [];
+  const saisies = elements.teamTarificationTable.querySelectorAll(
+    "input[data-tarif-intervenant-id][data-tarif-matiere-id]"
+  );
+  for (const saisie of saisies) {
+    if (saisie.disabled) {
+      continue;
+    }
+
+    const valeur = String(saisie.value || "").trim();
+    if (valeur && (!Number.isInteger(Number(valeur)) || Number(valeur) < 0 || Number(valeur) > 100000)) {
+      saisie.focus();
+      throw new Error("Chaque tarif doit être un entier entre 0 et 100000 dh.");
+    }
+
+    tarifs.push({
+      intervenant_id: Number(saisie.dataset.tarifIntervenantId),
+      matiere_id: Number(saisie.dataset.tarifMatiereId),
+      tarif_horaire: valeur === "" ? null : Number(valeur),
+    });
+  }
+  return tarifs;
+}
+
+async function gererEnregistrementTarificationEquipe(event) {
+  event.preventDefault();
+  if (!utilisateurPeutModifierDonnees()) {
+    afficherToast("Votre compte est en lecture seule.", "warning");
+    return;
+  }
+
+  let tarifs;
+  try {
+    tarifs = collecterTarifsEquipeFormulaire();
+  } catch (erreur) {
+    afficherToast(erreur.message, "error");
+    return;
+  }
+
+  if (tarifs.length === 0) {
+    return;
+  }
+
+  if (elements.teamTarificationSaveButton) {
+    elements.teamTarificationSaveButton.disabled = true;
+  }
+  try {
+    const resultat = await modifierTarificationEquipe(tarifs);
+    etat.tarificationEquipe = normaliserTarificationEquipe(resultat.tarification);
+    afficherEquipe();
+    afficherToast(resultat.message || "Tarifs par matière enregistrés.", "success");
+  } catch (erreur) {
+    afficherToast(erreur.message, "error");
+    if (elements.teamTarificationSaveButton) {
+      elements.teamTarificationSaveButton.disabled = !utilisateurPeutModifierDonnees();
+    }
+  }
+}
+
 function creerCarteProfesseurEquipe(professeur) {
   const carte = document.createElement("article");
   carte.className = "admin-user-row team-member-card";
@@ -5574,10 +5429,9 @@ function creerCarteProfesseurEquipe(professeur) {
   const nom = document.createElement("h4");
   nom.className = "admin-user-name";
   nom.textContent = professeur.nom || "Professeur";
-  const meta = document.createElement("div");
-  meta.className = "admin-user-email";
-  meta.textContent = `${professeur.public_id || "PR"} · ${professeur.email || ""}`;
-  identite.append(nom, meta);
+  // IDs and email addresses are deliberately not rendered in the team list.
+  // They remain internal API identifiers used only by the action handlers.
+  identite.append(nom);
   const badges = document.createElement("div");
   badges.className = "admin-user-badges";
   badges.append(
@@ -5592,23 +5446,6 @@ function creerCarteProfesseurEquipe(professeur) {
   const modifiable = utilisateurPeutModifierDonnees();
   const formulaire = document.createElement("form");
   formulaire.className = "team-member-form";
-  const tarif = document.createElement("input");
-  tarif.type = "number";
-  tarif.min = "0";
-  tarif.max = "100000";
-  tarif.step = "1";
-  tarif.value = String(Number(professeur.tarif_horaire) || 0);
-  tarif.disabled = !modifiable;
-  ajouterChampEquipe(formulaire, { libelle: "Tarif horaire (dh)", controle: tarif });
-
-  const couleur = document.createElement("input");
-  couleur.type = "color";
-  couleur.value = /^#[0-9a-f]{6}$/i.test(professeur.couleur_calendrier || "")
-    ? professeur.couleur_calendrier
-    : "#2563eb";
-  couleur.disabled = !modifiable;
-  ajouterChampEquipe(formulaire, { libelle: "Couleur calendrier", controle: couleur });
-
   const statut = document.createElement("select");
   [
     ["active", "Actif"],
@@ -5623,26 +5460,6 @@ function creerCarteProfesseurEquipe(professeur) {
   statut.disabled = !modifiable;
   ajouterChampEquipe(formulaire, { libelle: "État du compte", controle: statut });
 
-  const permissions = document.createElement("div");
-  permissions.className = "checkbox-options team-permissions";
-  const monetisation = creerCaseEquipe(
-    "Monétisation",
-    professeur.permissions?.monetisation,
-    !modifiable
-  );
-  const aujourdhui = creerCaseEquipe(
-    "Aujourd’hui",
-    professeur.permissions?.aujourdhui,
-    !modifiable
-  );
-  const disponibilites = creerCaseEquipe(
-    "Disponibilités",
-    professeur.permissions?.disponibilites,
-    !modifiable
-  );
-  permissions.append(monetisation.etiquette, aujourdhui.etiquette, disponibilites.etiquette);
-  formulaire.appendChild(permissions);
-
   const actions = document.createElement("div");
   actions.className = "form-actions team-actions";
   const enregistrer = document.createElement("button");
@@ -5653,7 +5470,7 @@ function creerCarteProfesseurEquipe(professeur) {
   const reset = document.createElement("button");
   reset.type = "button";
   reset.className = "button secondary";
-  reset.textContent = "Envoyer un lien MDP";
+  reset.textContent = "Reset password";
   reset.disabled = !modifiable || professeur.statut_compte !== "active";
   actions.append(enregistrer, reset);
   formulaire.appendChild(actions);
@@ -5667,12 +5484,7 @@ function creerCarteProfesseurEquipe(professeur) {
     enregistrer.disabled = true;
     try {
       await modifierProfesseurEquipe(professeur.id, {
-        tarif_horaire: Number(tarif.value),
-        couleur_calendrier: couleur.value,
         statut_compte: statut.value,
-        peut_voir_monetisation: monetisation.caseACocher.checked,
-        peut_voir_aujourdhui: aujourdhui.caseACocher.checked,
-        peut_voir_indisponibilites: disponibilites.caseACocher.checked,
       });
       await chargerEquipeSiAutorise();
       afficherToast("Professeur mis à jour.", "success");
@@ -5684,13 +5496,13 @@ function creerCarteProfesseurEquipe(professeur) {
   });
 
   reset.addEventListener("click", async () => {
-    if (!window.confirm(`Envoyer un lien de réinitialisation à ${professeur.nom} ?`)) {
+    if (!window.confirm(`Réinitialiser le mot de passe de ${professeur.nom} ?`)) {
       return;
     }
     reset.disabled = true;
     try {
       const resultat = await envoyerLienResetProfesseur(professeur.id);
-      afficherToast(resultat.message || "Lien de réinitialisation préparé.", "success");
+      afficherToast(resultat.message || "Réinitialisation du mot de passe demandée.", "success");
     } catch (erreur) {
       afficherToast(erreur.message, "error");
     } finally {
@@ -5713,6 +5525,9 @@ function creerCarteDemandeEquipe(demande) {
   const meta = document.createElement("div");
   meta.className = "admin-user-email";
   meta.textContent = `${demande.email || ""} · ${demande.handler_public_id || ""}`;
+  if (demande.type_demande === "rattachement") {
+    meta.textContent = `${demande.email || ""} · ${demande.public_id || ""} · ${demande.description || ""}`;
+  }
   contenu.append(nom, meta);
   const actions = document.createElement("div");
   actions.className = "admin-user-actions";
@@ -5731,7 +5546,9 @@ function creerCarteDemandeEquipe(demande) {
     approuver.disabled = true;
     refuser.disabled = true;
     try {
-      const resultat = await approuverDemandeCompte(demande.id);
+      const resultat = demande.type_demande === "rattachement"
+        ? await envoyerRequete(`/api/team-memberships/requests/${Number(demande.id)}/approve`, { method: "POST" })
+        : await approuverDemandeCompte(demande.id);
       await chargerEquipeSiAutorise();
       afficherToast(resultat.message || "Demande approuvée.", "success");
     } catch (erreur) {
@@ -5747,7 +5564,9 @@ function creerCarteDemandeEquipe(demande) {
     approuver.disabled = true;
     refuser.disabled = true;
     try {
-      const resultat = await refuserDemandeCompte(demande.id);
+      const resultat = demande.type_demande === "rattachement"
+        ? await envoyerRequete(`/api/team-memberships/requests/${Number(demande.id)}/reject`, { method: "POST" })
+        : await refuserDemandeCompte(demande.id);
       await chargerEquipeSiAutorise();
       afficherToast(resultat.message || "Demande refusée.", "success");
     } catch (erreur) {
@@ -5767,9 +5586,10 @@ function afficherEquipe() {
   }
   elements.teamList.innerHTML = "";
   elements.teamPendingRequests.innerHTML = "";
+  mettreAJourBadge(elements.teamRequestBadge, etat.demandesEquipe.length);
 
   if (!utilisateurPeutVoirEquipe()) {
-    actualiserApercuDisponibilitesCalendrier();
+    afficherGestionMatieresEquipe();
     return;
   }
   if (etat.demandesEquipe.length === 0) {
@@ -5789,7 +5609,8 @@ function afficherEquipe() {
       elements.teamList.appendChild(creerCarteProfesseurEquipe(professeur));
     });
   }
-  actualiserApercuDisponibilitesCalendrier();
+
+  afficherGestionMatieresEquipe();
 }
 
 function creerCarteDemandeAdministration(demande) {
@@ -5867,6 +5688,7 @@ function afficherDemandesAdministration() {
   const demandes = Array.isArray(etat.demandesAdministration)
     ? etat.demandesAdministration
     : [];
+  mettreAJourBadge(elements.adminRequestBadge, demandes.length);
 
   if (demandes.length === 0) {
     elements.adminAccountRequestsList.appendChild(
@@ -5883,26 +5705,45 @@ function afficherDemandesAdministration() {
 async function chargerEquipeSiAutorise() {
   if (!utilisateurPeutVoirEquipe()) {
     etat.equipe = [];
+    etat.tarificationEquipe = { matieres: [], realisateurs: [] };
     etat.demandesEquipe = [];
     afficherEquipe();
+    if (utilisateurEstHandler()) {
+      rafraichirEvenementsCalendrier();
+    }
     return;
   }
   try {
-    const [equipe, demandesEquipe] = await Promise.all([
+    const [equipe, demandesEquipe, tarificationEquipe, rattachements] = await Promise.all([
       recupererProfesseursEquipe(),
       recupererDemandesCompte(),
+      recupererTarificationEquipe(),
+      envoyerRequete("/api/team-memberships/requests/received"),
     ]);
     etat.equipe = equipe;
-    etat.demandesEquipe = demandesEquipe;
+    etat.tarificationEquipe = normaliserTarificationEquipe(tarificationEquipe);
+    etat.demandesEquipe = [
+      ...demandesEquipe,
+      ...(Array.isArray(rattachements.demandes)
+        ? rattachements.demandes.map((demande) => ({ ...demande, type_demande: "rattachement" }))
+        : []),
+    ];
     afficherEquipe();
+    if (utilisateurEstHandler()) {
+      rafraichirEvenementsCalendrier();
+    }
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
       return;
     }
     etat.equipe = [];
+    etat.tarificationEquipe = { matieres: [], realisateurs: [] };
     etat.demandesEquipe = [];
     afficherEquipe();
+    if (utilisateurEstHandler()) {
+      rafraichirEvenementsCalendrier();
+    }
     if (erreur.status !== 403) {
       afficherToast(erreur.message, "error");
     }
@@ -5928,12 +5769,12 @@ async function chargerAdministrationSiAutorise() {
       etat.catalogue = {
         matieres: normaliserListeCatalogue(etat.administration.catalogue.matieres),
         comptes: normaliserListeCatalogue(etat.administration.catalogue.comptes),
+        intervenants: etat.catalogue?.intervenants || [],
       };
       rendreOptionsCatalogueSeance();
     }
     mettreAJourPanneauAdministration();
     afficherDemandesAdministration();
-    afficherListeIndisponibilitesAdministration();
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -6092,6 +5933,7 @@ async function chargerOptionsSeancesDisponibles() {
     etat.catalogue = {
       matieres: normaliserListeCatalogue(options?.matieres),
       comptes: normaliserListeCatalogue(options?.comptes),
+      intervenants: normaliserIntervenantsSeance(options?.intervenants),
     };
     rendreOptionsCatalogueSeance();
   } catch (erreur) {
@@ -6127,28 +5969,18 @@ function viderAdministration() {
     '<div class="admin-session-empty">Aucun log disponible.</div>';
   elements.adminBlockedIpsList.innerHTML =
     '<div class="admin-session-empty">Aucune IP bloquée.</div>';
-  elements.adminAccountList.innerHTML =
-    '<div class="admin-user-empty">Aucun compte disponible.</div>';
-  elements.adminUnavailabilityList.innerHTML =
-    '<div class="admin-session-empty">Aucune proposition en attente.</div>';
-  masquerInfo(elements.adminCreateUserResult);
-  masquerInfo(elements.adminResetPasswordResult);
   masquerErreur(elements.adminTrustedDeviceError);
-  masquerErreur(elements.adminRateError);
   elements.adminUnavailabilityForm?.classList.toggle(
     "hidden",
     !utilisateurPeutGererIndisponibilites()
   );
 
   [
-    elements.adminDeleteUserId,
-    elements.adminResetUserId,
     elements.adminAccessUserId,
     elements.adminReadonlyUserId,
     elements.adminTodayUserId,
     elements.adminUnavailabilityAccessUserId,
     elements.adminMonetisationUserId,
-    elements.adminRateUserId,
     elements.adminLogoutUserId,
   ].forEach((select) => {
     if (select) {
@@ -6162,27 +5994,18 @@ function viderAdministration() {
   elements.adminTodayStatus.textContent = "-";
   elements.adminUnavailabilityAccessStatus.textContent = "-";
   elements.adminMonetisationStatus.textContent = "-";
-  elements.adminRateStatus.textContent = "-";
-  elements.adminDeleteUserButton.textContent = "Supprimer l'utilisateur";
   elements.adminToggleAccessButton.textContent = "Mettre à jour l'accès";
   elements.adminReadonlyButton.textContent = "Mettre à jour le mode";
   elements.adminTodayButton.textContent = "Mettre à jour Aujourd'hui";
   elements.adminUnavailabilityAccessButton.textContent = "Mettre à jour Indisponibilités";
   elements.adminMonetisationButton.textContent = "Mettre à jour Monétisation";
-  elements.adminRateButton.textContent = "Mettre à jour le tarif";
   elements.adminLogoutUserButton.textContent = "Couper les sessions";
-  elements.adminDeleteUserButton.disabled = true;
   elements.adminToggleAccessButton.disabled = true;
   elements.adminReadonlyButton.disabled = true;
   elements.adminTodayButton.disabled = true;
   elements.adminUnavailabilityAccessButton.disabled = true;
   elements.adminMonetisationButton.disabled = true;
-  elements.adminRateButton.disabled = true;
   elements.adminLogoutUserButton.disabled = true;
-  if (elements.adminRateValue) {
-    elements.adminRateValue.value = "";
-    elements.adminRateValue.dataset.boundAccountId = "";
-  }
   if (elements.adminBlockIpButton) {
     elements.adminBlockIpButton.disabled = false;
     elements.adminBlockIpButton.textContent = "Bloquer l'IP";
@@ -6598,25 +6421,6 @@ function normaliserNomCompte(compte) {
   return String(compte || "").trim();
 }
 
-function calculerStatistiquesCompte(compteRecherche) {
-  const seancesDuCompte = obtenirSeancesPourStatistiques().filter(
-    (seance) => normaliserNomCompte(seance.compte) === compteRecherche
-  );
-  const seancesFaites = seancesDuCompte.filter(
-    (seance) => seance.statut_seance === "faite"
-  );
-
-  return {
-    total: seancesDuCompte.length,
-    planifiees: seancesDuCompte.filter((seance) => seance.statut_seance === "planifiee").length,
-    faites: seancesFaites.length,
-    faitesEssai: seancesFaites.filter((seance) => Boolean(seance.est_essai)).length,
-    faitesRegulieres: seancesFaites.filter((seance) => !Boolean(seance.est_essai)).length,
-    reportees: seancesDuCompte.filter((seance) => seance.statut_seance === "reportee").length,
-    annulees: seancesDuCompte.filter((seance) => seance.statut_seance === "annulee").length,
-  };
-}
-
 function formaterMontantDh(montant) {
   const montantNormalise = Number(montant);
 
@@ -6629,6 +6433,37 @@ function formaterMontantDh(montant) {
     : { minimumFractionDigits: 2, maximumFractionDigits: 2 };
 
   return `${new Intl.NumberFormat("fr-FR", options).format(montantNormalise)} dh`;
+}
+
+function normaliserTarifsHorairesMonetisation(source = {}) {
+  // Une liste vide est significative : aucun tarif n'a été appliqué sur la
+  // période. Pour les anciennes réponses API qui ne possèdent pas encore la
+  // liste, on conserve le tarif unitaire historique comme solution de repli.
+  const tarifsBruts = Array.isArray(source?.tarifs_horaires)
+    ? source.tarifs_horaires
+    : [source?.tarif_unitaire];
+
+  return Array.from(
+    new Set(
+      tarifsBruts.flatMap((valeur) => {
+        if (
+          valeur === null ||
+          valeur === undefined ||
+          (typeof valeur === "string" && valeur.trim() === "")
+        ) {
+          return [];
+        }
+
+        const tarif = Number(valeur);
+        return Number.isFinite(tarif) && tarif >= 0 ? [tarif] : [];
+      })
+    )
+  ).sort((premierTarif, secondTarif) => premierTarif - secondTarif);
+}
+
+function formaterTarifsAppliquesMonetisation(source = {}) {
+  const tarifs = normaliserTarifsHorairesMonetisation(source);
+  return tarifs.length ? tarifs.map(formaterMontantDh).join(" · ") : "—";
 }
 
 function creerEmptyState(message, className = "empty-state") {
@@ -6647,6 +6482,7 @@ function obtenirStatistiquesMonetisationCompte(nomCompte) {
 
   return {
     tarif_unitaire: 0,
+    tarifs_horaires: [],
     seances_facturables: 0,
     seances_essai_faites: 0,
     montant_du: 0,
@@ -6805,6 +6641,8 @@ function mettreAJourControlesPeriodeMonetisation() {
 function mettreAJourEtatExportMonetisation() {
   const comptesSelectionnes = obtenirComptesMonetisationSelectionnes();
   const configurationReleve = obtenirConfigurationReleveMonetisation();
+  const resultatsVisibles =
+    etat.monetisationResultatsVisibles === true && Boolean(etat.monetisation);
 
   if (elements.monetisationDownloadStatementButton) {
     if (elements.monetisationDownloadStatementButton.dataset.loading !== "true") {
@@ -6812,7 +6650,10 @@ function mettreAJourEtatExportMonetisation() {
     }
 
     elements.monetisationDownloadStatementButton.disabled =
-      !configurationReleve.periodeValide || comptesSelectionnes.length === 0;
+      !resultatsVisibles ||
+      !configurationReleve.periodeValide ||
+      comptesSelectionnes.length === 0;
+    elements.monetisationDownloadStatementButton.hidden = !resultatsVisibles;
   }
 }
 
@@ -6881,6 +6722,300 @@ function afficherSelectionComptesMonetisation() {
 
   elements.monetisationReportAccountsSection.classList.remove("hidden");
   mettreAJourEtatExportMonetisation();
+}
+
+function estDateIsoMonetisationValide(valeur) {
+  const texte = String(valeur || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(texte) && !Number.isNaN(new Date(`${texte}T12:00:00`).getTime());
+}
+
+function normaliserPeriodePersonnaliseeMonetisation() {
+  const aujourdHui = obtenirDateLocaleIso();
+  const debutParDefaut = `${obtenirMoisCourantIso()}-01`;
+
+  if (!estDateIsoMonetisationValide(etat.monetisationDateDebut)) {
+    etat.monetisationDateDebut = debutParDefaut;
+  }
+
+  if (!estDateIsoMonetisationValide(etat.monetisationDateFin)) {
+    etat.monetisationDateFin = aujourdHui;
+  }
+
+  if (etat.monetisationDateFin > aujourdHui) {
+    etat.monetisationDateFin = aujourdHui;
+  }
+}
+
+function synchroniserModeGlobalMonetisation() {
+  const modeGlobal = etat.monetisationGlobales === true;
+
+  if (elements.monetisationGlobalToggle) {
+    elements.monetisationGlobalToggle.checked = modeGlobal;
+  }
+
+  [elements.monetisationDateStart, elements.monetisationDateEnd].forEach((champ) => {
+    if (!champ) {
+      return;
+    }
+
+    champ.disabled = modeGlobal;
+    champ.required = !modeGlobal;
+  });
+}
+
+function obtenirIntervenantsMonetisationDisponibles() {
+  const intervenants = Array.isArray(etat.monetisation?.intervenants_disponibles)
+    ? etat.monetisation.intervenants_disponibles
+    : [];
+  const vus = new Set();
+
+  return intervenants
+    .map((intervenant) => ({
+      id: Number(intervenant?.intervenant_id),
+      nom: String(intervenant?.nom || "").trim(),
+    }))
+    .filter(({ id, nom }) => Number.isInteger(id) && id > 0 && nom && !vus.has(id) && vus.add(id))
+    .sort((premier, second) => premier.nom.localeCompare(second.nom, "fr") || premier.id - second.id);
+}
+
+function synchroniserSelectionIntervenantsMonetisation() {
+  const disponibles = obtenirIntervenantsMonetisationDisponibles();
+  const idsDisponibles = new Set(disponibles.map((intervenant) => intervenant.id));
+
+  if (!etat.monetisationSelectionInitialisee) {
+    etat.monetisationIntervenantsSelectionnes = [...idsDisponibles];
+    etat.monetisationSelectionInitialisee = true;
+    return;
+  }
+
+  const selection = new Set(
+    etat.monetisationIntervenantsSelectionnes
+      .map((intervenantId) => Number(intervenantId))
+      .filter((intervenantId) => idsDisponibles.has(intervenantId))
+  );
+  etat.monetisationIntervenantsSelectionnes = disponibles
+    .map((intervenant) => intervenant.id)
+    .filter((intervenantId) => selection.has(intervenantId));
+}
+
+function obtenirIntervenantsMonetisationSelectionnes() {
+  const disponibles = obtenirIntervenantsMonetisationDisponibles();
+  const selection = new Set(
+    etat.monetisationIntervenantsSelectionnes.map((intervenantId) => Number(intervenantId))
+  );
+  return disponibles
+    .map((intervenant) => intervenant.id)
+    .filter((intervenantId) => selection.has(intervenantId));
+}
+
+function mettreAJourLibellesSelectionIntervenantsMonetisation(disponibles, selection) {
+  const nombreSelectionnes = disponibles.filter((intervenant) => selection.has(intervenant.id)).length;
+
+  if (elements.monetisationReportAccountsNote) {
+    elements.monetisationReportAccountsNote.textContent = disponibles.length
+      ? `${nombreSelectionnes} réalisateur(s) sélectionné(s).`
+      : "Aucun réalisateur n'est disponible dans votre périmètre.";
+  }
+
+  if (elements.monetisationReportAccountsSummary) {
+    elements.monetisationReportAccountsSummary.textContent = disponibles.length
+      ? nombreSelectionnes > 0
+        ? `${nombreSelectionnes} réalisateur(s) sélectionné(s)`
+        : "Choisir les réalisateurs"
+      : "Aucun réalisateur disponible";
+  }
+}
+
+function mettreAJourFormulaireMonetisation() {
+  normaliserPeriodePersonnaliseeMonetisation();
+
+  if (elements.monetisationDateStart) {
+    elements.monetisationDateStart.value = etat.monetisationDateDebut;
+    elements.monetisationDateStart.max = obtenirDateLocaleIso();
+  }
+
+  if (elements.monetisationDateEnd) {
+    elements.monetisationDateEnd.value = etat.monetisationDateFin;
+    elements.monetisationDateEnd.max = obtenirDateLocaleIso();
+  }
+
+  synchroniserModeGlobalMonetisation();
+}
+
+function mettreAJourEtatExportMonetisationPersonnalise() {
+  const intervenantsSelectionnes = obtenirIntervenantsMonetisationSelectionnes();
+  const periodeValide =
+    etat.monetisationGlobales === true ||
+    (estDateIsoMonetisationValide(etat.monetisationDateDebut) &&
+      estDateIsoMonetisationValide(etat.monetisationDateFin) &&
+      etat.monetisationDateDebut <= etat.monetisationDateFin);
+
+  if (elements.monetisationDownloadStatementButton?.dataset.loading !== "true") {
+    elements.monetisationDownloadStatementButton.textContent = etat.monetisationGlobales
+      ? "Télécharger le relevé global"
+      : "Télécharger le relevé";
+  }
+
+  if (elements.monetisationDownloadStatementButton) {
+    elements.monetisationDownloadStatementButton.disabled =
+      !etat.monetisationResultatsVisibles ||
+      !etat.monetisation ||
+      !periodeValide ||
+      intervenantsSelectionnes.length === 0;
+  }
+}
+
+function mettreAJourVisibiliteResultatsMonetisation() {
+  const resultatsVisibles =
+    etat.monetisationResultatsVisibles === true && Boolean(etat.monetisation);
+
+  if (elements.monetisationResults) {
+    elements.monetisationResults.classList.toggle("hidden", !resultatsVisibles);
+    elements.monetisationResults.hidden = !resultatsVisibles;
+    elements.monetisationResults.toggleAttribute("inert", !resultatsVisibles);
+  }
+
+  if (elements.monetisationDownloadStatementButton) {
+    elements.monetisationDownloadStatementButton.hidden = !resultatsVisibles;
+    if (!resultatsVisibles) {
+      elements.monetisationDownloadStatementButton.disabled = true;
+    }
+  }
+}
+
+function masquerResultatsMonetisation() {
+  etat.monetisationResultatsVisibles = false;
+  mettreAJourVisibiliteResultatsMonetisation();
+}
+
+function afficherSelectionIntervenantsMonetisation() {
+  if (!elements.monetisationReportAccounts) {
+    return;
+  }
+
+  const disponibles = obtenirIntervenantsMonetisationDisponibles();
+  const selection = new Set(obtenirIntervenantsMonetisationSelectionnes());
+  const selecteur = elements.monetisationReportAccounts;
+  selecteur.replaceChildren();
+  selecteur.setAttribute("aria-disabled", disponibles.length === 0 ? "true" : "false");
+
+  if (disponibles.length === 0) {
+    const messageVide = document.createElement("p");
+    messageVide.className = "monetisation-report-accounts-empty";
+    messageVide.textContent = "Aucun réalisateur disponible";
+    selecteur.appendChild(messageVide);
+  } else {
+    disponibles.forEach((intervenant) => {
+      const option = document.createElement("label");
+      option.className = "monetisation-report-account-option";
+
+      const caseACocher = document.createElement("input");
+      caseACocher.type = "checkbox";
+      caseACocher.name = "monetisation-intervenants";
+      caseACocher.value = String(intervenant.id);
+      caseACocher.checked = selection.has(intervenant.id);
+      caseACocher.addEventListener("change", () => {
+        const prochaineSelection = new Set(
+          Array.from(selecteur.querySelectorAll('input[name="monetisation-intervenants"]:checked'))
+            .map((caseSelectionnee) => Number(caseSelectionnee.value))
+            .filter((intervenantId) => Number.isInteger(intervenantId) && intervenantId > 0)
+        );
+        etat.monetisationIntervenantsSelectionnes = disponibles
+          .map((realisateur) => realisateur.id)
+          .filter((intervenantId) => prochaineSelection.has(intervenantId));
+        etat.monetisationSelectionInitialisee = true;
+
+        const selectionMiseAJour = new Set(obtenirIntervenantsMonetisationSelectionnes());
+        mettreAJourLibellesSelectionIntervenantsMonetisation(disponibles, selectionMiseAJour);
+        masquerResultatsMonetisation();
+        mettreAJourEtatExportMonetisationPersonnalise();
+      });
+
+      const texte = document.createElement("span");
+      // Les identifiants servent seulement au transport interne : le libellé
+      // visible reste strictement le nom du réalisateur.
+      texte.textContent = intervenant.nom;
+
+      option.append(caseACocher, texte);
+      selecteur.appendChild(option);
+    });
+  }
+
+  mettreAJourLibellesSelectionIntervenantsMonetisation(disponibles, selection);
+
+  elements.monetisationReportAccountsSection?.classList.remove("hidden");
+  mettreAJourEtatExportMonetisationPersonnalise();
+}
+
+function gererChangementFiltreMonetisation() {
+  etat.monetisationDateDebut = String(elements.monetisationDateStart?.value || "").trim();
+  etat.monetisationDateFin = String(elements.monetisationDateEnd?.value || "").trim();
+  masquerErreur(elements.monetisationFilterError);
+  masquerResultatsMonetisation();
+  mettreAJourEtatExportMonetisationPersonnalise();
+}
+
+function gererChangementModeMonetisationGlobales() {
+  etat.monetisationGlobales = Boolean(elements.monetisationGlobalToggle?.checked);
+  masquerErreur(elements.monetisationFilterError);
+  synchroniserModeGlobalMonetisation();
+  masquerResultatsMonetisation();
+  mettreAJourEtatExportMonetisationPersonnalise();
+}
+
+async function gererCalculMonetisation(event) {
+  event.preventDefault();
+  masquerErreur(elements.monetisationFilterError);
+  const globale = Boolean(elements.monetisationGlobalToggle?.checked);
+  const dateDebut = String(elements.monetisationDateStart?.value || "").trim();
+  const dateFin = String(elements.monetisationDateEnd?.value || "").trim();
+
+  if (!globale) {
+    if (!estDateIsoMonetisationValide(dateDebut) || !estDateIsoMonetisationValide(dateFin)) {
+      afficherErreur(elements.monetisationFilterError, "Saisissez une date de début et une date de fin valides.");
+      return;
+    }
+
+    if (dateDebut > dateFin) {
+      afficherErreur(elements.monetisationFilterError, "La date de début doit précéder la date de fin.");
+      return;
+    }
+
+    if (dateFin > obtenirDateLocaleIso()) {
+      afficherErreur(elements.monetisationFilterError, "La date de fin ne peut pas être dans le futur.");
+      return;
+    }
+  }
+
+  if (obtenirIntervenantsMonetisationSelectionnes().length === 0) {
+    afficherErreur(elements.monetisationFilterError, "Sélectionnez au moins un réalisateur.");
+    return;
+  }
+
+  etat.monetisationGlobales = globale;
+  if (!globale) {
+    etat.monetisationDateDebut = dateDebut;
+    etat.monetisationDateFin = dateFin;
+  }
+  masquerResultatsMonetisation();
+  if (elements.monetisationCalculateButton) {
+    elements.monetisationCalculateButton.disabled = true;
+    elements.monetisationCalculateButton.textContent = "Calcul...";
+  }
+
+  try {
+    const calculEffectue = await chargerMonetisationSiAutorise({ calculExplicite: true });
+    if (calculEffectue) {
+      etat.monetisationResultatsVisibles = true;
+      mettreAJourVisibiliteResultatsMonetisation();
+      mettreAJourEtatExportMonetisationPersonnalise();
+    }
+  } finally {
+    if (elements.monetisationCalculateButton) {
+      elements.monetisationCalculateButton.disabled = false;
+      elements.monetisationCalculateButton.textContent = "Calculer";
+    }
+  }
 }
 
 async function gererClicModePeriodeMonetisation(event) {
@@ -6966,21 +7101,32 @@ async function naviguerPeriodeMonetisation(direction) {
 }
 
 async function gererTelechargementReleveMonetisation() {
-  const comptesSelectionnes = obtenirComptesMonetisationSelectionnes();
-  const configurationReleve = obtenirConfigurationReleveMonetisation();
+  if (!etat.monetisationResultatsVisibles || !etat.monetisation) {
+    afficherToast("Calculez la monétisation avant de télécharger le relevé.", "warning");
+    return;
+  }
 
-  if (!configurationReleve.periodeValide) {
+  const globale = etat.monetisationGlobales === true;
+  const intervenantsSelectionnes = obtenirIntervenantsMonetisationSelectionnes();
+  const periodeValide =
+    globale ||
+    (estDateIsoMonetisationValide(etat.monetisationDateDebut) &&
+      estDateIsoMonetisationValide(etat.monetisationDateFin) &&
+      etat.monetisationDateDebut <= etat.monetisationDateFin);
+
+  if (!periodeValide) {
     afficherToast("Sélectionnez une période valide pour télécharger le relevé.", "warning");
     return;
   }
 
-  if (comptesSelectionnes.length === 0) {
-    afficherToast("Sélectionnez au moins un compte pour générer le relevé.", "warning");
+  if (intervenantsSelectionnes.length === 0) {
+    afficherToast("Sélectionnez au moins un réalisateur pour générer le relevé.", "warning");
     return;
   }
 
   const texteInitial =
-    elements.monetisationDownloadStatementButton?.textContent || configurationReleve.texteBouton;
+    elements.monetisationDownloadStatementButton?.textContent ||
+    (globale ? "Télécharger le relevé global" : "Télécharger le relevé");
 
   if (elements.monetisationDownloadStatementButton) {
     elements.monetisationDownloadStatementButton.dataset.loading = "true";
@@ -6990,18 +7136,32 @@ async function gererTelechargementReleveMonetisation() {
 
   try {
     const resultat = await telechargerReleveMonetisation(
-      configurationReleve.options,
-      comptesSelectionnes
+      globale
+        ? {
+            mode: "global",
+            intervenant_ids: intervenantsSelectionnes,
+            format: "pdf",
+          }
+        : {
+            du: etat.monetisationDateDebut,
+            au: etat.monetisationDateFin,
+            intervenant_ids: intervenantsSelectionnes,
+            format: "pdf",
+          }
     );
     const url = URL.createObjectURL(resultat.blob);
     const lien = document.createElement("a");
     lien.href = url;
-    lien.download = resultat.fileName || configurationReleve.nomFichierSecours;
+    lien.download =
+      resultat.fileName ||
+      (globale
+        ? "releve-monetisation-globale.pdf"
+        : `releve-monetisation-periode-${etat.monetisationDateDebut}-${etat.monetisationDateFin}.pdf`);
     document.body.appendChild(lien);
     lien.click();
     lien.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 2000);
-    afficherToast(configurationReleve.messageSucces, "success");
+    afficherToast("Le relevé a été téléchargé.", "success");
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -7022,7 +7182,7 @@ async function gererTelechargementReleveMonetisation() {
       elements.monetisationDownloadStatementButton.textContent = texteInitial;
     }
 
-    mettreAJourEtatExportMonetisation();
+    mettreAJourEtatExportMonetisationPersonnalise();
   }
 }
 
@@ -7121,6 +7281,7 @@ function notifierMiseAJourTempsReel(payload = {}) {
 function appliquerStatistiquesMonetisation(emplacement, statsCompte) {
   const stats = statsCompte || {
     tarif_unitaire: 0,
+    tarifs_horaires: [],
     seances_facturables: 0,
     seances_essai_faites: 0,
     montant_du: 0,
@@ -7148,7 +7309,7 @@ function appliquerStatistiquesMonetisation(emplacement, statsCompte) {
   }
 
   const montantFormate = formaterMontantDh(stats.montant_du);
-  const tarifFormate = formaterMontantDh(stats.tarif_unitaire);
+  const tarifFormate = formaterTarifsAppliquesMonetisation(stats);
 
   if (champs.amountCard) champs.amountCard.textContent = montantFormate;
   if (champs.amount) champs.amount.textContent = montantFormate;
@@ -7182,7 +7343,7 @@ function creerCarteMonetisationSupplementaire(nomCompte, stats) {
   liste.className = "account-stats-list";
 
   [
-    ["Tarif unitaire", formaterMontantDh(stats.tarif_unitaire)],
+    ["Tarifs appliqués", formaterTarifsAppliquesMonetisation(stats)],
     ["Séances facturables", String(Number(stats.seances_facturables) || 0)],
     ["Séances d'essai faites", String(Number(stats.seances_essai_faites) || 0)],
   ].forEach(([libelle, valeur]) => {
@@ -7249,67 +7410,150 @@ function appliquerIdentiteMonetisationPrincipale(index, nomCompte) {
   }
 }
 
+function creerCarteTotalIntervenantMonetisation(intervenant) {
+  const carte = document.createElement("article");
+  carte.className = "account-stats-card monetisation-account-card";
+  const enTete = document.createElement("div");
+  enTete.className = "account-stats-header";
+  const titre = document.createElement("h3");
+  titre.textContent = String(intervenant?.nom || "Réalisateur");
+  const total = document.createElement("strong");
+  total.className = "account-stats-total";
+  total.textContent = formaterMontantDh(intervenant?.montant_du);
+  enTete.append(titre, total);
+
+  const liste = document.createElement("div");
+  liste.className = "account-stats-list";
+  [
+    ["Tarifs appliqués", formaterTarifsAppliquesMonetisation(intervenant)],
+    ["Séances payantes", String(Number(intervenant?.seances_facturables) || 0)],
+    ["Séances gratuites", String(Number(intervenant?.seances_essai_faites) || 0)],
+  ].forEach(([libelle, valeur]) => {
+    const ligne = document.createElement("div");
+    ligne.className = "stats-list-row";
+    const label = document.createElement("span");
+    label.textContent = libelle;
+    const contenu = document.createElement("strong");
+    contenu.textContent = valeur;
+    ligne.append(label, contenu);
+    liste.appendChild(ligne);
+  });
+
+  carte.append(enTete, liste);
+  return carte;
+}
+
+function afficherTotauxIntervenantsMonetisation() {
+  if (!elements.monetisationTotalsByIntervenant) {
+    return;
+  }
+
+  const intervenants = Array.isArray(etat.monetisation?.intervenants)
+    ? etat.monetisation.intervenants
+    : [];
+  elements.monetisationTotalsByIntervenant.replaceChildren();
+
+  if (intervenants.length === 0) {
+    elements.monetisationTotalsByIntervenant.appendChild(
+      creerEmptyState("Aucune donnée de monétisation pour cette sélection.")
+    );
+    return;
+  }
+
+  intervenants.forEach((intervenant) => {
+    elements.monetisationTotalsByIntervenant.appendChild(
+      creerCarteTotalIntervenantMonetisation(intervenant)
+    );
+  });
+}
+
+function afficherDetailsMonetisation() {
+  if (!elements.monetisationDetails) {
+    return;
+  }
+
+  const lignes = Array.isArray(etat.monetisation?.lignes) ? etat.monetisation.lignes : [];
+  elements.monetisationDetails.replaceChildren();
+
+  if (lignes.length === 0) {
+    elements.monetisationDetails.appendChild(
+      creerEmptyState("Aucune séance réalisée pour cette période.")
+    );
+    return;
+  }
+
+  const enTetes = [
+    "Date",
+    "Réalisateur",
+    "Étudiant",
+    "Matière",
+    "Durée",
+    "Tarif horaire",
+    "Type",
+    "Montant",
+  ];
+  const table = document.createElement("table");
+  table.className = "stats-comparison-table";
+  const thead = document.createElement("thead");
+  const enTete = document.createElement("tr");
+  enTetes.forEach((libelle) => {
+    const cellule = document.createElement("th");
+    cellule.textContent = libelle;
+    enTete.appendChild(cellule);
+  });
+  thead.appendChild(enTete);
+  const tbody = document.createElement("tbody");
+
+  lignes.forEach((ligne) => {
+    const ligneTableau = document.createElement("tr");
+    [
+      formatDate(ligne?.date),
+      ligne?.intervenant || ligne?.compte || "-",
+      ligne?.etudiant || "-",
+      ligne?.matiere || "-",
+      ligne?.duree_label || "-",
+      ligne?.est_gratuite ? "—" : formaterMontantDh(ligne?.tarif_horaire),
+      ligne?.est_gratuite ? "Gratuite" : "Payante",
+      formaterMontantDh(ligne?.montant),
+    ].forEach((valeur, index) => {
+      const cellule = document.createElement("td");
+      cellule.dataset.label = enTetes[index];
+      cellule.textContent = String(valeur);
+      ligneTableau.appendChild(cellule);
+    });
+    tbody.appendChild(ligneTableau);
+  });
+
+  table.append(thead, tbody);
+  elements.monetisationDetails.appendChild(table);
+}
+
 function viderMonetisation() {
+  etat.monetisationResultatsVisibles = false;
+
   if (!etat.monetisation) {
     etat.monetisationComptesSelectionnes = [];
     etat.monetisationSelectionInitialisee = false;
+    etat.monetisationIntervenantsSelectionnes = [];
   }
 
   if (elements.monetisationTotalAmount) {
     elements.monetisationTotalAmount.textContent = formaterMontantDh(0);
   }
-
-  comptesMonetisationPrincipaux = [];
-  appliquerIdentiteMonetisationPrincipale(0, "");
-  appliquerIdentiteMonetisationPrincipale(1, "");
-  appliquerStatistiquesMonetisation("primaryOne", {
-    tarif_unitaire: 0,
-    seances_facturables: 0,
-    seances_essai_faites: 0,
-    montant_du: 0,
-  });
-  appliquerStatistiquesMonetisation("primaryTwo", {
-    tarif_unitaire: 0,
-    seances_facturables: 0,
-    seances_essai_faites: 0,
-    montant_du: 0,
-  });
-  mettreAJourControlesPeriodeMonetisation();
-
-  if (elements.monetisationExtraAccounts) {
-    elements.monetisationExtraAccounts.innerHTML = "";
-  }
-
-  if (elements.monetisationExtraSection) {
-    elements.monetisationExtraSection.classList.add("hidden");
-  }
-
-  if (elements.monetisationReportAccounts) {
-    elements.monetisationReportAccounts.innerHTML = "";
-  }
-
-  if (elements.monetisationReportAccountsSection) {
-    elements.monetisationReportAccountsSection.classList.add("hidden");
-  }
-
-  mettreAJourEtatExportMonetisation();
+  mettreAJourFormulaireMonetisation();
+  elements.monetisationTotalsByIntervenant?.replaceChildren();
+  elements.monetisationDetails?.replaceChildren();
+  elements.monetisationReportAccounts?.replaceChildren();
+  mettreAJourEtatExportMonetisationPersonnalise();
+  mettreAJourVisibiliteResultatsMonetisation();
 }
 
 function mettreAJourMonetisation() {
-  const ordreComptes = Array.isArray(etat.monetisation?.ordre_comptes)
-    ? etat.monetisation.ordre_comptes
-    : Object.keys(etat.monetisation?.comptes || {});
-  comptesMonetisationPrincipaux = ordreComptes.slice(0, 2);
-  const premierCompte = comptesMonetisationPrincipaux[0] || "";
-  const secondCompte = comptesMonetisationPrincipaux[1] || "";
-  appliquerIdentiteMonetisationPrincipale(0, premierCompte);
-  appliquerIdentiteMonetisationPrincipale(1, secondCompte);
-
   const montantTotal = Number(etat.monetisation?.montant_total);
-  const totalCalcule = ordreComptes.reduce(
-    (total, nomCompte) => total + Number(obtenirStatistiquesMonetisationCompte(nomCompte).montant_du || 0),
-    0
-  );
+  const totalCalcule = (Array.isArray(etat.monetisation?.intervenants)
+    ? etat.monetisation.intervenants
+    : []
+  ).reduce((total, intervenant) => total + Number(intervenant?.montant_du || 0), 0);
   const totalVisible = Number.isFinite(montantTotal)
     ? montantTotal
     : totalCalcule;
@@ -7318,132 +7562,381 @@ function mettreAJourMonetisation() {
     elements.monetisationTotalAmount.textContent = formaterMontantDh(totalVisible);
   }
 
-  synchroniserSelectionComptesMonetisation();
-  mettreAJourControlesPeriodeMonetisation();
-  appliquerStatistiquesMonetisation(
-    "primaryOne",
-    premierCompte ? obtenirStatistiquesMonetisationCompte(premierCompte) : undefined
-  );
-  appliquerStatistiquesMonetisation(
-    "primaryTwo",
-    secondCompte ? obtenirStatistiquesMonetisationCompte(secondCompte) : undefined
-  );
-  afficherComptesMonetisationSupplementaires();
-  afficherSelectionComptesMonetisation();
+  mettreAJourFormulaireMonetisation();
+  afficherSelectionIntervenantsMonetisation();
+  afficherTotauxIntervenantsMonetisation();
+  afficherDetailsMonetisation();
+  mettreAJourVisibiliteResultatsMonetisation();
+}
+
+function estDateIsoStatistiquesValide(valeur) {
+  const texte = String(valeur || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(texte) && !Number.isNaN(new Date(`${texte}T12:00:00`).getTime());
+}
+
+function normaliserPeriodeStatistiques() {
+  const aujourdHui = obtenirDateLocaleIso();
+  const debutParDefaut = `${obtenirMoisCourantIso()}-01`;
+
+  if (!estDateIsoStatistiquesValide(etat.statistiquesDateDebut)) {
+    etat.statistiquesDateDebut = debutParDefaut;
+  }
+
+  if (!estDateIsoStatistiquesValide(etat.statistiquesDateFin)) {
+    etat.statistiquesDateFin = aujourdHui;
+  }
+
+  if (etat.statistiquesDateDebut > aujourdHui) {
+    etat.statistiquesDateDebut = aujourdHui;
+  }
+
+  if (etat.statistiquesDateFin > aujourdHui) {
+    etat.statistiquesDateFin = aujourdHui;
+  }
+}
+
+function synchroniserModeGlobalStatistiques() {
+  const modeGlobal = etat.statistiquesGlobales === true;
+
+  if (elements.statsGlobalToggle) {
+    elements.statsGlobalToggle.checked = modeGlobal;
+  }
+
+  [elements.statsDateStart, elements.statsDateEnd].forEach((champ) => {
+    if (!champ) {
+      return;
+    }
+
+    champ.disabled = modeGlobal;
+    champ.required = !modeGlobal;
+  });
+}
+
+function mettreAJourFormulaireStatistiques() {
+  normaliserPeriodeStatistiques();
+  const aujourdHui = obtenirDateLocaleIso();
+
+  if (elements.statsDateStart) {
+    elements.statsDateStart.value = etat.statistiquesDateDebut;
+    elements.statsDateStart.max = aujourdHui;
+  }
+
+  if (elements.statsDateEnd) {
+    elements.statsDateEnd.value = etat.statistiquesDateFin;
+    elements.statsDateEnd.max = aujourdHui;
+  }
+
+  synchroniserModeGlobalStatistiques();
+}
+
+function restaurerBoutonCalculStatistiques() {
+  if (!elements.statsCalculateButton) {
+    return;
+  }
+
+  elements.statsCalculateButton.disabled = false;
+  elements.statsCalculateButton.textContent = "Calculer";
+  delete elements.statsCalculateButton.dataset.loading;
+}
+
+function mettreAJourVisibiliteResultatsStatistiques() {
+  const resultatsVisibles =
+    etat.statistiquesResultatsVisibles === true && Boolean(etat.statistiques?.statistiques);
+
+  if (!elements.statsResults) {
+    return;
+  }
+
+  elements.statsResults.classList.toggle("hidden", !resultatsVisibles);
+  elements.statsResults.hidden = !resultatsVisibles;
+  elements.statsResults.toggleAttribute("inert", !resultatsVisibles);
+}
+
+function viderAffichageStatistiques() {
+  if (elements.totalCount) {
+    elements.totalCount.textContent = "0";
+  }
+
+  elements.statsAccountsOverview?.replaceChildren();
+  elements.statsAccountsTable?.replaceChildren();
+}
+
+function masquerResultatsStatistiques({ viderDonnees = true } = {}) {
+  etat.statistiquesRequeteVersion += 1;
+  etat.statistiquesResultatsVisibles = false;
+
+  if (viderDonnees) {
+    etat.statistiques = null;
+    viderAffichageStatistiques();
+  }
+
+  mettreAJourVisibiliteResultatsStatistiques();
+}
+
+function valeurStatistique(ligne, cle) {
+  const valeur = Number(ligne?.[cle]);
+  return Number.isFinite(valeur) && valeur >= 0 ? valeur : 0;
+}
+
+function obtenirNomIntervenantStatistiques(intervenant) {
+  const nom = String(intervenant?.intervenant_nom || intervenant?.nom || "").trim();
+  if (nom) {
+    return nom;
+  }
+
+  // Le serveur conserve un libellé historique avec un identifiant public.
+  // L'interface métier affiche uniquement le nom, jamais cet identifiant.
+  const libelle = String(intervenant?.libelle || "").trim();
+  const separateur = libelle.lastIndexOf("—");
+  return separateur >= 0 ? libelle.slice(separateur + 1).trim() || "Réalisateur" : "Réalisateur";
+}
+
+function creerCarteStatistique({
+  libelle,
+  valeur,
+  note = "",
+  principale = false,
+  identifiantValeur = "",
+}) {
+  const carte = document.createElement("article");
+  carte.className = "panel stat-overview-card";
+  if (principale) {
+    carte.classList.add("stat-overview-card-primary");
+  }
+
+  const titre = document.createElement("span");
+  titre.className = "stat-overview-label";
+  titre.textContent = libelle;
+  const valeurElement = document.createElement("strong");
+  valeurElement.className = "stat-overview-value";
+  if (identifiantValeur) {
+    valeurElement.id = identifiantValeur;
+  }
+  valeurElement.textContent = String(valeur);
+  carte.append(titre, valeurElement);
+
+  if (note) {
+    const noteElement = document.createElement("span");
+    noteElement.className = "stat-overview-note";
+    noteElement.textContent = note;
+    carte.appendChild(noteElement);
+  }
+
+  return carte;
+}
+
+function mettreAJourStatistiques() {
+  const statistiques = etat.statistiques?.statistiques;
+  if (!statistiques) {
+    viderAffichageStatistiques();
+    mettreAJourVisibiliteResultatsStatistiques();
+    return;
+  }
+
+  const intervenants = Array.isArray(statistiques.intervenants)
+    ? statistiques.intervenants
+    : [];
+  const total = valeurStatistique(statistiques, "total_seances");
+
+  if (elements.totalCount) {
+    elements.totalCount.textContent = String(total);
+  }
+
+  if (elements.statsAccountsOverview) {
+    const carteTotale = creerCarteStatistique({
+      libelle: "Total général",
+      valeur: total,
+      principale: true,
+      identifiantValeur: "total-count",
+    });
+    elements.statsAccountsOverview.replaceChildren(carteTotale);
+    elements.totalCount = carteTotale.querySelector("#total-count");
+
+    intervenants.forEach((intervenant) => {
+      const totalIntervenant = valeurStatistique(intervenant, "total_seances");
+      const faites = valeurStatistique(intervenant, "seances_faites");
+      const payantes = valeurStatistique(intervenant, "seances_payantes");
+      const gratuites = valeurStatistique(intervenant, "seances_gratuites");
+      elements.statsAccountsOverview.appendChild(
+        creerCarteStatistique({
+          libelle: obtenirNomIntervenantStatistiques(intervenant),
+          valeur: faites,
+          note: `${totalIntervenant} total · ${payantes} payantes · ${gratuites} gratuites`,
+        })
+      );
+    });
+  }
+
+  if (elements.statsAccountsTable) {
+    elements.statsAccountsTable.replaceChildren();
+
+    if (intervenants.length === 0) {
+      elements.statsAccountsTable.appendChild(
+        creerEmptyState("Aucune donnée statistique disponible pour cette période.")
+      );
+    } else {
+      const enTetes = [
+        "Réalisateur",
+        "Total",
+        "Planifiées",
+        "Faites",
+        "Payantes",
+        "Gratuites",
+        "Non faites",
+      ];
+      const table = document.createElement("table");
+      table.className = "stats-comparison-table";
+      const thead = document.createElement("thead");
+      const ligneEntete = document.createElement("tr");
+      enTetes.forEach((libelle) => {
+        const cellule = document.createElement("th");
+        cellule.textContent = libelle;
+        ligneEntete.appendChild(cellule);
+      });
+      thead.appendChild(ligneEntete);
+
+      const tbody = document.createElement("tbody");
+      intervenants.forEach((intervenant) => {
+        const ligne = document.createElement("tr");
+        const valeurs = [
+          obtenirNomIntervenantStatistiques(intervenant),
+          valeurStatistique(intervenant, "total_seances"),
+          valeurStatistique(intervenant, "seances_planifiees"),
+          valeurStatistique(intervenant, "seances_faites"),
+          valeurStatistique(intervenant, "seances_payantes"),
+          valeurStatistique(intervenant, "seances_gratuites"),
+          valeurStatistique(intervenant, "seances_non_faites"),
+        ];
+
+        valeurs.forEach((valeur, index) => {
+          const cellule = document.createElement("td");
+          cellule.dataset.label = enTetes[index];
+          if (index === 0) {
+            const nom = document.createElement("strong");
+            nom.textContent = String(valeur);
+            cellule.appendChild(nom);
+          } else if (index === 3) {
+            const badge = document.createElement("span");
+            badge.className = "badge-faite";
+            badge.textContent = String(valeur);
+            cellule.appendChild(badge);
+          } else {
+            cellule.textContent = String(valeur);
+          }
+          ligne.appendChild(cellule);
+        });
+
+        tbody.appendChild(ligne);
+      });
+
+      table.append(thead, tbody);
+      elements.statsAccountsTable.appendChild(table);
+    }
+  }
+
+  mettreAJourVisibiliteResultatsStatistiques();
+}
+
+function gererChangementFiltreStatistiques() {
+  etat.statistiquesDateDebut = String(elements.statsDateStart?.value || "").trim();
+  etat.statistiquesDateFin = String(elements.statsDateEnd?.value || "").trim();
+  masquerErreur(elements.statsFilterError);
+  masquerResultatsStatistiques();
+  restaurerBoutonCalculStatistiques();
+}
+
+function gererChangementModeStatistiquesGlobales() {
+  etat.statistiquesGlobales = Boolean(elements.statsGlobalToggle?.checked);
+  masquerErreur(elements.statsFilterError);
+  synchroniserModeGlobalStatistiques();
+  masquerResultatsStatistiques();
+  restaurerBoutonCalculStatistiques();
+}
+
+async function gererCalculStatistiques(event) {
+  event.preventDefault();
+  masquerErreur(elements.statsFilterError);
+
+  const globale = Boolean(elements.statsGlobalToggle?.checked);
+  const dateDebut = String(elements.statsDateStart?.value || "").trim();
+  const dateFin = String(elements.statsDateEnd?.value || "").trim();
+  const aujourdHui = obtenirDateLocaleIso();
+
+  if (!globale) {
+    if (!estDateIsoStatistiquesValide(dateDebut) || !estDateIsoStatistiquesValide(dateFin)) {
+      afficherErreur(elements.statsFilterError, "Saisissez une date de début et une date de fin valides.");
+      return;
+    }
+
+    if (dateDebut > dateFin) {
+      afficherErreur(elements.statsFilterError, "La date de début doit précéder la date de fin.");
+      return;
+    }
+
+    if (dateDebut > aujourdHui || dateFin > aujourdHui) {
+      afficherErreur(elements.statsFilterError, "La période ne peut pas inclure de date future.");
+      return;
+    }
+  }
+
+  etat.statistiquesGlobales = globale;
+  if (!globale) {
+    etat.statistiquesDateDebut = dateDebut;
+    etat.statistiquesDateFin = dateFin;
+  }
+
+  masquerResultatsStatistiques();
+  const versionRequete = etat.statistiquesRequeteVersion;
+
+  if (elements.statsCalculateButton) {
+    elements.statsCalculateButton.disabled = true;
+    elements.statsCalculateButton.dataset.loading = "true";
+    elements.statsCalculateButton.textContent = "Calcul...";
+  }
+
+  try {
+    const resultat = await recupererStatistiques(
+      globale
+        ? { globale: true }
+        : {
+            du: dateDebut,
+            au: dateFin,
+          }
+    );
+
+    if (versionRequete !== etat.statistiquesRequeteVersion) {
+      return;
+    }
+
+    etat.statistiques = resultat;
+    etat.statistiquesResultatsVisibles = true;
+    mettreAJourStatistiques();
+  } catch (erreur) {
+    if (versionRequete !== etat.statistiquesRequeteVersion) {
+      return;
+    }
+
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+
+    afficherErreur(
+      elements.statsFilterError,
+      erreur.message || "Le calcul des statistiques est impossible pour le moment."
+    );
+  } finally {
+    if (versionRequete === etat.statistiquesRequeteVersion) {
+      restaurerBoutonCalculStatistiques();
+    }
+  }
 }
 
 function mettreAJourResume() {
-  const seancesPourStatistiques = obtenirSeancesPourStatistiques();
-  elements.totalCount.textContent = String(seancesPourStatistiques.length);
+  // Aujourd'hui reste vivant au fil des mises à jour de séances. Les
+  // statistiques, elles, doivent toujours être recalculées explicitement.
   mettreAJourVueAujourdhui();
-
-  const comptes = Array.from(
-    new Set(seancesPourStatistiques.map((seance) => normaliserNomCompte(seance.compte)))
-  )
-    .filter(Boolean)
-    .sort();
-
-  elements.statsAccountsOverview.innerHTML = "";
-
-  const carteTotale = document.createElement("article");
-  carteTotale.className = "panel stat-overview-card stat-overview-card-primary";
-  const labelTotal = document.createElement("span");
-  labelTotal.className = "stat-overview-label";
-  labelTotal.textContent = "Total général";
-  const valeurTotale = document.createElement("strong");
-  valeurTotale.className = "stat-overview-value";
-  valeurTotale.textContent = String(seancesPourStatistiques.length);
-  carteTotale.append(labelTotal, valeurTotale);
-  elements.statsAccountsOverview.appendChild(carteTotale);
-
-  comptes.forEach((nomCompte) => {
-    const stats = calculerStatistiquesCompte(nomCompte);
-    const card = document.createElement("article");
-    card.className = "panel stat-overview-card";
-    const label = document.createElement("span");
-    label.className = "stat-overview-label";
-    label.textContent = nomCompte;
-    const value = document.createElement("strong");
-    value.className = "stat-overview-value";
-    value.textContent = String(stats.faites);
-    const note = document.createElement("span");
-    note.className = "stat-overview-note";
-    note.textContent = `${stats.total} total · ${stats.faitesRegulieres} reg. · ${stats.faitesEssai} essai`;
-    card.append(label, value, note);
-    elements.statsAccountsOverview.appendChild(card);
-  });
-
-  if (comptes.length > 0) {
-    const enTetesTableau = [
-      "Compte",
-      "Total",
-      "Planifiees",
-      "Faites",
-      "Regulieres",
-      "Essai",
-      "Reportees",
-      "Annulees",
-    ];
-    const table = document.createElement("table");
-    table.className = "stats-comparison-table";
-    const thead = document.createElement("thead");
-    const headRow = document.createElement("tr");
-    enTetesTableau.forEach((titre) => {
-      const th = document.createElement("th");
-      th.textContent = titre;
-      headRow.appendChild(th);
-    });
-    thead.appendChild(headRow);
-
-    const tbody = document.createElement("tbody");
-
-    comptes.forEach((nomCompte) => {
-      const stats = calculerStatistiquesCompte(nomCompte);
-      const row = document.createElement("tr");
-
-      const compteCell = document.createElement("td");
-      compteCell.dataset.label = enTetesTableau[0];
-      const compteStrong = document.createElement("strong");
-      compteStrong.textContent = nomCompte;
-      compteCell.appendChild(compteStrong);
-      row.appendChild(compteCell);
-
-      [
-        stats.total,
-        stats.planifiees,
-        stats.faites,
-        stats.faitesRegulieres,
-        stats.faitesEssai,
-        stats.reportees,
-        stats.annulees,
-      ].forEach((valeur, index) => {
-        const td = document.createElement("td");
-        td.dataset.label = enTetesTableau[index + 1];
-
-        if (index === 2) {
-          const badge = document.createElement("span");
-          badge.className = "badge-faite";
-          badge.textContent = String(valeur);
-          td.appendChild(badge);
-        } else {
-          td.textContent = String(valeur);
-        }
-
-        row.appendChild(td);
-      });
-
-      tbody.appendChild(row);
-    });
-
-    table.append(thead, tbody);
-    elements.statsAccountsTable.innerHTML = "";
-    elements.statsAccountsTable.appendChild(table);
-  } else {
-    elements.statsAccountsTable.innerHTML = "";
-    elements.statsAccountsTable.appendChild(
-      creerEmptyState("Aucune donnée statistique disponible.")
-    );
-  }
+  masquerResultatsStatistiques();
 }
 
 function obtenirComptesAdministration() {
@@ -7454,36 +7947,6 @@ function obtenirAppareilsAutoLoginAdministration() {
   return Array.isArray(etat.administration?.trusted_devices)
     ? etat.administration.trusted_devices
     : [];
-}
-
-function obtenirCatalogueAdministration(type) {
-  if (!etat.administration?.catalogue) {
-    return [];
-  }
-
-  return Array.isArray(etat.administration.catalogue[type])
-    ? etat.administration.catalogue[type]
-    : [];
-}
-
-function obtenirCatalogueSupprimeAdministration(type) {
-  if (!etat.administration?.catalogue) {
-    return [];
-  }
-
-  const cle = type === "matieres" ? "matieres_supprimees" : "comptes_supprimes";
-
-  return Array.isArray(etat.administration.catalogue[cle])
-    ? etat.administration.catalogue[cle]
-    : [];
-}
-
-function obtenirCompteCatalogueAdministrationParId(compteId) {
-  return (
-    obtenirCatalogueAdministration("comptes").find(
-      (compte) => Number(compte.id) === Number(compteId)
-    ) || null
-  );
 }
 
 function obtenirCompteAdministrationParId(utilisateurId) {
@@ -7499,6 +7962,11 @@ function obtenirCompteAdministrationParId(utilisateurId) {
 // is presented as a SuperAdmin in the administration UI.
 function compteEstSuperAdminAdministration(compte) {
   return Array.isArray(compte?.roles) && compte.roles.includes("super_admin");
+}
+
+function comptePeutGererIndisponibilitesAdministration(compte) {
+  const roles = Array.isArray(compte?.roles) ? compte.roles : [];
+  return roles.includes("professeur") && !roles.includes("handler");
 }
 
 function obtenirComptesCiblables(options = {}) {
@@ -7537,10 +8005,6 @@ function formaterEtatMonetisationCompte(compte) {
   return Number(compte?.peut_voir_monetisation) === 1 ? "Visible" : "Masquée";
 }
 
-function formaterTarifHoraireCompte(compte) {
-  return formaterMontantDh(Number(compte?.tarif_horaire || 0));
-}
-
 function formaterEtatAujourdhuiCompte(compte) {
   return Number(compte?.peut_voir_aujourdhui) === 1 ? "Visible" : "Masqué";
 }
@@ -7553,82 +8017,6 @@ function creerBadgeAdministration(texte, type) {
   const badge = document.createElement("span");
   definirBadgeAdmin(badge, texte, type);
   return badge;
-}
-
-function afficherListeCatalogueAdministration(
-  container,
-  elementsCatalogue,
-  messageVide,
-  elementsSupprimes = []
-) {
-  container.innerHTML = "";
-
-  const elementsActifs = Array.isArray(elementsCatalogue) ? elementsCatalogue : [];
-  const elementsArchives = Array.isArray(elementsSupprimes) ? elementsSupprimes : [];
-
-  if (elementsActifs.length === 0 && elementsArchives.length === 0) {
-    container.appendChild(creerEmptyState(messageVide, "admin-user-empty"));
-    return;
-  }
-
-  elementsActifs.forEach((elementCatalogue) => {
-    const item = document.createElement("div");
-    item.className = "admin-catalog-item";
-
-    const label = document.createElement("span");
-    label.className = "admin-catalog-item-label";
-    label.textContent = elementCatalogue.valeur;
-    item.appendChild(label);
-
-    if (container === elements.adminAccountList) {
-      const action = document.createElement("button");
-      action.type = "button";
-      action.className = "admin-catalog-remove";
-      action.textContent = "x";
-      action.title = `Supprimer ${elementCatalogue.valeur}`;
-      action?.addEventListener("click", async () => {
-        await gererSuppressionElementCatalogueAdministration({
-          type: "compte",
-          elementCatalogue,
-          motDePasseInput: elements.adminAddAccountCurrentPassword,
-          erreurElement: elements.adminAddAccountError,
-          bouton: action,
-        });
-      });
-      item.appendChild(action);
-    }
-
-    container.appendChild(item);
-  });
-
-  elementsArchives.forEach((elementCatalogue) => {
-    const item = document.createElement("div");
-    item.className = "admin-catalog-item";
-
-    const label = document.createElement("span");
-    label.className = "admin-catalog-item-label";
-    label.textContent = `${elementCatalogue.valeur} (supprimé)`;
-    item.appendChild(label);
-
-    if (container === elements.adminAccountList) {
-      const action = document.createElement("button");
-      action.type = "button";
-      action.className = "admin-catalog-remove admin-catalog-restore";
-      action.textContent = "+";
-      action.title = `Restaurer ${elementCatalogue.valeur}`;
-      action?.addEventListener("click", async () => {
-        await gererRestaurationElementCatalogueAdministration({
-          elementCatalogue,
-          motDePasseInput: elements.adminAddAccountCurrentPassword,
-          erreurElement: elements.adminAddAccountError,
-          bouton: action,
-        });
-      });
-      item.appendChild(action);
-    }
-
-    container.appendChild(item);
-  });
 }
 
 function remplirSelectComptes(select, comptes, placeholder) {
@@ -7662,8 +8050,6 @@ function remplirSelectComptes(select, comptes, placeholder) {
 function selectionnerCompteAdministration(utilisateurId) {
   const valeur = String(utilisateurId || "");
   [
-    elements.adminDeleteUserId,
-    elements.adminResetUserId,
     elements.adminAccessUserId,
     elements.adminReadonlyUserId,
     elements.adminTodayUserId,
@@ -8146,411 +8532,22 @@ function comparerIndisponibilitesLifo(a, b) {
   return (Number.isNaN(dateB) ? 0 : dateB) - (Number.isNaN(dateA) ? 0 : dateA);
 }
 
-function comparerPropositionsSeancesLifo(a, b) {
-  const idB = Number(b?.id || 0);
-  const idA = Number(a?.id || 0);
-
-  if (idB !== idA) {
-    return idB - idA;
-  }
-
-  const dateB = Date.parse(b?.created_at || b?.updated_at || b?.date || "");
-  const dateA = Date.parse(a?.created_at || a?.updated_at || a?.date || "");
-  return (Number.isNaN(dateB) ? 0 : dateB) - (Number.isNaN(dateA) ? 0 : dateA);
-}
-
-function construireTitrePropositionSeance(proposition) {
-  const etudiant = proposition?.etudiant || "Étudiant";
-  const matiere = proposition?.matiere || "Matière";
-  return `${etudiant} - ${matiere}`;
-}
-
-function construirePlagePropositionSeance(proposition) {
-  const date = proposition?.date ? formatDate(proposition.date) : "-";
-  const heureDebut = proposition?.heure_debut || "--:--";
-  const heureFin = proposition?.heure_fin || "--:--";
-  return `${date} - ${heureDebut} - ${heureFin}`;
-}
-
-function construireMetaPropositionSeance(proposition) {
-  const morceaux = [
-    `Compte : ${proposition?.compte || "-"}`,
-    `Proposé par ${proposition?.proposee_par_nom || "un utilisateur"}`,
-  ];
-
-  if (proposition?.created_at) {
-    morceaux.push(formatDateHeureSecondes(proposition.created_at));
-  }
-
-  return morceaux.join(" · ");
-}
-
-function creerFormulaireEditionPropositionSeance(proposition) {
-  const form = document.createElement("form");
-  form.className = "proposal-inline-form";
-  form.dataset.propositionId = String(proposition.id);
-
-  const grille = document.createElement("div");
-  grille.className = "form-grid";
-
-  const champDate = document.createElement("label");
-  champDate.className = "field";
-  const labelDate = document.createElement("span");
-  labelDate.textContent = "Date";
-  const inputDate = document.createElement("input");
-  inputDate.type = "date";
-  inputDate.name = "date";
-  inputDate.value = proposition.date || "";
-  champDate.append(labelDate, inputDate);
-
-  const champHeure = document.createElement("label");
-  champHeure.className = "field";
-  const labelHeure = document.createElement("span");
-  labelHeure.textContent = "Heure de début";
-  const inputHeure = document.createElement("input");
-  inputHeure.type = "time";
-  inputHeure.step = "1800";
-  inputHeure.name = "heure_debut";
-  inputHeure.value = proposition.heure_debut || recupererHeureDebutParDefaut();
-  champHeure.append(labelHeure, inputHeure);
-
-  const champDuree = document.createElement("label");
-  champDuree.className = "field";
-  const labelDuree = document.createElement("span");
-  labelDuree.textContent = "Durée";
-  const selectDuree = document.createElement("select");
-  selectDuree.name = "duree_minutes";
-  [60, 90, 120].forEach((duree) => {
-    const option = document.createElement("option");
-    option.value = String(duree);
-    option.textContent = formaterDureeHistorique(duree);
-    selectDuree.appendChild(option);
-  });
-  selectDuree.value = String(proposition.duree_minutes || 60);
-  champDuree.append(labelDuree, selectDuree);
-
-  grille.append(champDate, champHeure, champDuree);
-
-  const erreur = document.createElement("p");
-  erreur.className = "form-error hidden";
-
-  const actions = document.createElement("div");
-  actions.className = "form-actions proposal-inline-actions";
-
-  const annuler = document.createElement("button");
-  annuler.type = "button";
-  annuler.className = "button secondary";
-  annuler.textContent = "Annuler";
-  annuler.addEventListener("click", () => {
-    etat.propositionEditionId = null;
-    afficherListeIndisponibilitesAdministration();
-  });
-
-  const enregistrer = document.createElement("button");
-  enregistrer.type = "submit";
-  enregistrer.className = "button primary";
-  enregistrer.textContent = "Sauvegarder";
-
-  actions.append(annuler, enregistrer);
-  form.append(grille, erreur, actions);
-  form.addEventListener("submit", (event) => {
-    gererModificationPropositionSeance(event, proposition, {
-      date: inputDate,
-      heureDebut: inputHeure,
-      duree: selectDuree,
-      erreur,
-      bouton: enregistrer,
-    });
-  });
-
-  return form;
-}
-
-function creerCartePropositionSeance(proposition) {
-  const carte = document.createElement("article");
-  carte.className = "admin-session-item proposal-item";
-
-  const contenu = document.createElement("div");
-  contenu.className = "admin-session-main";
-
-  const entete = document.createElement("div");
-  entete.className = "admin-session-head";
-
-  const titreGroupe = document.createElement("div");
-  const titre = document.createElement("h4");
-  titre.className = "admin-session-title";
-  titre.textContent = construireTitrePropositionSeance(proposition);
-  const plage = document.createElement("div");
-  plage.className = "admin-session-agent";
-  plage.textContent = construirePlagePropositionSeance(proposition);
-  titreGroupe.append(titre, plage);
-
-  const badges = document.createElement("div");
-  badges.className = "admin-session-badges";
-  badges.appendChild(creerBadgeAdministration("Proposition", "warning"));
-  if (proposition.est_essai) {
-    badges.appendChild(creerBadgeAdministration("Essai", "user"));
-  }
-
-  entete.append(titreGroupe, badges);
-
-  const details = document.createElement("div");
-  details.className = "admin-session-meta";
-  details.textContent = construireMetaPropositionSeance(proposition);
-
-  contenu.append(entete, details);
-
-  if (Number(etat.propositionEditionId) === Number(proposition.id)) {
-    contenu.appendChild(creerFormulaireEditionPropositionSeance(proposition));
-  }
-
-  const actions = document.createElement("div");
-  actions.className = "admin-session-actions";
-
-  const boutonModifier = document.createElement("button");
-  boutonModifier.type = "button";
-  boutonModifier.className = "button secondary";
-  boutonModifier.textContent = "Modifier";
-  boutonModifier.addEventListener("click", () => {
-    etat.propositionEditionId =
-      Number(etat.propositionEditionId) === Number(proposition.id) ? null : proposition.id;
-    afficherListeIndisponibilitesAdministration();
-  });
-
-  const boutonAccepter = document.createElement("button");
-  boutonAccepter.type = "button";
-  boutonAccepter.className = "button primary";
-  boutonAccepter.textContent = "Accepter";
-  boutonAccepter.addEventListener("click", async () => {
-    await gererAcceptationPropositionSeance(proposition.id, boutonAccepter);
-  });
-
-  const boutonRefuser = document.createElement("button");
-  boutonRefuser.type = "button";
-  boutonRefuser.className = "button danger";
-  boutonRefuser.textContent = "Refuser";
-  boutonRefuser.addEventListener("click", async () => {
-    await gererRefusPropositionSeance(proposition.id, boutonRefuser);
-  });
-
-  actions.append(boutonModifier, boutonAccepter, boutonRefuser);
-  carte.append(contenu, actions);
-  return carte;
-}
-
-function mettreAJourBadgePropositionsIndisponibilites() {
-  if (!elements.unavailabilityPropositionsBadge) {
-    return;
-  }
-
-  const nombrePropositions = Array.isArray(etat.propositionsSeances)
-    ? etat.propositionsSeances.length
-    : 0;
-  const badgeVisible = nombrePropositions > 0;
-  const libelleBadge = nombrePropositions > 99 ? "99+" : String(nombrePropositions);
-
-  elements.unavailabilityPropositionsBadge.textContent = badgeVisible ? libelleBadge : "";
-  elements.unavailabilityPropositionsBadge.classList.toggle("hidden", !badgeVisible);
-
-  if (elements.unavailabilityPropositionsTab) {
-    const libelleAccessible = badgeVisible
-      ? `Propositions, ${nombrePropositions} en attente`
-      : "Propositions";
-    elements.unavailabilityPropositionsTab.setAttribute("aria-label", libelleAccessible);
-    elements.unavailabilityPropositionsTab.title = libelleAccessible;
-  }
-}
-
-function afficherListePropositionsIndisponibilites() {
-  mettreAJourBadgePropositionsIndisponibilites();
-
-  if (!elements.adminUnavailabilityList) {
-    return;
-  }
-
-  elements.adminUnavailabilityList.innerHTML = "";
-
-  if (!utilisateurPeutGererIndisponibilites()) {
-    elements.adminUnavailabilityList.innerHTML =
-      '<div class="admin-session-empty">Les propositions sont gérées par le Handler de l’équipe.</div>';
-    return;
-  }
-
-  const propositions = Array.isArray(etat.propositionsSeances)
-    ? [...etat.propositionsSeances].sort(comparerPropositionsSeancesLifo)
-    : [];
-
-  if (propositions.length === 0) {
-    elements.adminUnavailabilityList.innerHTML =
-      '<div class="admin-session-empty">Aucune proposition en attente.</div>';
-    return;
-  }
-
-  propositions.forEach((proposition) => {
-    elements.adminUnavailabilityList.appendChild(creerCartePropositionSeance(proposition));
-  });
-}
-
-function afficherListeIndisponibilitesAdministration() {
-  afficherListePropositionsIndisponibilites();
-}
-
-async function gererModificationPropositionSeance(event, proposition, controles) {
-  event.preventDefault();
-  masquerErreur(controles.erreur);
-
-  const date = controles.date.value;
-  const heureDebut = controles.heureDebut.value;
-  const dureeMinutes = Number(controles.duree.value);
-
-  if (!date || !estDateIsoValide(date)) {
-    afficherErreur(controles.erreur, "La date est invalide.");
-    return;
-  }
-
-  if (!estHeureDebutSeanceValide(heureDebut)) {
-    afficherErreur(
-      controles.erreur,
-      "L'heure de début doit être choisie par tranches de 30 minutes."
-    );
-    return;
-  }
-
-  const heureFin = calculerHeureFin(heureDebut, dureeMinutes);
-
-  if (![60, 90, 120].includes(dureeMinutes) || !heureFin) {
-    afficherErreur(controles.erreur, "La durée est invalide.");
-    return;
-  }
-
-  const conflitSeance = trouverSeanceChevauchanteLocale({
-    date,
-    heure_debut: heureDebut,
-    heure_fin: heureFin,
-  });
-
-  if (conflitSeance) {
-    afficherErreur(controles.erreur, construireMessageConflitSeanceClient(conflitSeance));
-    return;
-  }
-
-  const libelleInitial = controles.bouton.textContent;
-  controles.bouton.disabled = true;
-  controles.bouton.textContent = "Sauvegarde...";
-
-  try {
-    await modifierPropositionSeance(proposition.id, {
-      date,
-      heure_debut: heureDebut,
-      duree_minutes: dureeMinutes,
-    });
-    etat.propositionEditionId = null;
-    await chargerPropositionsSeancesSiAutorise();
-    afficherToast("Proposition modifiée.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    afficherErreur(controles.erreur, erreur.message);
-  } finally {
-    controles.bouton.disabled = false;
-    controles.bouton.textContent = libelleInitial;
-  }
-}
-
-async function gererAcceptationPropositionSeance(propositionId, bouton) {
-  const libelleInitial = bouton?.textContent || "Accepter";
-
-  if (bouton) {
-    bouton.disabled = true;
-    bouton.textContent = "Acceptation...";
-  }
-
-  try {
-    const resultat = await accepterPropositionSeance(propositionId);
-    etat.propositionEditionId = null;
-    await Promise.all([
-      chargerPropositionsSeancesSiAutorise(),
-      chargerSeances(
-        resultat?.seance?.id
-          ? {
-              ouvrirSeanceId: resultat.seance.id,
-            }
-          : {}
-      ),
-      chargerHistorique(),
-      chargerMonetisationSiAutorise(),
-    ]);
-    afficherToast(resultat.message || "Proposition acceptée.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    afficherToast(erreur.message, "error");
-  } finally {
-    if (bouton) {
-      bouton.disabled = false;
-      bouton.textContent = libelleInitial;
-    }
-  }
-}
-
-async function gererRefusPropositionSeance(propositionId, bouton) {
-  const confirmation = window.confirm("Refuser cette proposition ?");
-
-  if (!confirmation) {
-    return;
-  }
-
-  const libelleInitial = bouton?.textContent || "Refuser";
-
-  if (bouton) {
-    bouton.disabled = true;
-    bouton.textContent = "Refus...";
-  }
-
-  try {
-    const resultat = await refuserPropositionSeance(propositionId);
-    etat.propositionEditionId = null;
-    await chargerPropositionsSeancesSiAutorise();
-    afficherToast(resultat.message || "Proposition refusée.");
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    afficherToast(erreur.message, "error");
-  } finally {
-    if (bouton) {
-      bouton.disabled = false;
-      bouton.textContent = libelleInitial;
-    }
-  }
-}
-
 function mettreAJourControlesAdministration() {
-  const compteSuppression = obtenirCompteAdministrationParId(elements.adminDeleteUserId.value);
   const compteAcces = obtenirCompteAdministrationParId(elements.adminAccessUserId.value);
   const compteLectureSeule = obtenirCompteAdministrationParId(elements.adminReadonlyUserId.value);
   const compteAujourdhui = obtenirCompteAdministrationParId(elements.adminTodayUserId.value);
-  const compteIndisponibilites = obtenirCompteAdministrationParId(
+  const compteIndisponibilitesSelectionne = obtenirCompteAdministrationParId(
     elements.adminUnavailabilityAccessUserId.value
   );
+  const compteIndisponibilites = comptePeutGererIndisponibilitesAdministration(
+    compteIndisponibilitesSelectionne
+  )
+    ? compteIndisponibilitesSelectionne
+    : null;
   const compteMonetisation = obtenirCompteAdministrationParId(
     elements.adminMonetisationUserId.value
   );
-  const compteTarif = obtenirCompteCatalogueAdministrationParId(elements.adminRateUserId.value);
   const compteLogout = obtenirCompteAdministrationParId(elements.adminLogoutUserId.value);
-
-  elements.adminDeleteUserButton.disabled = !compteSuppression;
-  elements.adminDeleteUserButton.textContent = compteSuppression
-    ? `Supprimer ${compteSuppression.nom}`
-    : "Supprimer l'utilisateur";
 
   elements.adminToggleAccessStatus.textContent = compteAcces
     ? formaterEtatAccesCompte(compteAcces)
@@ -8610,23 +8607,6 @@ function mettreAJourControlesAdministration() {
       : `Afficher Monétisation`
     : "Mettre à jour Monétisation";
 
-  elements.adminRateStatus.textContent = compteTarif
-    ? formaterTarifHoraireCompte(compteTarif)
-    : "-";
-  elements.adminRateButton.disabled = !compteTarif;
-  elements.adminRateButton.textContent = compteTarif
-    ? `Mettre à jour le tarif de ${compteTarif.valeur}`
-    : "Mettre à jour le tarif";
-  if (elements.adminRateValue) {
-    const compteLie = compteTarif ? String(compteTarif.id) : "";
-    if (elements.adminRateValue.dataset.boundAccountId !== compteLie) {
-      elements.adminRateValue.value = compteTarif
-        ? String(Number(compteTarif.tarif_horaire || 0))
-        : "";
-      elements.adminRateValue.dataset.boundAccountId = compteLie;
-    }
-  }
-
   elements.adminLogoutUserButton.disabled = !compteLogout;
   elements.adminLogoutUserButton.textContent = compteLogout
     ? `Couper les sessions de ${compteLogout.nom}`
@@ -8636,8 +8616,6 @@ function mettreAJourControlesAdministration() {
 function mettreAJourPanneauAdministration() {
   const comptes = obtenirComptesAdministration();
   const sessions = Array.isArray(etat.administration?.sessions) ? etat.administration.sessions : [];
-  const comptesSeance = obtenirCatalogueAdministration("comptes");
-  const comptesSupprimes = obtenirCatalogueSupprimeAdministration("comptes");
   const comptesActifs = comptes.filter((compte) => Number(compte.acces_active) === 1);
   const comptesLectureSeule = comptes.filter(
     (compte) => Number(compte.mode_lecture_seule) === 1
@@ -8657,20 +8635,6 @@ function mettreAJourPanneauAdministration() {
   afficherAppareilsAutoLoginAdministration();
   afficherJournalAuthAdministration();
   afficherIpsBloqueesAdministration();
-  afficherListeIndisponibilitesAdministration();
-  afficherListeCatalogueAdministration(
-    elements.adminAccountList,
-    comptesSeance,
-    "Aucun compte disponible.",
-    comptesSupprimes
-  );
-
-  remplirSelectComptes(elements.adminResetUserId, comptes, "Aucun compte");
-  remplirSelectComptes(
-    elements.adminDeleteUserId,
-    obtenirComptesCiblables({ exclureAdministrateurs: true }),
-    "Aucun collaborateur"
-  );
   remplirSelectComptes(
     elements.adminAccessUserId,
     obtenirComptesCiblables({ exclureAdministrateurs: true }),
@@ -8688,8 +8652,10 @@ function mettreAJourPanneauAdministration() {
   );
   remplirSelectComptes(
     elements.adminUnavailabilityAccessUserId,
-    obtenirComptesCiblables({ exclureAdministrateurs: true }),
-    "Aucun collaborateur"
+    obtenirComptesCiblables({ exclureAdministrateurs: true }).filter(
+      comptePeutGererIndisponibilitesAdministration
+    ),
+    "Aucun professeur"
   );
   remplirSelectComptes(
     elements.adminMonetisationUserId,
@@ -8697,14 +8663,14 @@ function mettreAJourPanneauAdministration() {
     "Aucun collaborateur"
   );
   remplirSelectComptes(
-    elements.adminRateUserId,
-    comptesSeance,
-    "Aucun compte de séance"
-  );
-  remplirSelectComptes(
     elements.adminLogoutUserId,
     obtenirComptesCiblables(),
     "Aucune cible"
+  );
+  remplirSelectComptes(
+    elements.adminDeleteUserId,
+    obtenirComptesCiblables({ exclureAdministrateurs: true }),
+    "Aucun compte supprimable"
   );
 
   mettreAJourControlesAdministration();
@@ -8714,10 +8680,9 @@ function mettreAJourCarteCompte(cibles, statistiques) {
   cibles.total.textContent = String(statistiques.total);
   cibles.planned.textContent = String(statistiques.planifiees);
   cibles.completed.textContent = String(statistiques.faites);
-  cibles.completedTrial.textContent = String(statistiques.faitesEssai);
-  cibles.completedRegular.textContent = String(statistiques.faitesRegulieres);
-  cibles.postponed.textContent = String(statistiques.reportees);
-  cibles.cancelled.textContent = String(statistiques.annulees);
+  if (cibles.completedTrial) cibles.completedTrial.textContent = String(statistiques.faitesGratuites);
+  if (cibles.completedRegular) cibles.completedRegular.textContent = String(statistiques.faitesPayantes);
+  if (cibles.cancelled) cibles.cancelled.textContent = String(statistiques.nonFaites);
 }
 
 function afficherListeHistorique() {
@@ -9389,32 +9354,64 @@ function creerCarteInformationHistorique(ligne) {
 }
 
 function mettreAJourVisibiliteDescriptionSeance(mode) {
-  const afficherDescription = mode === "modification";
-  elements.descriptionSection?.classList.toggle("hidden", !afficherDescription);
-
-  if (!afficherDescription && elements.description) {
-    elements.description.value = "";
-  }
+  elements.descriptionSection?.classList.remove("hidden");
 }
 
 function mettreAJourVisibiliteStatutSeance(mode) {
-  const afficherStatut = mode === "modification";
-  elements.statusSection?.classList.toggle("hidden", !afficherStatut);
+  elements.statusSection?.classList.remove("hidden");
 
   if (!afficherStatut) {
     definirValeurSelectionnee(elements.statutCheckboxes, "planifiee");
   }
 }
 
-function ouvrirFormulaireCreation(dateSelectionnee = "") {
+function normaliserSelectionCreationSeance(selection = {}) {
+  const selectionNormalisee =
+    typeof selection === "string" ? { date: selection } : selection && typeof selection === "object" ? selection : {};
+  const dateSelectionnee = extraireDateIsoDepuisValeurCalendrier(selectionNormalisee.date);
+  const date = dateSelectionnee;
+  const heureDebutSelectionnee = String(selectionNormalisee.heure_debut || "").trim();
+  const heureFinSelectionnee = String(selectionNormalisee.heure_fin || "").trim();
+  const selectionSurUnJour =
+    !selectionNormalisee.date_fin ||
+    extraireDateIsoDepuisValeurCalendrier(selectionNormalisee.date_fin) === date;
+  const dureeSelectionnee = selectionSurUnJour
+    ? calculerDureeMinutesDepuisHeures(heureDebutSelectionnee, heureFinSelectionnee)
+    : 0;
+  const duree = [60, 90, 120].includes(dureeSelectionnee) ? dureeSelectionnee : 60;
+  const horaireExplicitementSelectionne = Boolean(
+    dateSelectionnee && estHeureDebutSeanceValide(heureDebutSelectionnee)
+  );
+  const heureDebut =
+    estHeureDebutSeanceValide(heureDebutSelectionnee) &&
+    calculerHeureFin(heureDebutSelectionnee, duree)
+      ? heureDebutSelectionnee
+      : recupererHeureDebutParDefaut();
+
+  return {
+    date: date || obtenirDateLocaleIso(),
+    heureDebut,
+    duree,
+    dateExplicitementSelectionnee: Boolean(dateSelectionnee),
+    horaireExplicitementSelectionne,
+  };
+}
+
+function ouvrirFormulaireCreation(selection = {}) {
   if (!utilisateurPeutModifierDonnees()) {
     afficherToast("Votre compte est en lecture seule.", "warning");
     return;
   }
 
-  const dateIsoSelectionnee = extraireDateIsoDepuisValeurCalendrier(dateSelectionnee);
+  const selectionNormalisee = normaliserSelectionCreationSeance(selection);
+  const dateIsoSelectionnee = selectionNormalisee.date;
 
-  if (dateIsoSelectionnee && estJourIntegralementIndisponible(dateIsoSelectionnee)) {
+  const indisponibiliteJourComplet =
+    dateIsoSelectionnee && !utilisateurEstHandler()
+      ? estJourIntegralementIndisponible(dateIsoSelectionnee, etat.utilisateur?.id)
+      : null;
+
+  if (indisponibiliteJourComplet) {
     afficherToast(
       `Le ${formatDate(dateIsoSelectionnee)} est indisponible toute la journée.`,
       "warning"
@@ -9425,6 +9422,10 @@ function ouvrirFormulaireCreation(dateSelectionnee = "") {
   elements.seanceForm.reset();
   masquerErreur(elements.seanceFormError);
   elements.seanceForm.dataset.mode = "creation";
+  definirProgressionCreationSeance({
+    dateConfirmee: selectionNormalisee.dateExplicitementSelectionnee,
+    horaireConfirme: selectionNormalisee.horaireExplicitementSelectionne,
+  });
   mettreAJourVisibiliteDescriptionSeance("creation");
   mettreAJourVisibiliteStatutSeance("creation");
   rendreOptionsCatalogueSeance();
@@ -9435,17 +9436,14 @@ function ouvrirFormulaireCreation(dateSelectionnee = "") {
   elements.saveSeanceButton.dataset.defaultLabel = "Enregistrer";
   elements.seanceId.value = "";
   definirValeurSelectionnee(elements.statutCheckboxes, "planifiee");
-  definirValeurSelectionnee(elements.compteCheckboxes, obtenirCompteParDefaut());
-  definirValeurSelectionnee(elements.matiereCheckboxes, obtenirMatiereParDefaut());
+  definirValeurSelectionnee(elements.matiereCheckboxes, "");
   definirValeurSelectionnee(elements.essaiCheckboxes, "0");
-  definirDureeSelectionnee(60);
-  definirHeureDebutSelectionnee(recupererHeureDebutParDefaut());
-
-  if (dateIsoSelectionnee) {
-    elements.date.value = dateIsoSelectionnee;
-  }
+  definirDureeSelectionnee(selectionNormalisee.duree);
+  definirHeureDebutSelectionnee(selectionNormalisee.heureDebut);
+  elements.date.value = dateIsoSelectionnee;
 
   mettreAJourHeureFinCalculee();
+  mettreAJourEtapesFormulaireSeance();
   ouvrirModal(elements.seanceModal);
   elements.etudiant.focus();
 }
@@ -9467,6 +9465,7 @@ function ouvrirFormulaireModification() {
 
   fermerModal(elements.detailModal);
   elements.seanceForm.dataset.mode = "modification";
+  definirProgressionCreationSeance({ dateConfirmee: true, horaireConfirme: true });
   mettreAJourVisibiliteDescriptionSeance("modification");
   mettreAJourVisibiliteStatutSeance("modification");
   rendreOptionsCatalogueSeance();
@@ -9476,6 +9475,7 @@ function ouvrirFormulaireModification() {
   elements.seanceModalTitle.textContent = "Modifier la séance";
   elements.saveSeanceButton.textContent = "Sauvegarder";
   elements.saveSeanceButton.dataset.defaultLabel = "Sauvegarder";
+  mettreAJourEtapesFormulaireSeance();
   ouvrirModal(elements.seanceModal);
 }
 
@@ -9496,12 +9496,12 @@ function ouvrirFormulaireDuplication() {
 
   const seanceSource = etat.seanceSelectionnee;
   const matieres = obtenirMatieresDisponibles();
-  const comptes = obtenirComptesDisponibles();
 
   fermerModal(elements.detailModal);
   elements.seanceForm.reset();
   masquerErreur(elements.seanceFormError);
   elements.seanceForm.dataset.mode = "creation";
+  definirProgressionCreationSeance();
   mettreAJourVisibiliteDescriptionSeance("creation");
   mettreAJourVisibiliteStatutSeance("creation");
   rendreOptionsCatalogueSeance();
@@ -9519,16 +9519,14 @@ function ouvrirFormulaireDuplication() {
     elements.matiereCheckboxes,
     obtenirValeurCatalogueActiveOuDefaut(matieres, seanceSource.matiere, obtenirMatiereParDefaut())
   );
-  definirValeurSelectionnee(
-    elements.compteCheckboxes,
-    obtenirValeurCatalogueActiveOuDefaut(comptes, seanceSource.compte, obtenirCompteParDefaut())
-  );
   definirValeurSelectionnee(elements.statutCheckboxes, "planifiee");
   definirValeurSelectionnee(elements.essaiCheckboxes, seanceSource.est_essai ? "1" : "0");
   definirDureeSelectionnee(seanceSource.duree_minutes || 60);
+  definirIntervenantSeanceSelectionne(seanceSource.intervenant_id, { obligatoire: true });
   elements.date.value = "";
   definirHeureDebutSelectionnee(seanceSource.heure_debut || recupererHeureDebutParDefaut());
   mettreAJourHeureFinCalculee();
+  mettreAJourEtapesFormulaireSeance();
   ouvrirModal(elements.seanceModal);
   elements.date.focus();
 }
@@ -9550,6 +9548,7 @@ function ouvrirFormulaireReport() {
 
   fermerModal(elements.detailModal);
   elements.seanceForm.dataset.mode = "modification";
+  definirProgressionCreationSeance({ dateConfirmee: true, horaireConfirme: true });
   mettreAJourVisibiliteDescriptionSeance("modification");
   mettreAJourVisibiliteStatutSeance("modification");
   rendreOptionsCatalogueSeance();
@@ -9563,9 +9562,11 @@ function ouvrirFormulaireReport() {
   );
   elements.date.value = "";
   definirHeureDebutSelectionnee("");
+  definirProgressionCreationSeance();
   elements.seanceModalTitle.textContent = "Reporter la séance";
   elements.saveSeanceButton.textContent = "Enregistrer";
   elements.saveSeanceButton.dataset.defaultLabel = "Enregistrer";
+  mettreAJourEtapesFormulaireSeance();
   ouvrirModal(elements.seanceModal);
   elements.date.focus();
 }
@@ -9575,7 +9576,6 @@ function remplirFormulaire(seance) {
   elements.etudiant.value = seance.etudiant;
   elements.parent.value = seance.parent || "";
   definirValeurSelectionnee(elements.matiereCheckboxes, seance.matiere);
-  definirValeurSelectionnee(elements.compteCheckboxes, seance.compte);
   elements.date.value = seance.date;
   elements.heureDebut.value = seance.heure_debut;
   definirDureeSelectionnee(seance.duree_minutes);
@@ -9585,53 +9585,29 @@ function remplirFormulaire(seance) {
   );
   definirHeureDebutSelectionnee(seance.heure_debut);
   definirValeurSelectionnee(elements.essaiCheckboxes, seance.est_essai ? "1" : "0");
+  definirIntervenantSeanceSelectionne(seance.intervenant_id, { obligatoire: true });
   elements.description.value = seance.description || "";
   masquerErreur(elements.seanceFormError);
   mettreAJourHeureFinCalculee();
+  mettreAJourEtapesFormulaireSeance();
 }
 
-function messageErreurIndisponibiliteServeur(message) {
-  const texte = String(message || "").toLowerCase();
-  return texte.includes("indisponible") || texte.includes("bloque");
-}
-
-async function envoyerPropositionSeanceDepuisFormulaire(
-  donneesSeance,
-  conflitIndisponibilite = null,
-  options = {}
-) {
-  const libelleBoutonFinal =
-    elements.saveSeanceButton.dataset.defaultLabel || "Enregistrer";
-
-  elements.saveSeanceButton.disabled = true;
-  elements.saveSeanceButton.textContent = "Proposition...";
-
-  try {
-    await creerPropositionSeance({
-      ...donneesSeance,
-      indisponibilite_id: conflitIndisponibilite?.id || null,
-      seance_source_id: options.seanceSourceId || null,
-    });
-    fermerModal(elements.seanceModal);
-
-    if (utilisateurPeutGererIndisponibilites()) {
-      await chargerPropositionsSeancesSiAutorise();
-    }
-
-    afficherNotificationPropositionIndisponibilite();
-    return true;
-  } catch (erreur) {
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return true;
-    }
-
-    afficherErreur(elements.seanceFormError, erreur.message);
-    return false;
-  } finally {
-    elements.saveSeanceButton.disabled = false;
-    elements.saveSeanceButton.textContent = libelleBoutonFinal;
+function obtenirIntervenantCibleSeance() {
+  if (utilisateurEstHandler()) {
+    const id = Number(elements.seanceIntervenant?.value || 0);
+    return obtenirIntervenantsEligiblesPourCreneauSeance().some(
+      (intervenant) => intervenant.id === id
+    )
+      ? id
+      : null;
   }
+
+  const idUtilisateur = Number(etat.utilisateur?.id || 0);
+  return Number.isInteger(idUtilisateur) && idUtilisateur > 0 ? idUtilisateur : null;
+}
+
+function erreurIndisponibiliteCollective(erreur) {
+  return String(erreur?.code || "").toUpperCase() === "COLLECTIVE_UNAVAILABILITY";
 }
 
 async function gererSoumissionSeance(event) {
@@ -9644,16 +9620,12 @@ async function gererSoumissionSeance(event) {
   }
 
   const mode = elements.seanceForm.dataset.mode || "creation";
-  const seanceSourceId =
-    mode === "modification"
-      ? Number(etat.seanceSelectionnee?.id || elements.seanceId.value) || null
-      : null;
   const dureeMinutes = recupererDureeSelectionnee();
+  const intervenantId = obtenirIntervenantCibleSeance();
   const donneesSeance = {
     etudiant: elements.etudiant.value.trim(),
     parent: elements.parent.value.trim(),
     matiere: recupererValeurSelectionnee(elements.matiereCheckboxes),
-    compte: recupererValeurSelectionnee(elements.compteCheckboxes),
     est_essai: recupererValeurSelectionnee(elements.essaiCheckboxes),
     date: elements.date.value,
     heure_debut: elements.heureDebut.value,
@@ -9661,6 +9633,17 @@ async function gererSoumissionSeance(event) {
     statut_seance:
       mode === "creation" ? "planifiee" : recupererValeurSelectionnee(elements.statutCheckboxes),
   };
+
+  if (utilisateurEstHandler()) {
+    if (!intervenantId) {
+      afficherErreur(
+        elements.seanceFormError,
+        "Sélectionnez le Réalisateur qui assurera la séance."
+      );
+      return;
+    }
+    donneesSeance.intervenant_id = intervenantId;
+  }
 
   if (mode === "modification") {
     donneesSeance.description = elements.description.value.trim();
@@ -9674,11 +9657,6 @@ async function gererSoumissionSeance(event) {
 
   if (!donneesSeance.matiere) {
     afficherErreur(elements.seanceFormError, "Sélectionnez une matière.");
-    return;
-  }
-
-  if (!donneesSeance.compte) {
-    afficherErreur(elements.seanceFormError, "Sélectionnez un compte.");
     return;
   }
 
@@ -9725,11 +9703,15 @@ async function gererSoumissionSeance(event) {
     return;
   }
 
+  const seancePersonnelleHandler =
+    utilisateurEstHandler() && Number(intervenantId) === Number(etat.utilisateur?.id);
+
   const conflitSeanceConfidentielle = trouverSeanceConfidentielleChevauchanteLocale({
     date: donneesSeance.date,
     heure_debut: donneesSeance.heure_debut,
     heure_fin: heureFinCalculee,
     ignorerSeanceId: mode === "modification" ? etat.seanceSelectionnee?.id : null,
+    intervenantId,
   });
 
   if (
@@ -9740,7 +9722,8 @@ async function gererSoumissionSeance(event) {
         etat.seanceSelectionnee,
         donneesSeance.date,
         donneesSeance.heure_debut,
-        heureFinCalculee
+        heureFinCalculee,
+        intervenantId
       )
     )
   ) {
@@ -9753,6 +9736,7 @@ async function gererSoumissionSeance(event) {
     heure_debut: donneesSeance.heure_debut,
     heure_fin: heureFinCalculee,
     ignorerSeanceId: mode === "modification" ? etat.seanceSelectionnee?.id : null,
+    intervenantId,
   });
 
   if (
@@ -9763,7 +9747,8 @@ async function gererSoumissionSeance(event) {
         etat.seanceSelectionnee,
         donneesSeance.date,
         donneesSeance.heure_debut,
-        heureFinCalculee
+        heureFinCalculee,
+        intervenantId
       )
     )
   ) {
@@ -9775,23 +9760,29 @@ async function gererSoumissionSeance(event) {
     date: donneesSeance.date,
     heure_debut: donneesSeance.heure_debut,
     heure_fin: heureFinCalculee,
+    intervenantId,
   });
 
   if (
     conflitIndisponibilite &&
+    !seancePersonnelleHandler &&
     !(
       mode === "modification" &&
       creneauSeanceEquivalent(
         etat.seanceSelectionnee,
         donneesSeance.date,
         donneesSeance.heure_debut,
-        heureFinCalculee
+        heureFinCalculee,
+        intervenantId
       )
     )
   ) {
-    await envoyerPropositionSeanceDepuisFormulaire(donneesSeance, conflitIndisponibilite, {
-      seanceSourceId,
-    });
+    afficherErreur(
+      elements.seanceFormError,
+      utilisateurEstHandler()
+        ? "Ce Réalisateur est indisponible sur ce créneau. Choisissez un autre Réalisateur ou un autre horaire."
+        : construireMessageIndisponibiliteClient(conflitIndisponibilite)
+    );
     return;
   }
 
@@ -9826,13 +9817,12 @@ async function gererSoumissionSeance(event) {
       return;
     }
 
-    if (
-      erreur.status === 400 &&
-      messageErreurIndisponibiliteServeur(erreur.message)
-    ) {
-      await envoyerPropositionSeanceDepuisFormulaire(donneesSeance, null, {
-        seanceSourceId,
-      });
+    if (erreurIndisponibiliteCollective(erreur)) {
+      afficherErreur(
+        elements.seanceFormError,
+        erreur.message ||
+          "Aucun Réalisateur actif n’est disponible sur ce créneau. Choisissez un autre horaire."
+      );
       return;
     }
 
@@ -9920,10 +9910,10 @@ function enregistrerClicIndisponibilite(indisponibilite) {
   };
 }
 
-function gererClicDateCalendrier(dateSelectionnee = "") {
-  const dateIsoSelectionnee = extraireDateIsoDepuisValeurCalendrier(dateSelectionnee);
-  const indisponibiliteJourComplet = dateIsoSelectionnee
-    ? estJourIntegralementIndisponible(dateIsoSelectionnee)
+function gererClicCreneauCalendrierSeance(selection = {}) {
+  const dateIsoSelectionnee = extraireDateIsoDepuisValeurCalendrier(selection?.date);
+  const indisponibiliteJourComplet = dateIsoSelectionnee && !utilisateurEstHandler()
+    ? estJourIntegralementIndisponible(dateIsoSelectionnee, etat.utilisateur?.id)
     : null;
 
   if (indisponibiliteJourComplet) {
@@ -9931,7 +9921,15 @@ function gererClicDateCalendrier(dateSelectionnee = "") {
     return;
   }
 
-  ouvrirFormulaireCreation(dateSelectionnee);
+  ouvrirFormulaireCreation(selection);
+}
+
+function gererSelectionCalendrierSeance(selection = {}) {
+  gererClicCreneauCalendrierSeance(selection);
+}
+
+function gererClicDateCalendrier(dateSelectionnee = "") {
+  gererClicCreneauCalendrierSeance({ date: dateSelectionnee });
 }
 
 function trouverIndisponibiliteDepuisSelectionCalendrier(selection = {}) {
@@ -9992,22 +9990,101 @@ function gererSelectionCalendrierIndisponibilite(selection = {}) {
   ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection);
 }
 
-function gererClicPropositionCalendrier(proposition) {
-  if (!proposition) {
+function seancesSeChevauchent(premiereSeance, secondeSeance) {
+  if (
+    !premiereSeance ||
+    !secondeSeance ||
+    String(premiereSeance.date || "") !== String(secondeSeance.date || "")
+  ) {
+    return false;
+  }
+
+  return (
+    calculerDureeMinutesDepuisHeures(
+      premiereSeance.heure_debut,
+      secondeSeance.heure_fin
+    ) > 0 &&
+    calculerDureeMinutesDepuisHeures(
+      secondeSeance.heure_debut,
+      premiereSeance.heure_fin
+    ) > 0
+  );
+}
+
+function obtenirSeancesChevauchantesVisibles(seance) {
+  const idSeanceCliquee = Number(seance?.id || 0);
+  const seances = (Array.isArray(etat.seances) ? etat.seances : []).filter(
+    (candidate) =>
+      !seanceEstMasqueePourConfidentialite(candidate) &&
+      seancesSeChevauchent(candidate, seance)
+  );
+
+  return seances.sort((premiere, seconde) => {
+    const premiereCliquee = Number(premiere.id) === idSeanceCliquee;
+    const secondeCliquee = Number(seconde.id) === idSeanceCliquee;
+    if (premiereCliquee !== secondeCliquee) {
+      return premiereCliquee ? -1 : 1;
+    }
+
+    return (
+      String(premiere.heure_debut || "").localeCompare(String(seconde.heure_debut || "")) ||
+      Number(premiere.id || 0) - Number(seconde.id || 0)
+    );
+  });
+}
+
+function ouvrirChoixSeancesChevauchantes(seances = []) {
+  if (!elements.seanceChoiceModal || !elements.seanceChoiceList) {
     return;
   }
 
-  if (!utilisateurPeutGererIndisponibilites()) {
-    afficherToast("Proposition en attente de validation par le Handler.", "warning");
+  elements.seanceChoiceList.replaceChildren();
+  seances.forEach((seance) => {
+    const bouton = document.createElement("button");
+    bouton.type = "button";
+    bouton.className = "seance-choice-item";
+
+    const titre = document.createElement("span");
+    titre.className = "seance-choice-item-title";
+    titre.textContent = `${seance.etudiant || "Sans étudiant"} · ${seance.matiere || "Sans matière"}`;
+
+    const meta = document.createElement("span");
+    meta.className = "seance-choice-item-meta";
+    meta.textContent = [
+      construirePlageHoraire(seance),
+      seance.intervenant_nom || seance.compte || "Réalisateur",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    bouton.append(titre, meta);
+    bouton.addEventListener("click", () => {
+      fermerModal(elements.seanceChoiceModal);
+      ouvrirDetailSeance(seance);
+    });
+    elements.seanceChoiceList.appendChild(bouton);
+  });
+
+  ouvrirModal(elements.seanceChoiceModal);
+}
+
+function ouvrirDetailsOuChoixSeance(seance) {
+  if (!seance) {
     return;
   }
 
-  etat.propositionEditionId = Number(proposition.id) || null;
-  afficherSectionApplication("indisponibilites");
-  afficherVueIndisponibilites("propositions");
-  afficherListeIndisponibilitesAdministration();
-  elements.indisponibilitesSection?.scrollIntoView({ behavior: "smooth", block: "start" });
-  afficherToast("Proposition en attente de validation par le Handler.", "warning");
+  if (seanceEstMasqueePourConfidentialite(seance)) {
+    ouvrirDetailSeance(seance);
+    return;
+  }
+
+  const seancesChevauchantes = obtenirSeancesChevauchantesVisibles(seance);
+  if (seancesChevauchantes.length <= 1) {
+    ouvrirDetailSeance(seance);
+    return;
+  }
+
+  ouvrirChoixSeancesChevauchantes(seancesChevauchantes);
 }
 
 async function ouvrirDetailSeance(seance) {
@@ -10021,7 +10098,7 @@ async function ouvrirDetailSeance(seance) {
   elements.detailStudent.textContent = seance.etudiant;
   elements.detailParent.textContent = seance.parent || "Non renseigné";
   elements.detailSubject.textContent = seance.matiere;
-  elements.detailAccount.textContent = seance.compte;
+  elements.detailAccount.textContent = seance.intervenant_nom || seance.compte || "-";
   elements.detailDate.textContent = formatDate(seance.date);
   elements.detailTime.textContent = construirePlageHoraire(seance);
   elements.detailDuration.textContent = seance.duree_label || "-";
@@ -10215,10 +10292,12 @@ function mettreAJourHeureFinCalculee() {
 
   if (!heureDebut || !dureeMinutes) {
     elements.heureFinCalculee.value = "";
+    mettreAJourEtapesFormulaireSeance();
     return;
   }
 
   elements.heureFinCalculee.value = calculerHeureFin(heureDebut, dureeMinutes);
+  mettreAJourEtapesFormulaireSeance();
 }
 
 function calculerHeureFin(heureDebut, dureeMinutes) {
@@ -10260,7 +10339,7 @@ function calculerDureeMinutesDepuisHeures(heureDebut, heureFin) {
   return difference > 0 ? difference : 0;
 }
 
-function creneauSeanceEquivalent(seance, date, heureDebut, heureFin) {
+function creneauSeanceEquivalent(seance, date, heureDebut, heureFin, intervenantId = null) {
   if (!seance) {
     return false;
   }
@@ -10268,7 +10347,8 @@ function creneauSeanceEquivalent(seance, date, heureDebut, heureFin) {
   return (
     seance.date === date &&
     seance.heure_debut === heureDebut &&
-    seance.heure_fin === heureFin
+    seance.heure_fin === heureFin &&
+    (!intervenantId || Number(seance.intervenant_id) === Number(intervenantId))
   );
 }
 
@@ -10277,6 +10357,7 @@ function trouverSeanceConfidentielleChevauchanteLocale({
   heure_debut: heureDebut,
   heure_fin: heureFin,
   ignorerSeanceId = null,
+  intervenantId = null,
 }) {
   if (utilisateurEstAdministrateur()) {
     return null;
@@ -10285,6 +10366,10 @@ function trouverSeanceConfidentielleChevauchanteLocale({
   return (
     etat.seances.find((seance) => {
       if (!seanceEstMasqueePourConfidentialite(seance) || seance.date !== date) {
+        return false;
+      }
+
+      if (intervenantId && Number(seance.intervenant_id) !== Number(intervenantId)) {
         return false;
       }
 
@@ -10309,10 +10394,15 @@ function trouverSeanceChevauchanteLocale({
   heure_debut: heureDebut,
   heure_fin: heureFin,
   ignorerSeanceId = null,
+  intervenantId = null,
 }) {
   return (
     etat.seances.find((seance) => {
       if (seanceEstMasqueePourConfidentialite(seance) || seance.date !== date) {
+        return false;
+      }
+
+      if (intervenantId && Number(seance.intervenant_id) !== Number(intervenantId)) {
         return false;
       }
 
@@ -10347,9 +10437,17 @@ function trouverIndisponibiliteChevauchanteLocale({
   heure_debut: heureDebut,
   heure_fin: heureFin,
   ignorerIndisponibiliteId = null,
+  intervenantId = null,
 }) {
   return etat.indisponibilites.find((indisponibilite) => {
     if (indisponibilite.date !== date) {
+      return false;
+    }
+
+    if (
+      intervenantId &&
+      Number(indisponibilite.intervenant_id) !== Number(intervenantId)
+    ) {
       return false;
     }
 
@@ -10367,11 +10465,13 @@ function trouverIndisponibiliteChevauchanteLocale({
   }) || null;
 }
 
-function estJourIntegralementIndisponible(date) {
+function estJourIntegralementIndisponible(date, intervenantId = null) {
   return (
     etat.indisponibilites.find(
       (indisponibilite) =>
-        indisponibilite.date === date && estIndisponibiliteJourCompletClient(indisponibilite)
+        indisponibilite.date === date &&
+        estIndisponibiliteJourCompletClient(indisponibilite) &&
+        (!intervenantId || Number(indisponibilite.intervenant_id) === Number(intervenantId))
     ) || null
   );
 }
@@ -10448,10 +10548,10 @@ function recupererHeureDebutParDefaut() {
   }
 
   const { debut, fin } = obtenirBornesCalendrierClient();
-  const proposition = heures * 60 + minutes;
+  const minuteCandidate = heures * 60 + minutes;
   const derniereHeurePossible = Math.max(debut, fin - 60);
   return formaterMinutesCalendrierClient(
-    Math.min(Math.max(proposition, debut), derniereHeurePossible)
+    Math.min(Math.max(minuteCandidate, debut), derniereHeurePossible)
   );
 }
 
@@ -10493,13 +10593,132 @@ function definirSousTitreModalSeance(message) {
   elements.seanceModalSubtitle.classList.toggle("hidden", !message);
 }
 
+function obtenirModalesOuvertes() {
+  return Array.from(document.querySelectorAll(".modal:not(.hidden)")).filter(
+    (modal) => modal.getAttribute("aria-hidden") !== "true"
+  );
+}
+
+function obtenirModalOuverteAuPremierPlan() {
+  const modales = obtenirModalesOuvertes();
+  return modales[modales.length - 1] || null;
+}
+
+function elementEstVisibleDansModal(element) {
+  return (
+    element instanceof HTMLElement &&
+    !element.closest(".hidden, [aria-hidden='true']") &&
+    element.getClientRects().length > 0
+  );
+}
+
+function obtenirElementsFocusablesModal(modal) {
+  if (!modal) {
+    return [];
+  }
+
+  return Array.from(modal.querySelectorAll(selecteurElementsFocusablesModal)).filter(
+    (element) =>
+      elementEstVisibleDansModal(element) &&
+      !element.hasAttribute("disabled") &&
+      element.tabIndex >= 0
+  );
+}
+
+function focaliserElementModal(element) {
+  if (!(element instanceof HTMLElement) || !element.isConnected || element.hasAttribute("disabled")) {
+    return false;
+  }
+
+  try {
+    element.focus({ preventScroll: true });
+  } catch (_erreur) {
+    element.focus();
+  }
+
+  return document.activeElement === element;
+}
+
+function focaliserPremierElementModal(modal) {
+  if (!modal) {
+    return false;
+  }
+
+  return focaliserElementModal(obtenirElementsFocusablesModal(modal)[0] || modal);
+}
+
+function gererNavigationClavierModales(event) {
+  const modal = obtenirModalOuverteAuPremierPlan();
+  if (!modal) {
+    return;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    fermerModal(modal);
+    return;
+  }
+
+  if (event.key !== "Tab") {
+    return;
+  }
+
+  const focusables = obtenirElementsFocusablesModal(modal);
+  if (focusables.length === 0) {
+    event.preventDefault();
+    focaliserElementModal(modal);
+    return;
+  }
+
+  const premierElement = focusables[0];
+  const dernierElement = focusables[focusables.length - 1];
+  const elementActif = document.activeElement;
+  const elementActifFocusable = focusables.includes(elementActif);
+
+  if (event.shiftKey && (elementActif === premierElement || !elementActifFocusable)) {
+    event.preventDefault();
+    focaliserElementModal(dernierElement);
+    return;
+  }
+
+  if (!event.shiftKey && (elementActif === dernierElement || !elementActifFocusable)) {
+    event.preventDefault();
+    focaliserElementModal(premierElement);
+  }
+}
+
 function ouvrirModal(modal) {
+  if (!modal) {
+    return;
+  }
+
+  const etaitFermee = modal.classList.contains("hidden");
+  if (etaitFermee) {
+    const elementActif = document.activeElement;
+    retoursFocusDesModales.set(
+      modal,
+      elementActif instanceof HTMLElement && !modal.contains(elementActif) ? elementActif : null
+    );
+  }
+
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
+
+  if (etaitFermee) {
+    focaliserPremierElementModal(modal);
+  }
 }
 
 function fermerModal(modal) {
+  if (!modal) {
+    return;
+  }
+
+  const etaitOuverte = !modal.classList.contains("hidden");
+  const elementRetour = retoursFocusDesModales.get(modal);
+  retoursFocusDesModales.delete(modal);
+
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
 
@@ -10522,35 +10741,51 @@ function fermerModal(modal) {
     masquerFormulaireIndisponibiliteModal();
   }
 
-  if (
-    elements.seanceModal.classList.contains("hidden") &&
-    elements.detailModal.classList.contains("hidden") &&
-    elements.historyDetailModal.classList.contains("hidden") &&
-    (elements.unavailabilityDetailModal
-      ? elements.unavailabilityDetailModal.classList.contains("hidden")
-      : true) &&
-    (elements.auditLogModal ? elements.auditLogModal.classList.contains("hidden") : true)
-  ) {
-    document.body.classList.remove("modal-open");
+  const modalRestante = obtenirModalOuverteAuPremierPlan();
+  if (modalRestante) {
+    focaliserPremierElementModal(modalRestante);
+    return;
+  }
+
+  document.body.classList.remove("modal-open");
+
+  if (etaitOuverte && elementEstVisibleDansModal(elementRetour)) {
+    focaliserElementModal(elementRetour);
   }
 }
 
 function afficherErreur(element, message) {
+  if (!element) {
+    return;
+  }
+
   element.textContent = message;
   element.classList.remove("hidden");
 }
 
 function masquerErreur(element) {
+  if (!element) {
+    return;
+  }
+
   element.textContent = "";
   element.classList.add("hidden");
 }
 
 function afficherInfo(element, message) {
+  if (!element) {
+    return;
+  }
+
   element.textContent = message;
   element.classList.remove("hidden");
 }
 
 function masquerInfo(element) {
+  if (!element) {
+    return;
+  }
+
   element.textContent = "";
   element.classList.add("hidden");
 }
@@ -10584,17 +10819,6 @@ function afficherToast(message, type = "success", options = {}) {
   window.setTimeout(() => {
     toast.remove();
   }, Number(options.dureeMs) || 3600);
-}
-
-function afficherNotificationPropositionIndisponibilite() {
-  afficherToast(
-    "Vous avez programmé une séance dans un créneau indisponible. Proposition envoyée au Handler.",
-    "proposal",
-    {
-      title: "Proposition envoyée",
-      dureeMs: 5200,
-    }
-  );
 }
 
 function formatDate(date) {

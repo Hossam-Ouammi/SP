@@ -20,12 +20,20 @@ const OFFSETS_CALENDRIER_PUBLIC = Object.freeze({
     libelle: "GMT+2",
     offsetMinutes: 120,
   }),
+  "GMT+3": Object.freeze({
+    libelle: "GMT+3",
+    offsetMinutes: 180,
+  }),
+  "GMT+4": Object.freeze({
+    libelle: "GMT+4",
+    offsetMinutes: 240,
+  }),
 });
 
 // Alias conservé pour les consommateurs de code existants. Son contenu décrit
 // désormais des offsets de l'horloge centrale, et non des fuseaux IANA.
 const FUSEAUX_PUBLICS_FIXES = OFFSETS_CALENDRIER_PUBLIC;
-const FUSEAU_PUBLIC_PAR_DEFAUT = "GMT";
+const FUSEAU_PUBLIC_PAR_DEFAUT = "GMT+1";
 
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
@@ -93,7 +101,7 @@ function validerOffsetCalendrierPublic(valeur) {
 
 function normaliserFuseauCalendrierPublic(valeur, valeurParDefaut = FUSEAU_PUBLIC_PAR_DEFAUT) {
   // Le nom public historique est conservé, mais le comportement courant est
-  // volontairement strict : seuls les trois offsets métier sont exploitables.
+  // volontairement strict : seuls les offsets métier sont exploitables.
   return (
     validerOffsetCalendrierPublic(valeur) ||
     validerOffsetCalendrierPublic(valeurParDefaut) ||

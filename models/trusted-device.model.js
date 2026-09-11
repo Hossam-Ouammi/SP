@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 
 const { all, get, run } = require("./db");
+const { AUTO_LOGIN_MAX_AGE_MS } = require("../config/security.config");
 
 function hacherValidator(validator) {
   return crypto.createHash("sha256").update(String(validator || "")).digest("hex");
@@ -34,6 +35,15 @@ function analyserCookieAppareil(valeur) {
 
 function construireValeurCookieAppareil(selector, validator) {
   return `${selector}:${validator}`;
+}
+
+function calculerExpirationAppareil(dateReference = Date.now()) {
+  return new Date(Number(dateReference) + AUTO_LOGIN_MAX_AGE_MS).toISOString();
+}
+
+function appareilAutoLoginEstExpire(appareil, maintenant = Date.now()) {
+  const expiration = Date.parse(String(appareil?.expires_at || ""));
+  return !Number.isFinite(expiration) || expiration <= Number(maintenant);
 }
 
 function detecterPlateforme(userAgent) {
@@ -115,9 +125,10 @@ async function creerAppareilAutoLogin({
             session_version,
             device_label,
             user_agent,
-            adresse_ip
+            adresse_ip,
+            expires_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           utilisateurId,
@@ -127,6 +138,7 @@ async function creerAppareilAutoLogin({
           construireLibelleAppareil(userAgent),
           userAgent ? String(userAgent).slice(0, 400) : null,
           adresseIp ? String(adresseIp).slice(0, 80) : null,
+          calculerExpirationAppareil(),
         ]
       );
 
@@ -148,17 +160,42 @@ async function creerAppareilAutoLogin({
 
 async function renouvelerAppareilAutoLogin(
   appareilId,
-  { sessionVersion, adresseIp, userAgent }
+  {
+    sessionVersion,
+    adresseIp,
+    userAgent,
+    // A remembered-device credential is a rotating bearer token.  The
+    // renewal therefore has to be conditional on the validator that was
+    // actually presented by the browser.  Without this compare-and-swap,
+    // two concurrent replays of the same copied cookie could both create a
+    // fresh server session before either request overwrote the validator.
+    selector,
+    validatorHashAttendu,
+    sessionVersionAttendue,
+  }
 ) {
-  const appareil = await trouverAppareilAutoLoginParId(appareilId);
+  const identifiantAppareil = Number(appareilId);
+  const selectorNormalise = String(selector || "").trim().toLowerCase();
+  const hashAttendu = String(validatorHashAttendu || "").trim().toLowerCase();
+  const versionAttendue = Number(sessionVersionAttendue);
+  const versionCible = Number(sessionVersion);
 
-  if (!appareil) {
+  if (
+    !Number.isInteger(identifiantAppareil) ||
+    identifiantAppareil <= 0 ||
+    !/^[a-f0-9]{24}$/.test(selectorNormalise) ||
+    !/^[a-f0-9]{64}$/.test(hashAttendu) ||
+    !Number.isInteger(versionAttendue) ||
+    versionAttendue < 0 ||
+    !Number.isInteger(versionCible) ||
+    versionCible < 0
+  ) {
     return null;
   }
 
   const validator = genererValidator();
 
-  await run(
+  const resultat = await run(
     `
       UPDATE trusted_devices
       SET
@@ -169,19 +206,30 @@ async function renouvelerAppareilAutoLogin(
         adresse_ip = ?,
         last_used_at = CURRENT_TIMESTAMP
       WHERE id = ?
+        AND selector = ?
+        AND validator_hash = ?
+        AND session_version = ?
+        AND julianday(expires_at) > julianday('now')
     `,
     [
       hacherValidator(validator),
-      Number(sessionVersion) || 1,
-      construireLibelleAppareil(userAgent || appareil.user_agent),
-      userAgent ? String(userAgent).slice(0, 400) : appareil.user_agent,
-      adresseIp ? String(adresseIp).slice(0, 80) : appareil.adresse_ip,
-      appareilId,
+      versionCible,
+      construireLibelleAppareil(userAgent),
+      userAgent ? String(userAgent).slice(0, 400) : null,
+      adresseIp ? String(adresseIp).slice(0, 80) : null,
+      identifiantAppareil,
+      selectorNormalise,
+      hashAttendu,
+      versionAttendue,
     ]
   );
 
+  if (Number(resultat?.changes || 0) !== 1) {
+    return null;
+  }
+
   return {
-    cookieValue: construireValeurCookieAppareil(appareil.selector, validator),
+    cookieValue: construireValeurCookieAppareil(selectorNormalise, validator),
   };
 }
 
@@ -212,6 +260,8 @@ async function listerAppareilsAutoLogin() {
 module.exports = {
   analyserCookieAppareil,
   hacherValidator,
+  calculerExpirationAppareil,
+  appareilAutoLoginEstExpire,
   creerAppareilAutoLogin,
   trouverAppareilAutoLoginParSelector,
   trouverAppareilAutoLoginParId,

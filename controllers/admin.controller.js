@@ -1,6 +1,9 @@
 const net = require("net");
 const bcrypt = require("bcryptjs");
-const { genererMotDePasseAleatoire } = require("../utils/security");
+const {
+  genererMotDePasseAleatoire,
+  motDePasseEstCompatibleBcrypt,
+} = require("../utils/security");
 const { normaliserIpClient } = require("../middleware/security.middleware");
 const { executerAvecVerrou } = require("../utils/job-lock");
 const { executerMaintenanceBaseDeDonnees } = require("../models/db");
@@ -75,6 +78,16 @@ function compteEstSuperAdmin(compte) {
   return comptePossedeRole(compte, ROLES.SUPER_ADMIN);
 }
 
+function comptePeutGererIndisponibilites(compte) {
+  // The toggle remains meaningful only for a pure Professor account. A
+  // Handler (including a dual-role account) has no unavailability module and
+  // must not be configurable through a handcrafted Admin request.
+  return (
+    comptePossedeRole(compte, ROLES.PROFESSEUR) &&
+    !comptePossedeRole(compte, ROLES.HANDLER)
+  );
+}
+
 async function journaliserActionAdmin(req, actionType, resultat, details = null) {
   await enregistrerEvenementAuth({
     utilisateurId: req.utilisateur?.id || null,
@@ -88,6 +101,17 @@ async function journaliserActionAdmin(req, actionType, resultat, details = null)
 }
 
 async function verifierMotDePasseAdministrateur(req, motDePasseActuel) {
+  // Keep every bcrypt comparison inside its effective byte range. Without
+  // this guard, a correct administrator password plus an arbitrary suffix
+  // would compare as the same credential.
+  if (!motDePasseEstCompatibleBcrypt(motDePasseActuel)) {
+    return {
+      ok: false,
+      status: 400,
+      message: "Le mot de passe actuel est incorrect.",
+    };
+  }
+
   const administrateur = await trouverUtilisateurAvecMotDePasseParId(req.utilisateur.id);
 
   if (!administrateur) {
@@ -847,6 +871,14 @@ async function mettreAJourAccesIndisponibilitesUtilisateur(req, res) {
   if (compteEstSuperAdmin(compteCible)) {
     return res.status(400).json({
       message: "Le menu Indisponibilites d'un administrateur n'est pas configurable ici.",
+    });
+  }
+
+  if (!comptePeutGererIndisponibilites(compteCible)) {
+    return res.status(400).json({
+      code: "PROFESSOR_UNAVAILABILITY_TARGET_REQUIRED",
+      message:
+        "Le réglage Indisponibilités est réservé aux comptes Professeur qui ne sont pas Handler.",
     });
   }
 

@@ -7,7 +7,11 @@ const {
   construireFiltreLectureSeances,
   scopePeutGererIntervenant,
 } = require("../models/access-scope.model");
-const { convertirDateHeureZonneeEnInstant } = require("../utils/timezone");
+const { trouverUtilisateurParId } = require("../models/utilisateur.model");
+const {
+  convertirDateHeureZonneeEnInstant,
+  convertirInstantEnDateHeureZonnee,
+} = require("../utils/timezone");
 const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
 
 const REGEX_MOIS_ISO = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -96,11 +100,35 @@ function estSeanceFacturableMonetisation(seance) {
   return estSeanceFaiteMonetisation(seance) && !estSeanceGratuiteMonetisation(seance);
 }
 
+function lireTarifHoraireValide(valeur) {
+  // `Number(null)` vaut 0 en JavaScript. Une absence de snapshot ne doit donc
+  // jamais être interprétée comme un tarif nul : elle doit laisser place au
+  // tarif de repli des anciennes données.
+  if (
+    valeur === null ||
+    valeur === undefined ||
+    (typeof valeur === "string" && valeur.trim() === "")
+  ) {
+    return null;
+  }
+
+  const tarif = Number(valeur);
+  return Number.isFinite(tarif) && tarif >= 0 ? tarif : null;
+}
+
+function obtenirTarifEffectifSeance(seance, tarifUnitaire) {
+  const tarifSnapshot = lireTarifHoraireValide(seance?.tarif_horaire_applique);
+
+  if (tarifSnapshot !== null) {
+    return tarifSnapshot;
+  }
+
+  return lireTarifHoraireValide(tarifUnitaire) ?? 0;
+}
+
 function calculerMontantSeance(seance, tarifUnitaire) {
   const dureeMinutes = calculerDureeMinutes(seance);
-  const tarifSnapshot = Number(seance?.tarif_horaire_applique);
-  const tarifEffectif =
-    Number.isFinite(tarifSnapshot) && tarifSnapshot >= 0 ? tarifSnapshot : tarifUnitaire;
+  const tarifEffectif = obtenirTarifEffectifSeance(seance, tarifUnitaire);
 
   if (!dureeMinutes || !tarifEffectif) {
     return 0;
@@ -109,9 +137,9 @@ function calculerMontantSeance(seance, tarifUnitaire) {
   return (tarifEffectif * dureeMinutes) / 60;
 }
 
-function calculerMonetisationPourCompte(seances, nomCompte, tarifUnitaire) {
+function calculerMonetisationPourIntervenant(seances, cleIntervenant, tarifUnitaire) {
   const seancesDuCompte = seances.filter(
-    (seance) => (seance.compte || "").trim().toLowerCase() === nomCompte.toLowerCase()
+    (seance) => cleIntervenantMonetisation(seance) === cleIntervenant
   );
   const seancesFacturables = seancesDuCompte.filter(estSeanceFacturableMonetisation);
   const seancesEssaiFaites = seancesDuCompte.filter(
@@ -121,9 +149,20 @@ function calculerMonetisationPourCompte(seances, nomCompte, tarifUnitaire) {
     (total, seance) => total + calculerMontantSeance(seance, tarifUnitaire),
     0
   );
+  const tarifsHoraires = Array.from(
+    new Set(
+      seancesFacturables.map((seance) =>
+        obtenirTarifEffectifSeance(seance, tarifUnitaire)
+      )
+    )
+  ).sort((premierTarif, secondTarif) => premierTarif - secondTarif);
 
   return {
+    // Conservé pour les consommateurs historiques. Les nouvelles interfaces
+    // utilisent `tarifs_horaires`, car un même réalisateur peut désormais avoir
+    // plusieurs tarifs appliqués sur une même période.
     tarif_unitaire: tarifUnitaire,
+    tarifs_horaires: tarifsHoraires,
     seances_facturables: seancesFacturables.length,
     seances_essai_faites: seancesEssaiFaites.length,
     montant_du: montantDu,
@@ -132,6 +171,24 @@ function calculerMonetisationPourCompte(seances, nomCompte, tarifUnitaire) {
 
 function normaliserCleCompte(valeur) {
   return String(valeur || "").trim().toLowerCase();
+}
+
+function normaliserIdentifiantIntervenant(valeur) {
+  const identifiant = Number(valeur);
+  return Number.isInteger(identifiant) && identifiant > 0 ? identifiant : null;
+}
+
+function cleIntervenantMonetisation(seance) {
+  const intervenantId = normaliserIdentifiantIntervenant(seance?.intervenant_id);
+
+  if (intervenantId) {
+    return `intervenant:${intervenantId}`;
+  }
+
+  // Certaines séances historiques n'avaient pas encore de réalisateur. Elles
+  // restent regroupées de façon stable, sans exposer d'identifiant technique.
+  const compteHistorique = normaliserCleCompte(seance?.compte || seance?.intervenant_nom);
+  return compteHistorique ? `historique:${compteHistorique}` : "historique:inconnu";
 }
 
 function extraireCleMoisSeance(seance) {
@@ -180,6 +237,13 @@ function lireModePeriodeMonetisation(valeur) {
     };
   }
 
+  if (["custom", "personnalisee", "personnalise"].includes(texte)) {
+    return {
+      valeur: "custom",
+      invalide: false,
+    };
+  }
+
   return {
     valeur: null,
     invalide: true,
@@ -216,6 +280,28 @@ function lireListeComptesMonetisation(valeur) {
     .filter(Boolean);
 }
 
+function lireListeIntervenantsMonetisation(valeur) {
+  const valeurs = (Array.isArray(valeur) ? valeur : [valeur])
+    .flatMap((element) => String(element ?? "").split(","))
+    .map((element) => element.trim())
+    .filter(Boolean);
+
+  if (valeurs.length === 0) {
+    return { valeur: [], invalide: false };
+  }
+
+  const identifiants = valeurs.map(normaliserIdentifiantIntervenant);
+
+  if (identifiants.some((identifiant) => !identifiant)) {
+    return { valeur: [], invalide: true };
+  }
+
+  return {
+    valeur: Array.from(new Set(identifiants)),
+    invalide: false,
+  };
+}
+
 function lireFormatReleveMonetisation(valeur) {
   const texte = String(valeur || "").trim().toLowerCase();
 
@@ -240,53 +326,107 @@ function lireFormatReleveMonetisation(valeur) {
 }
 
 function libelleIntervenantMonetisation(seance) {
-  const idPublic = String(seance?.intervenant_public_id || "").trim();
   const nom = String(seance?.intervenant_nom || "").trim();
-
-  if (idPublic) {
-    return nom ? `${idPublic} — ${nom}` : idPublic;
-  }
 
   if (nom) {
     return nom;
   }
 
-  return "Intervenant Ã  rÃ©concilier";
+  const compteHistorique = String(seance?.compte || "").trim();
+  return compteHistorique || "Intervenant à réconcilier";
 }
 
-function construireCatalogueIntervenantsMonetisation(seances = []) {
+function tarifIntervenantMonetisation(source = {}) {
+  const tarifSnapshot = lireTarifHoraireValide(source?.tarif_horaire_applique);
+  const tarifActuel = lireTarifHoraireValide(
+    source?.intervenant_tarif_horaire ?? source?.tarif_horaire
+  );
+
+  if (tarifSnapshot !== null) {
+    return tarifSnapshot;
+  }
+
+  return tarifActuel ?? 0;
+}
+
+function construireCatalogueIntervenantsMonetisation(seances = [], intervenantsAutorises = []) {
   const comptes = new Map();
 
-  for (const seance of seances) {
-    const label = libelleIntervenantMonetisation(seance);
-    const cle = normaliserCleCompte(label);
+  function ajouterIntervenant(source = {}) {
+    // Une séance historique possède aussi un `id`, mais ce n'est jamais
+    // l'identifiant d'un Réalisateur. Les intervenants autorisés reçoivent
+    // explicitement `intervenant_id` juste avant cet appel.
+    const identifiant = normaliserIdentifiantIntervenant(source?.intervenant_id);
+    const nom = String(source?.intervenant_nom ?? source?.nom ?? "").trim();
+    const cle = identifiant
+      ? `intervenant:${identifiant}`
+      : cleIntervenantMonetisation(source);
 
     if (!cle || comptes.has(cle)) {
-      continue;
+      return;
     }
 
-    const tarifSnapshot = Number(seance?.tarif_horaire_applique);
-    const tarifActuel = Number(seance?.intervenant_tarif_horaire);
     comptes.set(cle, {
-      valeur: label,
-      tarif_horaire:
-        Number.isFinite(tarifSnapshot) && tarifSnapshot >= 0
-          ? tarifSnapshot
-          : Number.isFinite(tarifActuel) && tarifActuel >= 0
-            ? tarifActuel
-            : 0,
+      cle,
+      intervenant_id: identifiant,
+      nom: nom || libelleIntervenantMonetisation(source),
+      tarif_horaire: tarifIntervenantMonetisation(source),
     });
   }
 
-  return { comptes: Array.from(comptes.values()), matieres: [] };
+  intervenantsAutorises.forEach((intervenant) => {
+    ajouterIntervenant({
+      ...intervenant,
+      intervenant_id: intervenant?.id,
+      intervenant_nom: intervenant?.nom,
+      intervenant_tarif_horaire: intervenant?.tarif_horaire,
+    });
+  });
+
+  for (const seance of seances) {
+    const cle = cleIntervenantMonetisation(seance);
+    const existant = comptes.get(cle);
+
+    if (existant) {
+      // Un tarif snapshot appliqué à une séance est la référence de calcul
+      // historique la plus précise ; il prend donc le pas sur le tarif actuel.
+      const tarifSnapshot = lireTarifHoraireValide(seance?.tarif_horaire_applique);
+      if (tarifSnapshot !== null) {
+        existant.tarif_horaire = tarifSnapshot;
+      }
+      continue;
+    }
+
+    ajouterIntervenant(seance);
+  }
+
+  const intervenants = Array.from(comptes.values()).sort(
+    (premier, second) =>
+      premier.nom.localeCompare(second.nom, "fr") ||
+      Number(premier.intervenant_id || 0) - Number(second.intervenant_id || 0)
+  );
+
+  // `comptes` reste dans le DTO legacy. Son libellé est désormais toujours le
+  // nom du réalisateur, jamais un identifiant public.
+  return {
+    intervenants,
+    comptes: intervenants.map((intervenant) => ({
+      valeur: intervenant.nom,
+      cle: intervenant.cle,
+      intervenant_id: intervenant.intervenant_id,
+      tarif_horaire: intervenant.tarif_horaire,
+    })),
+    matieres: [],
+  };
 }
 
 function normaliserSeancesPourMonetisationIntervenant(seances = []) {
   return seances.map((seance) => ({
     ...seance,
-    // `compte` est conservÃ© dans le DTO legacy pour ne pas casser l'UI, mais
-    // dÃ©signe dÃ©sormais l'intervenant et non une ancienne Ã©tiquette globale.
+    // `compte` est conservé dans le DTO legacy pour ne pas casser l'UI, mais
+    // désigne désormais l'intervenant et non une ancienne étiquette globale.
     compte: libelleIntervenantMonetisation(seance),
+    cle_intervenant_monetisation: cleIntervenantMonetisation(seance),
   }));
 }
 
@@ -317,64 +457,90 @@ function verifierContexteAnalyseGlobaleSuperAdmin(req) {
   }
 }
 
-function lireFiltreIntervenantAnalyseGlobale(req) {
+function lireFiltreIntervenantsMonetisation(req) {
   const valeur = req.query?.intervenant_id ?? req.query?.professeur_id;
+  const filtre = lireListeIntervenantsMonetisation(valeur);
 
-  if (valeur === undefined || valeur === null || String(valeur).trim() === "") {
-    return null;
-  }
-
-  const intervenantId = Number(valeur);
-
-  if (!Number.isInteger(intervenantId) || intervenantId <= 0) {
+  if (filtre.invalide) {
     throw creerErreurHttp(400, "L'identifiant d'intervenant est invalide.");
   }
 
-  return intervenantId;
+  return filtre.valeur;
+}
+
+async function listerIntervenantsAutorisesMonetisation(req) {
+  if (req.modeMonetisationGlobaleSuperAdmin === true) {
+    return [];
+  }
+
+  const identifiants = req.scope?.estHandler
+    ? [
+        normaliserIdentifiantIntervenant(req.scope?.utilisateurId),
+        ...(Array.isArray(req.scope?.professeurIdsHandlerOwn)
+          ? req.scope.professeurIdsHandlerOwn.map(normaliserIdentifiantIntervenant)
+          : []),
+      ]
+    : [normaliserIdentifiantIntervenant(req.scope?.utilisateurId)];
+  const idsUniques = Array.from(new Set(identifiants.filter(Boolean)));
+  const utilisateurs = await Promise.all(idsUniques.map((identifiant) => trouverUtilisateurParId(identifiant)));
+
+  return utilisateurs.filter(
+    (utilisateur) =>
+      utilisateur &&
+      Number(utilisateur.acces_active) === 1 &&
+      String(utilisateur.statut_compte || "active").toLowerCase() === "active"
+  );
 }
 
 async function resoudreScopeMonetisation(req) {
+  const intervenantIdsDemandes = lireFiltreIntervenantsMonetisation(req);
+
   if (req.modeMonetisationGlobaleSuperAdmin === true) {
     verifierContexteAnalyseGlobaleSuperAdmin(req);
     return {
       globaleSuperAdmin: true,
-      intervenantId: lireFiltreIntervenantAnalyseGlobale(req),
+      intervenantIds: intervenantIdsDemandes,
     };
   }
 
   const scopeLecture = construireFiltreLectureSeances(req.scope);
-  const intervenantDemande = Number(req.query?.intervenant_id ?? req.query?.professeur_id);
-
-  if (!Number.isInteger(intervenantDemande) || intervenantDemande <= 0) {
-    return scopeLecture;
+  if (intervenantIdsDemandes.length === 0) {
+    return { ...scopeLecture, intervenantIds: [] };
   }
 
   if (req.scope?.estHandler) {
     const handlerId = Number(req.scope.utilisateurId);
-    const autorise = await scopePeutGererIntervenant(req.scope, {
-      handlerId,
-      intervenantId: intervenantDemande,
-    });
+    const autorisations = await Promise.all(
+      intervenantIdsDemandes.map((intervenantId) =>
+        scopePeutGererIntervenant(req.scope, { handlerId, intervenantId })
+      )
+    );
 
-    if (!autorise) {
+    if (autorisations.some((autorise) => !autorise)) {
       throw creerErreurHttp(404, "Intervenant introuvable.");
     }
 
-    return { handlerIds: [handlerId], intervenantId: intervenantDemande };
+    // La requête SQL reste limitée à l'espace du Handler. Le sous-ensemble
+    // multi-réalisateurs est filtré ensuite, sans concaténer d'IDs dans SQL.
+    return { ...scopeLecture, intervenantIds: intervenantIdsDemandes };
   }
 
-  if (Number(req.scope?.utilisateurId) !== intervenantDemande) {
+  if (
+    intervenantIdsDemandes.some(
+      (intervenantId) => Number(req.scope?.utilisateurId) !== intervenantId
+    )
+  ) {
     throw creerErreurHttp(404, "Intervenant introuvable.");
   }
 
-  return scopeLecture;
+  return { ...scopeLecture, intervenantIds: intervenantIdsDemandes };
 }
 
 function construireContexteMonetisation(seances, catalogue) {
   const comptesCatalogue = Array.isArray(catalogue?.comptes) ? catalogue.comptes : [];
   const comptesCatalogueParNom = new Map(
     comptesCatalogue.map((compte) => [
-      normaliserCleCompte(compte?.valeur),
+      String(compte?.cle || normaliserCleCompte(compte?.valeur)),
       compte,
     ])
   );
@@ -382,9 +548,14 @@ function construireContexteMonetisation(seances, catalogue) {
   const comptesVisibles = [];
   const comptesVisiblesParCle = new Set();
 
-  function ajouterCompteVisible(nomCompte) {
+  function ajouterCompteVisible(nomCompte, seance = null) {
     const nomNormalise = String(nomCompte || "").trim();
-    const cleCompte = normaliserCleCompte(nomNormalise);
+    const cleCompte = seance
+      ? cleIntervenantMonetisation(seance)
+      : String(
+          comptesCatalogue.find((compte) => String(compte?.valeur || "").trim() === nomNormalise)
+            ?.cle || normaliserCleCompte(nomNormalise)
+        );
 
     if (
       !cleCompte ||
@@ -397,15 +568,21 @@ function construireContexteMonetisation(seances, catalogue) {
     comptesVisibles.push({
       cle: cleCompte,
       nom: comptesCatalogueParNom.get(cleCompte)?.valeur || nomNormalise,
+      intervenant_id: normaliserIdentifiantIntervenant(
+        comptesCatalogueParNom.get(cleCompte)?.intervenant_id ?? seance?.intervenant_id
+      ),
     });
   }
 
   comptesCatalogue.forEach((compte) => {
-    ajouterCompteVisible(compte?.valeur);
+    ajouterCompteVisible(compte?.valeur, {
+      intervenant_id: compte?.intervenant_id,
+      compte: compte?.valeur,
+    });
   });
 
   seancesVisibles.forEach((seance) => {
-    ajouterCompteVisible(seance?.compte);
+    ajouterCompteVisible(seance?.compte, seance);
   });
 
   return {
@@ -417,9 +594,7 @@ function construireContexteMonetisation(seances, catalogue) {
 
 function obtenirTarifUnitaireCompte(compteVisible, comptesCatalogueParNom) {
   const compteCatalogue = comptesCatalogueParNom.get(compteVisible.cle);
-  return Number.isFinite(Number(compteCatalogue?.tarif_horaire))
-    ? Number(compteCatalogue.tarif_horaire)
-    : 0;
+  return lireTarifHoraireValide(compteCatalogue?.tarif_horaire) ?? 0;
 }
 
 function listerMoisDisponibles(seances) {
@@ -547,7 +722,23 @@ function normaliserNomFichier(valeur) {
     .replace(/^-+|-+$/g, "");
 }
 
-function construirePeriodeReleveMonetisation({ filtreMois, modePeriode, filtreAnnee }) {
+function construirePeriodeReleveMonetisation({
+  filtreMois,
+  modePeriode,
+  filtreAnnee,
+  filtreDu,
+  filtreAu,
+}) {
+  if (filtreDu?.valeur || filtreAu?.valeur) {
+    return {
+      mode: "custom",
+      mois: null,
+      annee: null,
+      du: filtreDu?.valeur || null,
+      au: filtreAu?.valeur || null,
+    };
+  }
+
   if (filtreMois?.valeur) {
     return {
       mode: "monthly",
@@ -572,6 +763,10 @@ function construirePeriodeReleveMonetisation({ filtreMois, modePeriode, filtreAn
 }
 
 function filtrerSeancesPourPeriodeReleveMonetisation(seances, periode) {
+  if (periode.mode === "custom") {
+    return filtrerSeancesParPlageDates(seances, periode.du, periode.au);
+  }
+
   if (periode.mode === "global") {
     return seances;
   }
@@ -584,6 +779,12 @@ function filtrerSeancesPourPeriodeReleveMonetisation(seances, periode) {
 }
 
 function formaterPeriodeReleveMonetisation(periode) {
+  if (periode.mode === "custom") {
+    const debut = formaterDateReleve(periode.du);
+    const fin = formaterDateReleve(periode.au);
+    return debut === fin ? debut : `${debut} — ${fin}`;
+  }
+
   if (periode.mode === "global") {
     return "Vue globale";
   }
@@ -596,6 +797,10 @@ function formaterPeriodeReleveMonetisation(periode) {
 }
 
 function decrirePeriodeReleveMonetisation(periode) {
+  if (periode.mode === "custom") {
+    return `du ${formaterDateReleve(periode.du)} au ${formaterDateReleve(periode.au)}`;
+  }
+
   if (periode.mode === "global") {
     return "de la vue globale";
   }
@@ -608,6 +813,16 @@ function decrirePeriodeReleveMonetisation(periode) {
 }
 
 function construireNomFichierReleveMonetisation(periode, suffixeComptes, extension = "html") {
+  if (periode.mode === "custom") {
+    return [
+      "releve-monetisation",
+      "periode",
+      periode.du || "debut",
+      periode.au || "fin",
+      suffixeComptes || "realisateurs",
+    ].join("-") + `.${extension}`;
+  }
+
   if (periode.mode === "global") {
     return ["releve-monetisation", "globale", suffixeComptes || "comptes"].join("-") + `.${extension}`;
   }
@@ -749,9 +964,16 @@ function construireHtmlReleveMonetisation({
               <td>${echapperHtml(ligne.etudiant || "-")}</td>
               <td>${echapperHtml(ligne.matiere || "-")}</td>
               <td>${echapperHtml(ligne.duree_label)}</td>
+              <td class="amount-cell">
+                ${
+                  ligne.est_gratuite
+                    ? "-"
+                    : echapperHtml(formaterMontantDh(ligne.tarif_horaire))
+                }
+              </td>
               <td>
                 <span class="badge ${ligne.est_gratuite ? "badge-free" : "badge-paid"}">
-                  ${ligne.est_gratuite ? "Gratuite" : "Facturable"}
+                  ${ligne.est_gratuite ? "Gratuite" : "Payante"}
                 </span>
               </td>
               <td class="amount-cell">${echapperHtml(formaterMontantDh(ligne.montant))}</td>
@@ -761,14 +983,14 @@ function construireHtmlReleveMonetisation({
         .join("")
     : `
       <tr>
-        <td colspan="8" class="empty-row">
-          Aucune seance faite pour les comptes selectionnes sur cette periode.
+        <td colspan="9" class="empty-row">
+          Aucune séance faite pour les réalisateurs sélectionnés sur cette période.
         </td>
       </tr>
     `;
   const resumeComptesHtml = comptesSelectionnes
     .map((compte) => {
-      const totalCompte = totauxParCompte[compte.nom] || {
+      const totalCompte = totauxParCompte[compte.cle] || {
         seances_facturables: 0,
         seances_gratuites: 0,
         montant_total: 0,
@@ -971,12 +1193,12 @@ function construireHtmlReleveMonetisation({
 
       .details-table th:nth-child(1),
       .details-table td:nth-child(1) {
-        width: 12%;
+        width: 10%;
       }
 
       .details-table th:nth-child(2),
       .details-table td:nth-child(2) {
-        width: 12%;
+        width: 10%;
       }
 
       .details-table th:nth-child(3),
@@ -986,26 +1208,31 @@ function construireHtmlReleveMonetisation({
 
       .details-table th:nth-child(4),
       .details-table td:nth-child(4) {
-        width: 18%;
+        width: 16%;
       }
 
       .details-table th:nth-child(5),
       .details-table td:nth-child(5) {
-        width: 13%;
+        width: 12%;
       }
 
       .details-table th:nth-child(6),
       .details-table td:nth-child(6) {
-        width: 10%;
+        width: 8%;
       }
 
       .details-table th:nth-child(7),
       .details-table td:nth-child(7) {
-        width: 15%;
+        width: 11%;
       }
 
       .details-table th:nth-child(8),
       .details-table td:nth-child(8) {
+        width: 12%;
+      }
+
+      .details-table th:nth-child(9),
+      .details-table td:nth-child(9) {
         width: 10%;
       }
 
@@ -1077,7 +1304,7 @@ function construireHtmlReleveMonetisation({
             Facture détaillée ${echapperHtml(descriptionPeriode)}.
           </p>
           <p class="meta">
-            Comptes inclus : ${echapperHtml(comptesSelectionnes.map((compte) => compte.nom).join(", "))}
+            Réalisateurs inclus : ${echapperHtml(comptesSelectionnes.map((compte) => compte.nom).join(", "))}
           </p>
         </section>
 
@@ -1099,7 +1326,7 @@ function construireHtmlReleveMonetisation({
           <strong>${echapperHtml(libellePeriode)}</strong>
         </article>
         <article class="summary-card">
-          <span>Nombre de comptes</span>
+          <span>Nombre de réalisateurs</span>
           <strong>${comptesSelectionnes.length}</strong>
         </article>
         <article class="summary-card">
@@ -1109,11 +1336,11 @@ function construireHtmlReleveMonetisation({
       </section>
 
       <section class="report-section">
-        <h2>Résumé par compte</h2>
+        <h2>Résumé par réalisateur</h2>
         <table class="summary-table">
           <thead>
             <tr>
-              <th>Compte</th>
+              <th>Réalisateur</th>
               <th>Séances facturables</th>
               <th>Séances gratuites</th>
               <th class="amount-cell">Montant</th>
@@ -1132,10 +1359,11 @@ function construireHtmlReleveMonetisation({
             <tr>
               <th>Date</th>
               <th>Horaire</th>
-              <th>Compte</th>
+              <th>Réalisateur</th>
               <th>Étudiant</th>
               <th>Matière</th>
               <th>Durée</th>
+              <th class="amount-cell">Tarif horaire</th>
               <th>Type</th>
               <th class="amount-cell">Prix</th>
             </tr>
@@ -1143,7 +1371,7 @@ function construireHtmlReleveMonetisation({
           <tbody>
             ${lignesHtml}
             <tr class="total-row">
-              <td colspan="7">Total</td>
+              <td colspan="8">Total</td>
               <td class="amount-cell">${echapperHtml(formaterMontantDh(montantTotal))}</td>
             </tr>
           </tbody>
@@ -1152,13 +1380,100 @@ function construireHtmlReleveMonetisation({
 
       <footer class="footer">
         <p class="note">
-          Les séances gratuites sont affichées avec un prix de 0 dh. Les séances facturables
-          sont calculees selon la duree reelle et le tarif horaire du compte selectionne.
+          Les séances gratuites sont affichées avec un prix de 0 dh. Les séances payantes
+          sont calculées selon la durée réelle et le tarif horaire appliqué à chaque séance.
         </p>
       </footer>
     </main>
   </body>
 </html>`;
+}
+
+function resoudrePlageDatesMonetisation(filtreDu, filtreAu) {
+  const dateAujourdhui = convertirInstantEnDateHeureZonnee(
+    new Date(),
+    CENTRAL_CALENDAR_TIMEZONE
+  ).date;
+  const au = filtreDu?.valeur && !filtreAu?.valeur ? dateAujourdhui : filtreAu?.valeur || null;
+  const du = filtreDu?.valeur || null;
+
+  if (au && au > dateAujourdhui) {
+    throw creerErreurHttp(400, "La date de fin ne peut pas être future.");
+  }
+
+  if (du && au && du > au) {
+    throw creerErreurHttp(400, "La date de début doit être antérieure ou égale à la date de fin.");
+  }
+
+  return { du, au };
+}
+
+function filtrerSeancesParIntervenants(seances, intervenantIds = []) {
+  const ids = new Set(intervenantIds.map(normaliserIdentifiantIntervenant).filter(Boolean));
+  return ids.size === 0
+    ? seances
+    : seances.filter((seance) => ids.has(normaliserIdentifiantIntervenant(seance?.intervenant_id)));
+}
+
+function filtrerCatalogueParIntervenants(catalogue, intervenantIds = []) {
+  const ids = new Set(intervenantIds.map(normaliserIdentifiantIntervenant).filter(Boolean));
+  if (ids.size === 0) {
+    return catalogue;
+  }
+
+  const intervenants = (catalogue?.intervenants || []).filter((intervenant) =>
+    ids.has(normaliserIdentifiantIntervenant(intervenant?.intervenant_id))
+  );
+  return {
+    ...catalogue,
+    intervenants,
+    comptes: intervenants.map((intervenant) => ({
+      valeur: intervenant.nom,
+      cle: intervenant.cle,
+      intervenant_id: intervenant.intervenant_id,
+      tarif_horaire: intervenant.tarif_horaire,
+    })),
+  };
+}
+
+function construireLignesMonetisation(seances, comptesCatalogueParNom, comptesVisiblesParCle) {
+  return seances
+    .filter(estSeanceFaiteMonetisation)
+    .sort(trierSeancesParDateEtHeure)
+    .map((seance) => {
+      const cle = cleIntervenantMonetisation(seance);
+      const compteVisible = comptesVisiblesParCle.get(cle);
+      const tarifUnitaire = compteVisible
+        ? obtenirTarifUnitaireCompte(compteVisible, comptesCatalogueParNom)
+        : 0;
+      const estGratuite = estSeanceGratuiteMonetisation(seance);
+      const dureeMinutes = calculerDureeMinutes(seance);
+      const tarifHoraire = obtenirTarifEffectifSeance(seance, tarifUnitaire);
+
+      return {
+        id: seance.id,
+        intervenant_id: normaliserIdentifiantIntervenant(seance?.intervenant_id),
+        // The display name is deliberately not an identifier: multiple
+        // realisateurs may share it. Keep the stable internal key alongside
+        // the human label so totals and PDF rows never merge by name.
+        cle_intervenant: cle,
+        intervenant: compteVisible?.nom || libelleIntervenantMonetisation(seance),
+        // Alias interne conservé pour les gabarits de relevé historiques.
+        compte: compteVisible?.nom || libelleIntervenantMonetisation(seance),
+        date: seance.date,
+        heure_debut: seance.heure_debut,
+        heure_fin: seance.heure_fin,
+        etudiant: seance.etudiant || "",
+        matiere: seance.matiere || "",
+        duree_minutes: dureeMinutes,
+        duree_label: dureeMinutes > 0 ? `${dureeMinutes} min` : "-",
+        est_gratuite: estGratuite,
+        // Exposé ligne par ligne afin qu'un relevé garde la trace du tarif
+        // effectivement appliqué, même après une modification de la grille.
+        tarif_horaire: tarifHoraire,
+        montant: estGratuite ? 0 : calculerMontantSeance(seance, tarifUnitaire),
+      };
+    });
 }
 
 async function recupererMonetisation(req, res) {
@@ -1177,7 +1492,7 @@ async function recupererMonetisation(req, res) {
 
     if (modePeriode.invalide) {
       return res.status(400).json({
-        message: "Le mode de monétisation doit être 'annual' ou 'global'.",
+        message: "Le mode de monétisation doit être 'annual', 'global' ou 'custom'.",
       });
     }
 
@@ -1188,42 +1503,52 @@ async function recupererMonetisation(req, res) {
     }
 
     if (filtreDu.invalide || filtreAu.invalide) {
-      return res.status(400).json({ message: "Les dates Du et Au doivent Ãªtre au format YYYY-MM-DD." });
+      return res.status(400).json({
+        message: "Les dates de début et de fin doivent être au format YYYY-MM-DD.",
+      });
     }
 
-    const auParDefaut = filtreDu.valeur && !filtreAu.valeur
-      ? new Date().toISOString().slice(0, 10)
-      : filtreAu.valeur;
-    const dateAujourdhui = new Date().toISOString().slice(0, 10);
-
-    if (auParDefaut && auParDefaut > dateAujourdhui) {
-      return res.status(400).json({ message: "La date Au ne peut pas Ãªtre future." });
+    const plageDates = resoudrePlageDatesMonetisation(filtreDu, filtreAu);
+    if (modePeriode.valeur === "custom" && !plageDates.du && !plageDates.au) {
+      return res.status(400).json({
+        message: "Une période personnalisée nécessite une date de début ou de fin.",
+      });
     }
-
-    if (filtreDu.valeur && auParDefaut && filtreDu.valeur > auParDefaut) {
-      return res.status(400).json({ message: "La date Du doit Ãªtre antÃ©rieure ou Ã©gale Ã  la date Au." });
-    }
-
     const scopeMonetisation = await resoudreScopeMonetisation(req);
-    const seancesBrutes = scopeMonetisation.globaleSuperAdmin
-      ? await listerToutesLesSeancesPourMonetisation()
-      : await listerSeancesPourMonetisationScopees(scopeMonetisation);
-    const seances = normaliserSeancesPourMonetisationIntervenant(seancesBrutes).filter(
-      (seance) =>
-        !scopeMonetisation.intervenantId ||
-        Number(seance?.intervenant_id) === Number(scopeMonetisation.intervenantId)
+    const [seancesBrutes, intervenantsAutorises] = await Promise.all([
+      scopeMonetisation.globaleSuperAdmin
+        ? listerToutesLesSeancesPourMonetisation()
+        : listerSeancesPourMonetisationScopees(scopeMonetisation),
+      listerIntervenantsAutorisesMonetisation(req),
+    ]);
+    const seancesScopees = normaliserSeancesPourMonetisationIntervenant(seancesBrutes);
+    const catalogueComplet = construireCatalogueIntervenantsMonetisation(
+      seancesScopees,
+      intervenantsAutorises
     );
-    const catalogue = construireCatalogueIntervenantsMonetisation(seances);
+    const catalogue = filtrerCatalogueParIntervenants(
+      catalogueComplet,
+      scopeMonetisation.intervenantIds
+    );
+    const seances = filtrerSeancesParIntervenants(
+      seancesScopees,
+      scopeMonetisation.intervenantIds
+    );
     const contexte = construireContexteMonetisation(seances, catalogue);
     const { comptesCatalogueParNom, comptesVisibles } = contexte;
     const seancesVisibles = filtrerSeancesParPlageDates(
       contexte.seancesVisibles,
-      filtreDu.valeur,
-      auParDefaut
+      plageDates.du,
+      plageDates.au
     );
     const moisDisponibles = listerMoisDisponibles(seancesVisibles);
     const anneesDisponiblesInitiales = listerAnneesDisponibles(seancesVisibles);
-    const modeSelectionne = filtreMois.valeur ? "monthly" : modePeriode.valeur;
+    const periodePersonnalisee = Boolean(filtreDu.valeur || filtreAu.valeur);
+    const modeSelectionne = periodePersonnalisee
+      ? "custom"
+      : filtreMois.valeur
+        ? "monthly"
+        : modePeriode.valeur;
     const anneeSelectionnee =
       modeSelectionne === "annual"
         ? filtreAnnee.valeur || anneesDisponiblesInitiales[0] || String(new Date().getFullYear())
@@ -1237,7 +1562,9 @@ async function recupererMonetisation(req, res) {
         )
       )
     ).sort((premiereAnnee, secondeAnnee) => secondeAnnee.localeCompare(premiereAnnee));
-    const seancesFiltrees = filtreMois.valeur
+    const seancesFiltrees = periodePersonnalisee
+      ? seancesVisibles
+      : filtreMois.valeur
       ? filtrerSeancesParMois(seancesVisibles, filtreMois.valeur)
       : modeSelectionne === "global"
         ? seancesVisibles
@@ -1252,30 +1579,64 @@ async function recupererMonetisation(req, res) {
       (seance) => estSeanceFaiteMonetisation(seance) && estSeanceGratuiteMonetisation(seance)
     ).length;
     const statsComptes = {};
+    const statsComptesParCle = {};
     const ordreComptes = [];
     let montantTotal = 0;
     let nombreTotalFacturable = 0;
 
-    comptesVisibles.forEach((compteVisible) => {
+    const comptesVisiblesParCle = new Map(
+      comptesVisibles.map((compteVisible) => [compteVisible.cle, compteVisible])
+    );
+    const intervenants = comptesVisibles.map((compteVisible) => {
       const tarifUnitaire = obtenirTarifUnitaireCompte(compteVisible, comptesCatalogueParNom);
-      const stats = calculerMonetisationPourCompte(
+      const stats = calculerMonetisationPourIntervenant(
         seancesFiltrees,
-        compteVisible.nom,
+        compteVisible.cle,
         tarifUnitaire
       );
 
+      // `comptes` and `ordre_comptes` are legacy DTO fields. Retain the
+      // first readable-name entry for older clients, while the unambiguous
+      // key map below is the source of truth for current consumers.
       ordreComptes.push(compteVisible.nom);
-      statsComptes[compteVisible.nom] = stats;
+      if (!statsComptes[compteVisible.nom]) {
+        statsComptes[compteVisible.nom] = stats;
+      }
+      statsComptesParCle[compteVisible.cle] = stats;
       montantTotal += stats.montant_du;
       nombreTotalFacturable += stats.seances_facturables;
+      return {
+        intervenant_id: compteVisible.intervenant_id,
+        nom: compteVisible.nom,
+        ...stats,
+      };
     });
+    const lignes = construireLignesMonetisation(
+      seancesFiltrees,
+      comptesCatalogueParNom,
+      comptesVisiblesParCle
+    );
+    // Le sélecteur de l'interface ne doit proposer que des comptes réels.
+    // Les anciennes séances sans `intervenant_id` restent présentes dans les
+    // détails et les totaux historiques, mais ne constituent pas un
+    // Réalisateur sélectionnable.
+    const intervenantsDisponibles = catalogueComplet.intervenants.filter((intervenant) =>
+      Boolean(normaliserIdentifiantIntervenant(intervenant?.intervenant_id))
+    );
 
     const reponse = {
       monetisation: {
         montant_total: montantTotal,
         nombre_total_facturable: nombreTotalFacturable,
+        intervenants_disponibles: intervenantsDisponibles.map((intervenant) => ({
+          intervenant_id: intervenant.intervenant_id,
+          nom: intervenant.nom,
+        })),
+        intervenants,
+        lignes,
         ordre_comptes: ordreComptes,
         comptes: statsComptes,
+        comptes_par_cle: statsComptesParCle,
         periode: {
           mode_selectionne: modeSelectionne,
           annee_selectionnee: anneeSelectionnee,
@@ -1286,9 +1647,13 @@ async function recupererMonetisation(req, res) {
           nombre_seances: seancesFiltrees.length,
           nombre_seances_facturables: nombreSeancesFacturables,
           nombre_seances_essai_faites: nombreSeancesEssaiFaites,
-          du: filtreDu.valeur,
-          au: auParDefaut,
-          intervenant_id: scopeMonetisation.intervenantId || null,
+          du: plageDates.du,
+          au: plageDates.au,
+          intervenant_id:
+            scopeMonetisation.intervenantIds.length === 1
+              ? scopeMonetisation.intervenantIds[0]
+              : null,
+          intervenant_ids: scopeMonetisation.intervenantIds,
         },
       },
     };
@@ -1296,7 +1661,10 @@ async function recupererMonetisation(req, res) {
     if (scopeMonetisation.globaleSuperAdmin) {
       reponse.portee = {
         type: "super_admin_globale",
-        intervenant_id: scopeMonetisation.intervenantId || null,
+        intervenant_id:
+          scopeMonetisation.intervenantIds.length === 1
+            ? scopeMonetisation.intervenantIds[0]
+            : null,
       };
     }
 
@@ -1316,6 +1684,8 @@ async function telechargerReleveMonetisation(req, res) {
     const filtreMois = lireFiltreMoisMonetisation(req.query?.mois);
     const modePeriode = lireModePeriodeMonetisation(req.query?.mode);
     const filtreAnnee = lireFiltreAnneeMonetisation(req.query?.annee);
+    const filtreDu = lireDateIso(req.query?.du);
+    const filtreAu = lireDateIso(req.query?.au);
     const formatReleve = lireFormatReleveMonetisation(req.query?.format);
 
     if (filtreMois.invalide) {
@@ -1326,7 +1696,7 @@ async function telechargerReleveMonetisation(req, res) {
 
     if (!filtreMois.valeur && modePeriode.invalide) {
       return res.status(400).json({
-        message: "Le mode du relevé doit être 'annual' ou 'global'.",
+        message: "Le mode du relevé doit être 'annual', 'global' ou 'custom'.",
       });
     }
 
@@ -1342,39 +1712,64 @@ async function telechargerReleveMonetisation(req, res) {
       });
     }
 
+    if (filtreDu.invalide || filtreAu.invalide) {
+      return res.status(400).json({
+        message: "Les dates de début et de fin doivent être au format YYYY-MM-DD.",
+      });
+    }
+
+    const plageDates = resoudrePlageDatesMonetisation(filtreDu, filtreAu);
+    if (modePeriode.valeur === "custom" && !plageDates.du && !plageDates.au) {
+      return res.status(400).json({
+        message: "Une période personnalisée nécessite une date de début ou de fin.",
+      });
+    }
+
     const periodeSelectionnee = construirePeriodeReleveMonetisation({
       filtreMois,
       modePeriode,
       filtreAnnee,
+      filtreDu: { valeur: plageDates.du },
+      filtreAu: { valeur: plageDates.au },
     });
 
     const comptesDemandes = lireListeComptesMonetisation(req.query?.compte);
-
-    if (comptesDemandes.length === 0) {
-      return res.status(400).json({
-        message: "Sélectionnez au moins un compte pour télécharger le relevé.",
-      });
-    }
-
     const scopeMonetisation = await resoudreScopeMonetisation(req);
-    const seancesBrutes = scopeMonetisation.globaleSuperAdmin
-      ? await listerToutesLesSeancesPourMonetisation()
-      : await listerSeancesPourMonetisationScopees(scopeMonetisation);
-    const seances = normaliserSeancesPourMonetisationIntervenant(seancesBrutes).filter(
-      (seance) =>
-        !scopeMonetisation.intervenantId ||
-        Number(seance?.intervenant_id) === Number(scopeMonetisation.intervenantId)
-    );
-    const catalogue = construireCatalogueIntervenantsMonetisation(seances);
+    const [seancesBrutes, intervenantsAutorises] = await Promise.all([
+      scopeMonetisation.globaleSuperAdmin
+        ? listerToutesLesSeancesPourMonetisation()
+        : listerSeancesPourMonetisationScopees(scopeMonetisation),
+      listerIntervenantsAutorisesMonetisation(req),
+    ]);
+    const seances = normaliserSeancesPourMonetisationIntervenant(seancesBrutes);
+    const catalogue = construireCatalogueIntervenantsMonetisation(seances, intervenantsAutorises);
     const { comptesCatalogueParNom, seancesVisibles, comptesVisibles } =
       construireContexteMonetisation(seances, catalogue);
     const comptesVisiblesParCle = new Map(
       comptesVisibles.map((compteVisible) => [compteVisible.cle, compteVisible])
     );
+    const comptesVisiblesParId = new Map(
+      comptesVisibles
+        .filter((compteVisible) => normaliserIdentifiantIntervenant(compteVisible.intervenant_id))
+        .map((compteVisible) => [Number(compteVisible.intervenant_id), compteVisible])
+    );
+    const comptesVisiblesParNom = new Map();
+    comptesVisibles.forEach((compteVisible) => {
+      const cleNom = normaliserCleCompte(compteVisible.nom);
+      const comptesHomonymes = comptesVisiblesParNom.get(cleNom) || [];
+      comptesHomonymes.push(compteVisible);
+      comptesVisiblesParNom.set(cleNom, comptesHomonymes);
+    });
     const comptesSelectionnes = Array.from(
       new Map(
-        comptesDemandes
-          .map((nomCompte) => comptesVisiblesParCle.get(normaliserCleCompte(nomCompte)))
+        (scopeMonetisation.intervenantIds.length > 0
+          ? scopeMonetisation.intervenantIds.map((intervenantId) =>
+              comptesVisiblesParId.get(Number(intervenantId))
+            )
+          : comptesDemandes.flatMap(
+              (nomCompte) => comptesVisiblesParNom.get(normaliserCleCompte(nomCompte)) || []
+            )
+        )
           .filter(Boolean)
           .map((compteVisible) => [compteVisible.cle, compteVisible])
       ).values()
@@ -1382,45 +1777,24 @@ async function telechargerReleveMonetisation(req, res) {
 
     if (comptesSelectionnes.length === 0) {
       return res.status(400).json({
-        message: "Aucun compte sélectionné n'est disponible pour ce relevé.",
+        message: "Sélectionnez au moins un réalisateur disponible pour télécharger le relevé.",
       });
     }
 
     const comptesSelectionnesParCle = new Map(
       comptesSelectionnes.map((compteVisible) => [compteVisible.cle, compteVisible])
     );
-    const lignes = filtrerSeancesPourPeriodeReleveMonetisation(seancesVisibles, periodeSelectionnee)
-      .filter(
-        (seance) =>
-          comptesSelectionnesParCle.has(normaliserCleCompte(seance?.compte)) &&
-          estSeanceFaiteMonetisation(seance)
-      )
-      .sort(trierSeancesParDateEtHeure)
-      .map((seance) => {
-        const compteVisible = comptesSelectionnesParCle.get(normaliserCleCompte(seance.compte));
-        const tarifUnitaire = obtenirTarifUnitaireCompte(compteVisible, comptesCatalogueParNom);
-        const estGratuite = estSeanceGratuiteMonetisation(seance);
-        const montant = estGratuite ? 0 : calculerMontantSeance(seance, tarifUnitaire);
-        const dureeMinutes = calculerDureeMinutes(seance);
-
-        return {
-          id: seance.id,
-          date: seance.date,
-          heure_debut: seance.heure_debut,
-          heure_fin: seance.heure_fin,
-          etudiant: seance.etudiant || "",
-          matiere: seance.matiere || "",
-          compte: compteVisible.nom,
-          duree_minutes: dureeMinutes,
-          duree_label: dureeMinutes > 0 ? `${dureeMinutes} min` : "-",
-          est_gratuite: estGratuite,
-          montant,
-        };
-      });
+    const lignes = construireLignesMonetisation(
+      filtrerSeancesPourPeriodeReleveMonetisation(seancesVisibles, periodeSelectionnee).filter(
+        (seance) => comptesSelectionnesParCle.has(cleIntervenantMonetisation(seance))
+      ),
+      comptesCatalogueParNom,
+      comptesVisiblesParCle
+    );
     const totauxParCompte = {};
 
     comptesSelectionnes.forEach((compteVisible) => {
-      totauxParCompte[compteVisible.nom] = {
+      totauxParCompte[compteVisible.cle] = {
         seances_facturables: 0,
         seances_gratuites: 0,
         montant_total: 0,
@@ -1428,7 +1802,7 @@ async function telechargerReleveMonetisation(req, res) {
     });
 
     lignes.forEach((ligne) => {
-      const totalCompte = totauxParCompte[ligne.compte];
+      const totalCompte = totauxParCompte[ligne.cle_intervenant];
 
       if (!totalCompte) {
         return;

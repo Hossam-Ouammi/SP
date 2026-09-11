@@ -105,6 +105,16 @@ function normaliserPlageCalendrier(
     fin: true,
     libelle: "La fin de journée",
   });
+  // Midnight was historically interpreted as the end of the following day.
+  // The central calendar now ends explicitly at 23:30, so it cannot be used
+  // as a newly saved end value.
+  if (fin === "00:00" || fin === "24:00") {
+    throw creerErreurPlage(
+      "INVALID_CALENDAR_END_TIME",
+      "La fin de journée doit être comprise entre 00:30 et 23:30."
+    );
+  }
+
   const debutMinutes = convertirHeureCalendrierEnMinutes(debut);
   const finMinutes = convertirHeureCalendrierEnMinutes(fin, { fin: true });
 
@@ -130,6 +140,17 @@ function normaliserPlageDepuisReglages(reglages = {}) {
   try {
     return normaliserPlageCalendrier(reglages);
   } catch (erreur) {
+    // A pre-rule database can contain midnight as a legacy end marker. Map it
+    // to the last selectable slot until the append-only migration has run.
+    if (
+      String(reglages?.calendar_end_time || "") === "00:00" ||
+      String(reglages?.calendar_end_time || "") === "24:00"
+    ) {
+      return normaliserPlageCalendrier({
+        ...reglages,
+        calendar_end_time: DEFAULT_CALENDAR_END_TIME,
+      });
+    }
     return normaliserPlageCalendrier({
       calendar_start_time: DEFAULT_CALENDAR_START_TIME,
       calendar_end_time: DEFAULT_CALENDAR_END_TIME,

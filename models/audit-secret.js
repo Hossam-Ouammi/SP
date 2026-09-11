@@ -1,11 +1,13 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { verifierSecretConfigurePourProduction } = require("../utils/production-secret");
 
 const secretPath = path.join(__dirname, "..", "database", ".audit-secret");
 
 function recupererSecretAudit() {
   if (process.env.AUDIT_SECRET) {
+    verifierSecretConfigurePourProduction("AUDIT_SECRET", process.env.AUDIT_SECRET);
     return process.env.AUDIT_SECRET;
   }
 

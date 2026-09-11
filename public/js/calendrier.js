@@ -86,12 +86,113 @@ function estCalendrierCompact() {
   return globalThis.matchMedia?.("(max-width: 720px)")?.matches ?? false;
 }
 
+// Le calendrier de séances garde sa précision métier de trente minutes. La
+// vue Disponibilités est volontairement plus aérée : ses pastilles résument
+// une heure complète sans modifier la granularité des séances.
 const CALENDRIER_PAS_CRENEAU_MINUTES = 30;
 const MINUTES_PAR_JOUR = 24 * 60;
 const PLAGE_HORAIRE_CALENDRIER_PAR_DEFAUT = Object.freeze({
   calendar_start_time: "08:00",
   calendar_end_time: "23:30",
 });
+
+// Les couleurs de disponibilité ne sont pas une préférence utilisateur. Elles
+// sont volontairement dérivées de l'identifiant stable du Professeur, afin
+// qu'un même Professeur garde toujours sa pastille sans qu'un Handler puisse
+// l'éditer. La sonde évite les couleurs identiques dans une même équipe.
+const PAS_COULEUR_DISPONIBILITE = 137;
+
+function normaliserIdentifiantCalendrier(valeur) {
+  const id = Number(valeur);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function hacherIdentifiantCalendrier(valeur) {
+  const texte = String(valeur || "");
+  let hash = 2166136261;
+
+  for (let index = 0; index < texte.length; index += 1) {
+    hash ^= texte.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
+}
+
+function professeurActifPourDisponibilite(professeur) {
+  if (!normaliserIdentifiantCalendrier(professeur?.id)) {
+    return false;
+  }
+
+  if (professeur?.acces_active === false || Number(professeur?.acces_active) === 0) {
+    return false;
+  }
+
+  return String(professeur?.statut_compte || "active").toLowerCase() === "active";
+}
+
+function libelleProfesseurDisponibilite(professeur) {
+  const nom = String(professeur?.nom || "").trim();
+  const identifiant = String(professeur?.public_id || "").trim();
+  return nom || identifiant || "Réalisateur";
+}
+
+/**
+ * Retourne une palette douce, stable et non configurable pour les pastilles
+ * de disponibilité. C'est aussi utilisé par la légende au-dessus du
+ * calendrier central.
+ */
+export function creerPalettesDisponibiliteProfesseurs(intervenants = []) {
+  const professeurs = (Array.isArray(intervenants) ? intervenants : [])
+    .filter(professeurActifPourDisponibilite)
+    .map((professeur) => ({ ...professeur, id: normaliserIdentifiantCalendrier(professeur.id) }))
+    .sort(
+      (premier, second) =>
+        premier.id - second.id ||
+        libelleProfesseurDisponibilite(premier).localeCompare(
+          libelleProfesseurDisponibilite(second),
+          "fr"
+        )
+    );
+  const teintesUtilisees = new Set();
+  const couleursServeurUtilisees = new Set();
+  const palettes = new Map();
+
+  professeurs.forEach((professeur) => {
+    const couleurServeur = String(professeur?.couleur_calendrier || "").trim().toLowerCase();
+
+    // Le serveur choisit la couleur unique de l'équipe. La vue Disponibilités
+    // la consomme directement afin que légende, pastilles et séances du
+    // calendrier central parlent le même langage visuel. Le calcul HSL reste
+    // un repli sûr pour les anciennes réponses qui ne la fournissent pas.
+    if (couleurIntervenantValide(couleurServeur) && !couleursServeurUtilisees.has(couleurServeur)) {
+      couleursServeurUtilisees.add(couleurServeur);
+      palettes.set(professeur.id, {
+        backgroundColor: couleurServeur,
+        borderColor: couleurServeur,
+        textColor: "#ffffff",
+      });
+      return;
+    }
+
+    let teinte = hacherIdentifiantCalendrier(professeur.id) % 360;
+    let essais = 0;
+
+    while (teintesUtilisees.has(teinte) && essais < 360) {
+      teinte = (teinte + PAS_COULEUR_DISPONIBILITE) % 360;
+      essais += 1;
+    }
+
+    teintesUtilisees.add(teinte);
+    palettes.set(professeur.id, {
+      backgroundColor: `hsl(${teinte} 48% 62%)`,
+      borderColor: `hsl(${teinte} 34% 45%)`,
+      textColor: `hsl(${teinte} 28% 24%)`,
+    });
+  });
+
+  return palettes;
+}
 
 function extrairePartiesHorlogeCalendrier(dateObjet, fuseauHoraire = "") {
   const date = dateObjet instanceof Date ? dateObjet : new Date();
@@ -211,6 +312,23 @@ function convertirMinutesEnHeureOption(totalMinutes) {
   return `${heures}:${minutes}:00`;
 }
 
+function normaliserPasCreneauCalendrier(
+  valeur,
+  valeurParDefaut = CALENDRIER_PAS_CRENEAU_MINUTES
+) {
+  const pas = Number(valeur);
+
+  return Number.isInteger(pas) && pas >= CALENDRIER_PAS_CRENEAU_MINUTES
+    ? pas
+    : valeurParDefaut;
+}
+
+function convertirPasCreneauEnDuree(pasCreneauMinutes) {
+  return convertirMinutesEnHeureOption(
+    normaliserPasCreneauCalendrier(pasCreneauMinutes)
+  );
+}
+
 function creerPlageHoraireCalendrier(calendarStartTime, calendarEndTime) {
   const startMinutes = convertirHeureOptionEnMinutes(calendarStartTime);
   const endMinutes = convertirHeureOptionEnMinutes(calendarEndTime, {
@@ -253,6 +371,228 @@ function normaliserPlageHoraireCalendrier(plageHoraire = {}) {
       PLAGE_HORAIRE_CALENDRIER_PAR_DEFAUT.calendar_start_time,
       PLAGE_HORAIRE_CALENDRIER_PAR_DEFAUT.calendar_end_time
     )
+  );
+}
+
+function formaterDateIsoCalendrier(dateObjet) {
+  if (!(dateObjet instanceof Date) || Number.isNaN(dateObjet.getTime())) {
+    return "";
+  }
+
+  const annee = dateObjet.getFullYear();
+  const mois = String(dateObjet.getMonth() + 1).padStart(2, "0");
+  const jour = String(dateObjet.getDate()).padStart(2, "0");
+  return `${annee}-${mois}-${jour}`;
+}
+
+function ajouterJoursDateIsoCalendrier(dateIso, nombreJours = 1) {
+  const date = new Date(`${dateIso}T12:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateIso;
+  }
+
+  date.setDate(date.getDate() + Number(nombreJours || 0));
+  return formaterDateIsoCalendrier(date);
+}
+
+function plagesDatesVisiblesCalendrier(calendrier) {
+  const debut = calendrier?.view?.activeStart;
+  const finExclusive = calendrier?.view?.activeEnd;
+  const debutIso = formaterDateIsoCalendrier(debut);
+  const finExclusiveIso = formaterDateIsoCalendrier(finExclusive);
+
+  if (!debutIso || !finExclusiveIso || debutIso >= finExclusiveIso) {
+    return [];
+  }
+
+  const dates = [];
+  for (let dateIso = debutIso; dateIso < finExclusiveIso; dateIso = ajouterJoursDateIsoCalendrier(dateIso)) {
+    dates.push(dateIso);
+  }
+  return dates;
+}
+
+function indisponibiliteChevaucheCreneauProfesseur(
+  indisponibilite,
+  professeurId,
+  dateIso,
+  debut,
+  fin
+) {
+  if (String(indisponibilite?.date || "") !== dateIso) {
+    return false;
+  }
+
+  // Une indisponibilité sans intervenant était possible dans les anciennes
+  // données. Elle ne doit jamais rendre toute l'équipe indisponible : la vue
+  // centrale ne prend en compte que les blocages explicitement attribués à un
+  // Professeur.
+  if (normaliserIdentifiantCalendrier(indisponibilite?.intervenant_id) !== professeurId) {
+    return false;
+  }
+
+  if (estIndisponibiliteJourComplet(indisponibilite)) {
+    return true;
+  }
+
+  const debutIndisponibilite = convertirHeureOptionEnMinutes(indisponibilite?.heure_debut);
+  const finIndisponibilite = convertirHeureOptionEnMinutes(indisponibilite?.heure_fin, {
+    finDeJour: true,
+  });
+
+  return (
+    Number.isFinite(debutIndisponibilite) &&
+    Number.isFinite(finIndisponibilite) &&
+    debutIndisponibilite < fin &&
+    finIndisponibilite > debut
+  );
+}
+
+// La vue Disponibilités ne rend pas les séances elles-mêmes, mais elles
+// retirent bien leur Réalisateur du créneau. C'est la même règle que le
+// calendrier public : un intervenant déjà en séance n'est pas disponible.
+function creerEvenementCreneauIndisponibleCollectif({ dateIso, debut, fin, professeurs }) {
+  const heureDebut = convertirMinutesEnHeureOption(debut).slice(0, 5);
+  const heureFin = convertirMinutesEnHeureOption(fin).slice(0, 5);
+  const libelle = "Indisponible";
+
+  return {
+    id: `availability-unavailable-${dateIso}-${heureDebut}`,
+    title: libelle,
+    start: `${dateIso}T${heureDebut}`,
+    end: construireDateHeureFinCalendrier(dateIso, heureFin),
+    display: "background",
+    classNames: ["calendar-availability-unavailable"],
+    typeOrder: 0,
+    extendedProps: {
+      type: "availability-unavailable",
+      professeurs,
+    },
+  };
+}
+
+function seanceHandlerChevaucheCreneau(seance, handlerId, dateIso, debut, fin) {
+  if (
+    normaliserIdentifiantCalendrier(seance?.intervenant_id) !== handlerId ||
+    String(seance?.date || "") !== dateIso ||
+    String(seance?.statut_seance || "").toLowerCase() === "annulee"
+  ) {
+    return false;
+  }
+
+  const debutSeance = convertirHeureOptionEnMinutes(seance?.heure_debut);
+  const finSeance = convertirHeureOptionEnMinutes(seance?.heure_fin, {
+    finDeJour: true,
+  });
+
+  return (
+    Number.isFinite(debutSeance) &&
+    Number.isFinite(finSeance) &&
+    debutSeance < finSeance &&
+    debutSeance < fin &&
+    finSeance > debut
+  );
+}
+
+function fusionnerCreneauxIndisponiblesCollectifs(creneaux = []) {
+  const fusionnes = [];
+
+  creneaux.forEach((creneau) => {
+    const precedent = fusionnes.at(-1);
+    if (
+      precedent &&
+      precedent.dateIso === creneau.dateIso &&
+      precedent.fin === creneau.debut
+    ) {
+      precedent.fin = creneau.fin;
+      return;
+    }
+
+    fusionnes.push({ ...creneau });
+  });
+
+  return fusionnes;
+}
+
+/**
+ * Fonds d'indisponibilite du calendrier central Handler.
+ *
+ * Une case n'est grisee que si chaque Professeur actif a explicitement
+ * declare une indisponibilite qui la couvre. Le Handler ne participe pas a
+ * ce calcul : son propre rendez-vous peut donc occuper un creneau collectif
+ * indisponible. Dans ce cas, le fond gris est retire pour la partie couverte
+ * par cette seance afin que la seance la remplace visuellement.
+ *
+ * Les seances des Professeurs ne sont volontairement pas des indisponibilites
+ * visuelles : elles restent des seances affichees dans la meme grille. Elles
+ * servent uniquement a filtrer le selecteur de realisateur dans le formulaire.
+ */
+export function creerEvenementsIndisponibiliteCollective(calendrier, disponibilites = {}) {
+  const handlerId = normaliserIdentifiantCalendrier(disponibilites?.handlerId);
+  const sourceProfesseurs = Array.isArray(disponibilites?.professeurs)
+    ? disponibilites.professeurs
+    : Array.isArray(disponibilites?.intervenants)
+      ? disponibilites.intervenants
+      : [];
+  const professeurs = sourceProfesseurs
+    .filter(professeurActifPourDisponibilite)
+    .map((professeur) => ({ ...professeur, id: normaliserIdentifiantCalendrier(professeur.id) }))
+    .filter((professeur) => professeur.id && professeur.id !== handlerId);
+
+  // Sans Professeur rattache, il n'existe pas de collectif a declarer
+  // indisponible. Une absence d'equipe ne doit jamais griser le calendrier.
+  if (professeurs.length === 0) {
+    return [];
+  }
+
+  const indisponibilites = Array.isArray(disponibilites?.indisponibilites)
+    ? disponibilites.indisponibilites
+    : [];
+  const seances = Array.isArray(disponibilites?.seances) ? disponibilites.seances : [];
+  const plageHoraire = normaliserPlageHoraireCalendrier(
+    disponibilites?.plageHoraire || calendrier?.__plageHoraire || {}
+  );
+  const creneauxIndisponibles = [];
+
+  plagesDatesVisiblesCalendrier(calendrier).forEach((dateIso) => {
+    for (
+      let debut = plageHoraire.startMinutes;
+      debut < plageHoraire.endMinutes;
+      debut += CALENDRIER_PAS_CRENEAU_MINUTES
+    ) {
+      const fin = Math.min(debut + CALENDRIER_PAS_CRENEAU_MINUTES, plageHoraire.endMinutes);
+      const tousProfesseursIndisponibles = professeurs.every((professeur) =>
+        indisponibilites.some((indisponibilite) =>
+          indisponibiliteChevaucheCreneauProfesseur(
+            indisponibilite,
+            professeur.id,
+            dateIso,
+            debut,
+            fin
+          )
+        )
+      );
+      const seanceHandlerCouvreCreneau =
+        handlerId &&
+        seances.some((seance) =>
+          seanceHandlerChevaucheCreneau(seance, handlerId, dateIso, debut, fin)
+        );
+
+      if (tousProfesseursIndisponibles && !seanceHandlerCouvreCreneau) {
+        creneauxIndisponibles.push({ dateIso, debut, fin, professeurs });
+      }
+    }
+  });
+
+  return fusionnerCreneauxIndisponiblesCollectifs(creneauxIndisponibles).map(
+    ({ dateIso, debut, fin, professeurs: professeursCreneau }) =>
+      creerEvenementCreneauIndisponibleCollectif({
+        dateIso,
+        debut,
+        fin,
+        professeurs: professeursCreneau,
+      })
   );
 }
 
@@ -630,42 +970,6 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
   };
 }
 
-function transformerPropositionEnEvenement(proposition) {
-  if (
-    !estDateIsoValide(proposition.date) ||
-    !estHeureValide(proposition.heure_debut) ||
-    !estHeureFinValide(proposition.heure_fin)
-  ) {
-    console.warn(
-      "Proposition ignoree dans le calendrier car date/heure invalide :",
-      proposition.id
-    );
-    return null;
-  }
-
-  const titreEvenement =
-    extrairePrenomEtudiant(proposition.etudiant) ||
-    proposition.matiere ||
-    "Proposition";
-
-  return {
-    id: `proposition-${proposition.id}`,
-    title: `Prop. ${titreEvenement}`,
-    start: `${proposition.date}T${proposition.heure_debut}`,
-    end: construireDateHeureFinCalendrier(proposition.date, proposition.heure_fin),
-    display: estCalendrierMobile() ? "block" : "auto",
-    backgroundColor: "rgba(22, 163, 74, 0.42)",
-    borderColor: "rgba(21, 128, 61, 0.72)",
-    textColor: "#14532d",
-    classNames: ["proposition-event"],
-    typeOrder: 30,
-    extendedProps: {
-      proposition,
-      type: "proposition",
-    },
-  };
-}
-
 function genererContenuLienPlusEvenements(arg) {
   if (!estCalendrierMobile()) {
     return arg.text;
@@ -696,13 +1000,16 @@ function adapterPresentationEvenement(info) {
   info.el.classList.remove(
     "calendar-mobile-month-seance",
     "calendar-mobile-month-indisponibilite",
-    "calendar-mobile-month-proposition",
     "calendar-mobile-week-seance",
-    "calendar-mobile-week-indisponibilite",
-    "calendar-mobile-week-proposition"
+    "calendar-mobile-week-indisponibilite"
   );
   info.el.style.removeProperty("--calendar-name-length");
   conteneurEvenement?.style.removeProperty("z-index");
+
+  if (typeEvenement === "availability-unavailable") {
+    info.el.classList.add("calendar-availability-unavailable");
+    return;
+  }
 
   if (typeEvenement === "seance") {
     const prenom = String(info.event.title || "").trim();
@@ -715,25 +1022,6 @@ function adapterPresentationEvenement(info) {
 
     if (estVueSemaineMobile) {
       info.el.classList.add("calendar-mobile-week-seance");
-    }
-
-    return;
-  }
-
-  if (typeEvenement === "proposition") {
-    conteneurEvenement?.style.setProperty("z-index", "8");
-    conteneurEvenement?.style.setProperty("left", "3px", "important");
-    conteneurEvenement?.style.setProperty("right", "3px", "important");
-    conteneurEvenement?.style.setProperty("width", "auto", "important");
-    conteneurEvenement?.style.setProperty("max-width", "calc(100% - 6px)", "important");
-
-    if (estVueMoisMobile) {
-      info.el.classList.add("calendar-mobile-month-proposition");
-      return;
-    }
-
-    if (estVueSemaineMobile) {
-      info.el.classList.add("calendar-mobile-week-proposition");
     }
 
     return;
@@ -761,9 +1049,10 @@ export function initialiserCalendrier(
     onSelect,
     onEventClick,
     onIndisponibiliteClick,
-    onPropositionClick,
+    onDatesSet,
     selectionMobileRapide = false,
     plageHoraire = {},
+    pasCreneauMinutes = CALENDRIER_PAS_CRENEAU_MINUTES,
     timezoneCentrale = "",
   } = {}
 ) {
@@ -778,6 +1067,8 @@ export function initialiserCalendrier(
 
   const optionsResponsive = obtenirOptionsResponsiveCalendrier();
   const plageHoraireInitiale = normaliserPlageHoraireCalendrier(plageHoraire);
+  const pasCreneauInitial = normaliserPasCreneauCalendrier(pasCreneauMinutes);
+  const dureeCreneauInitiale = convertirPasCreneauEnDuree(pasCreneauInitial);
 
   const calendrier = new FullCalendar.Calendar(element, {
     plugins,
@@ -793,7 +1084,10 @@ export function initialiserCalendrier(
     eventLongPressDelay: selectionMobileRapide ? 360 : 1000,
     longPressDelay: selectionMobileRapide ? 120 : 1000,
     selectMinDistance: selectionMobileRapide ? 0 : 5,
-    slotDuration: "00:30:00",
+    slotDuration: dureeCreneauInitiale,
+    slotLabelInterval: "01:00:00",
+    // Les créneaux de séance restent sélectionnables à la demi-heure, même
+    // lorsque le filtre Disponibilités regroupe visuellement une heure.
     snapDuration: "00:30:00",
     slotEventOverlap: true,
     eventMinHeight: 34,
@@ -820,6 +1114,7 @@ export function initialiserCalendrier(
     eventDidMount: adapterPresentationEvenement,
     datesSet(info) {
       synchroniserEtatVisuelCalendrier(element, info.view.type);
+      onDatesSet?.(info);
     },
     windowResize() {
       const vueActive = calendrier.view?.type;
@@ -853,8 +1148,16 @@ export function initialiserCalendrier(
         return;
       }
 
-      if (typeEvenement === "proposition") {
-        onPropositionClick?.(info.event.extendedProps.proposition);
+      if (typeEvenement === "availability-unavailable") {
+        // Un fond gris du Dashboard reste reservable par le Handler. Le clic
+        // ouvre donc directement la creation sur le creneau correspondant.
+        onSlotClick?.(
+          extraireSelectionCalendrier({
+            start: info.event.start,
+            end: info.event.end,
+            allDay: false,
+          })
+        );
         return;
       }
 
@@ -865,6 +1168,7 @@ export function initialiserCalendrier(
 
   calendrier.render();
   calendrier.__plageHoraire = plageHoraireInitiale;
+  calendrier.__pasCreneauMinutes = pasCreneauInitial;
   synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
   return calendrier;
 }
@@ -913,18 +1217,44 @@ export function mettreAJourEvenements(
   calendrier,
   seances = [],
   indisponibilites = [],
-  propositions = []
+  options = {}
 ) {
   if (!calendrier) {
     return;
   }
 
-  calendrier.removeAllEvents();
-  calendrier.addEventSource(
-    [
+  const vue = String(options?.vue || "complete").toLowerCase();
+  let evenements = [];
+
+  if (vue === "central") {
+    evenements = [
+      ...creerEvenementsIndisponibiliteCollective(calendrier, {
+        professeurs: options?.disponibilites?.professeurs,
+        indisponibilites: options?.disponibilites?.indisponibilites,
+        seances: options?.disponibilites?.seances,
+        handlerId: options?.disponibilites?.handlerId,
+        plageHoraire: options?.disponibilites?.plageHoraire,
+      }),
+      ...seances.map(transformerSeanceEnEvenement).filter(Boolean),
+    ];
+  } else if (vue === "seances") {
+    evenements = seances.map(transformerSeanceEnEvenement).filter(Boolean);
+  } else {
+    evenements = [
       ...seances.map(transformerSeanceEnEvenement),
       ...indisponibilites.map(transformerIndisponibiliteEnEvenement),
-      ...propositions.map(transformerPropositionEnEvenement),
-    ].filter(Boolean)
-  );
+    ].filter(Boolean);
+  }
+
+  calendrier.removeAllEvents();
+  calendrier.addEventSource(evenements);
 }
+
+export const __test__ = {
+  convertirHeureOptionEnMinutes,
+  normaliserPasCreneauCalendrier,
+  normaliserPlageHoraireCalendrier,
+  indisponibiliteChevaucheCreneauProfesseur,
+  creerPalettesDisponibiliteProfesseurs,
+  creerEvenementsIndisponibiliteCollective,
+};

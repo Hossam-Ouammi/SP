@@ -160,6 +160,7 @@ async function construireScopeAcces(utilisateur) {
       handlerIds: [],
       handlerOwnIds: [],
       handlerProfesseurIds: [],
+      professeurIdsHandlerOwn: [],
       intervenantIds: [],
     };
   }
@@ -168,9 +169,10 @@ async function construireScopeAcces(utilisateur) {
   const ensembleRoles = new Set(roles);
   const estHandler = ensembleRoles.has(ROLES.HANDLER);
   const estProfesseur = ensembleRoles.has(ROLES.PROFESSEUR);
-  const rattachements = estProfesseur
-    ? await listerRattachementsActifsProfesseur(utilisateurId)
-    : [];
+  const [rattachements, professeursHandler] = await Promise.all([
+    estProfesseur || estHandler ? listerRattachementsActifsProfesseur(utilisateurId) : [],
+    estHandler ? listerProfesseursActifsHandler(utilisateurId) : [],
+  ]);
   const handlerIds = normaliserListeIds([
     ...(estHandler ? [utilisateurId] : []),
     ...rattachements.map((rattachement) => rattachement.handler_id),
@@ -178,6 +180,13 @@ async function construireScopeAcces(utilisateur) {
   const handlerOwnIds = normaliserListeIds(estHandler ? [utilisateurId] : []);
   const handlerProfesseurIds = normaliserListeIds(
     rattachements.map((rattachement) => rattachement.handler_id)
+  );
+  const professeurIdsHandlerOwn = normaliserListeIds(
+    professeursHandler
+      .map((rattachement) => rattachement.professeur_id)
+      // Une ancienne liaison Handler -> lui-meme ne doit jamais le faire
+      // participer a l'agregation de disponibilite de son equipe.
+      .filter((professeurId) => Number(professeurId) !== utilisateurId)
   );
 
   return {
@@ -189,6 +198,7 @@ async function construireScopeAcces(utilisateur) {
     handlerIds,
     handlerOwnIds,
     handlerProfesseurIds,
+    professeurIdsHandlerOwn,
     // Un Handler est toujours un intervenant possible dans son propre espace,
     // même s'il n'a pas besoin d'un faux compte Professeur.
     intervenantIds: normaliserListeIds([...(estHandler || estProfesseur ? [utilisateurId] : [])]),
@@ -199,6 +209,15 @@ function construireFiltreLectureSeances(scope) {
   const handlerOwnIds = normaliserListeIds(scope?.handlerOwnIds);
   const handlerProfesseurIds = normaliserListeIds(scope?.handlerProfesseurIds);
   const utilisateurId = normaliserIdentifiant(scope?.utilisateurId);
+
+  if (handlerOwnIds.length > 0 && handlerProfesseurIds.length > 0 && utilisateurId) {
+    return {
+      handlerIds: normaliserListeIds([...handlerOwnIds, ...handlerProfesseurIds]),
+      handlerOwnIds,
+      handlerProfesseurIds,
+      intervenantId: utilisateurId,
+    };
+  }
 
   if (handlerOwnIds.length > 0) {
     return {

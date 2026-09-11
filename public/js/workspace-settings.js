@@ -25,9 +25,3 @@ export async function modifierEtatCalendrierPublic(reglages) {
     body: JSON.stringify(corps),
   });
 }
-
-export async function regenererLienCalendrierPublic() {
-  return envoyerRequete("/api/settings/public-calendar/regenerate", {
-    method: "POST",
-  });
-}

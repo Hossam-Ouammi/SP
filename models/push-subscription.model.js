@@ -1,4 +1,5 @@
 const { all, get, run, executerTransactionImmediate } = require("./db");
+const { normaliserEndpointPush } = require("../utils/push-endpoint-security");
 
 class ErreurConflitProprietaireEndpointPush extends Error {
   constructor() {
@@ -18,7 +19,14 @@ function normaliserEndpoint(endpoint) {
 }
 
 function normaliserSubscriptionPush(subscription) {
-  const endpoint = normaliserEndpoint(subscription?.endpoint);
+  let endpoint;
+
+  try {
+    endpoint = normaliserEndpointPush(subscription?.endpoint);
+  } catch {
+    return null;
+  }
+
   const p256dh = normaliserTexte(subscription?.keys?.p256dh);
   const auth = normaliserTexte(subscription?.keys?.auth);
 

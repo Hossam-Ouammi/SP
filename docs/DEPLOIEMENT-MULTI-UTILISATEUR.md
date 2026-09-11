@@ -22,7 +22,9 @@ Les trois variables doivent être présentes pour qu'un premier compte soit cré
 
 ## Variables de production
 
-Configurez les variables dans le gestionnaire de service, jamais dans le dépôt.
+Configurez les variables dans le gestionnaire de service, ou copiez
+`.env.example` vers `.env` sur le serveur. Le fichier `.env` est chargé au
+démarrage et est ignoré par Git ; ne le commitez jamais.
 
 ```text
 NODE_ENV=production
@@ -45,7 +47,7 @@ ACCOUNT_LIFECYCLE_APP_URL=https://planning.example.com/
 ACCOUNT_EMAIL_FROM=no-reply@example.com
 ACCOUNT_EMAIL_DRY_RUN=false
 ACCOUNT_ACTIVATION_TOKEN_TTL_MINUTES=1440
-ACCOUNT_RESET_PASSWORD_TOKEN_TTL_MINUTES=60
+ACCOUNT_RESET_PASSWORD_TOKEN_TTL_MINUTES=15
 SMTP_HOST=smtp.example.com
 SMTP_PORT=465
 SMTP_SECURE=true
@@ -53,9 +55,20 @@ SMTP_USER=no-reply@example.com
 SMTP_PASS=...
 ```
 
-`ACCOUNT_LIFECYCLE_APP_URL` doit être une origine HTTPS explicite en production ; l'application ne la déduit jamais de l'en-tête `Host`. Sans URL valide ou sans SMTP, une approbation est enregistrée mais aucun lien d'activation ou de réinitialisation ne peut être livré. Après correction de la configuration, le réviseur peut renvoyer un lien.
+Utilisez l'une des paires cohérentes : `SMTP_PORT=587` avec
+`SMTP_SECURE=false` (STARTTLS obligatoire en production), ou `SMTP_PORT=465`
+avec `SMTP_SECURE=true` (TLS implicite). Le port doit être numérique ; un
+placeholder textuel n'est pas une configuration SMTP valide.
 
-`SESSION_SECRET` et `AUDIT_SECRET` sont recommandés en variables d'environnement. S'ils ne sont pas définis, l'application crée des fichiers locaux à permissions restreintes dans `database/`; ils doivent alors survivre aux redéploiements.
+`ACCOUNT_LIFECYCLE_APP_URL` doit être une origine HTTPS explicite en production ; l'application ne la déduit jamais de l'en-tête `Host`. Sans URL valide ou sans SMTP, une approbation est enregistrée mais aucun lien d'activation ou de réinitialisation ne peut être livré. Après correction de la configuration, le réviseur peut renvoyer un lien. La boîte locale `storage/dev-emails/` n'est utilisée que lorsque `ACCOUNT_EMAIL_DRY_RUN=true` est défini explicitement hors production : elle ne simule jamais un email réellement envoyé.
+
+`SESSION_SECRET` et `AUDIT_SECRET` sont recommandés en variables d'environnement. En production, une valeur explicitement fournie doit contenir au moins 32 octets aléatoires et ne peut pas être un placeholder : l'application refuse de démarrer sinon. S'ils ne sont pas définis, l'application crée des fichiers locaux à permissions restreintes dans `database/`; ils doivent alors survivre aux redéploiements.
+
+La rotation de `SESSION_SECRET` invalide les sessions et change les valeurs
+dérivées utilisées pour les liens publics stables. La rotation de
+`AUDIT_SECRET` rend les nouvelles signatures d'historique incompatibles avec
+l'ancienne chaîne sans procédure dédiée. Préparez ces rotations, ne les faites
+pas lors d'un déploiement ordinaire.
 
 Réglages opérationnels additionnels déjà pris en charge :
 
@@ -64,16 +77,94 @@ CENTRAL_CALENDAR_TIMEZONE=Africa/Casablanca
 CENTRAL_CALENDAR_TIMEZONE_LABEL="heure du Maroc"
 PUSH_VAPID_SUBJECT=mailto:admin@example.com
 BACKUP_SEANCES_ENABLED=true
-BACKUP_SEANCES_EMAIL_TO=archive@example.com
 BACKUP_SEANCES_TIMEZONE=Africa/Casablanca
-BACKUP_SEANCES_RETENTION_DAYS=60
+BACKUP_SEANCES_DELIVERY_RETENTION_DAYS=180
 ```
+
+Les destinataires proviennent exclusivement des comptes actifs : chaque rôle
+`handler` reçoit son propre espace à 00:00 et chaque rôle `super_admin` reçoit
+la vue globale à 00:00 et 12:00. Aucun destinataire global n'est codé en dur.
+Le registre `backup_email_deliveries` rend chaque occurrence idempotente.
+
+`BACKUP_SEANCES_*` produit un export CSV des séances, utile comme copie
+complémentaire mais insuffisant pour restaurer l'application : il ne contient
+ni la base SQLite complète, ni l'historique, les utilisateurs, les rôles, les
+photos, les sessions ou les clés. Mettez en place une sauvegarde chiffrée du
+fichier SQLite (et WAL/SHM lorsque présents), des fichiers privés et des
+secrets, hors de la machine Oracle, puis testez une restauration sur une
+instance isolée avant mise en production.
+
+## Sauvegarde complète et restauration
+
+### Reset propre sans suppression de l'ancienne base
+
+Le reset est une bascule vers un **nouveau fichier SQLite**. Il ne vide et ne
+supprime jamais la base courante. Arrêtez PM2, choisissez un chemin absolu
+inexistant, puis lancez :
+
+```bash
+export CLEAN_DATABASE_PATH=/var/lib/gestion-seances/database-clean.db
+export CLEAN_DATABASE_ARCHIVE_DIR=/var/lib/gestion-seances/archives
+export CLEAN_INSTALL_CONFIRM=ARCHIVE_AND_INITIALIZE
+export INITIAL_SUPERADMIN_NAME='Administrateur'
+export INITIAL_SUPERADMIN_EMAIL='admin@example.com'
+export INITIAL_SUPERADMIN_PASSWORD='mot-de-passe-initial-fort'
+npm run reset:clean
+```
+
+La commande contrôle la source, produit une archive SQLite cohérente avec un
+manifeste SHA-256, initialise la cible avec le schéma canonique et toutes les
+migrations, puis vérifie que seul le SuperAdmin bootstrap existe. Elle laisse
+`DATABASE_PATH` inchangé : examinez le résultat, puis pointez explicitement le
+service vers `CLEAN_DATABASE_PATH`. Ne remplacez jamais la source par la cible.
+
+### Exports email automatiques
+
+- chaque Handler actif reçoit uniquement son espace à 00:00 ;
+- chaque SuperAdmin actif reçoit l'export global à 00:00 et 12:00 ;
+- les heures utilisent `BACKUP_SEANCES_TIMEZONE`, jamais le fuseau public ;
+- les CSV sont créés en mémoire et ne restent pas sur le disque ;
+- le registre technique bloque le double envoi d'une occurrence confirmée ;
+- un échec SMTP ne modifie aucune donnée métier et reste relançable.
+
+Commandes manuelles : `npm run backup:handlers`, `npm run backup:admin`, ou
+`npm run backup:seances` pour les deux.
+
+Le script `npm run backup:seances` reste un export CSV métier complémentaire ;
+il ne remplace pas cette procédure. Avant le premier déploiement, exécutez et
+consignez au moins une restauration sur une machine ou un répertoire isolé.
+
+1. Définissez un répertoire de sauvegarde chiffré, hors du serveur Oracle, et
+   vérifiez l'espace disponible.
+2. Arrêtez proprement l'unique processus qui écrit la base :
+   `pm2 stop superprof`.
+3. Copiez `DATABASE_PATH` et, s'ils existent, les fichiers voisins
+   `-wal` et `-shm`. Copiez aussi `storage/uploads/` : les captures liées aux
+   séances y sont privées et ne sont pas dans SQLite. N'incluez pas la boîte de
+   développement `storage/dev-emails/` dans une sauvegarde opérationnelle.
+4. Sauvegardez les secrets de manière chiffrée dans le gestionnaire de secrets.
+   Si `SESSION_SECRET`, `AUDIT_SECRET` ou les clés VAPID ne sont pas fournis par
+   ce gestionnaire, conservez respectivement `database/.session-secret`,
+   `database/.audit-secret` et `database/.push-vapid-keys.json` avec la même
+   sauvegarde protégée. Leur perte invalide des sessions, l'audit ou le Push.
+5. Calculez un SHA-256 de chaque archive, transférez-la hors de la machine,
+   puis relancez l'application avec `pm2 start superprof`.
+
+Pour tester la restauration, ne remplacez jamais l'instance active : créez une
+copie de l'application et un répertoire de données neufs, restaurez-y la base,
+ses éventuels fichiers WAL/SHM, `storage/uploads/` et les secrets nécessaires,
+puis définissez un `DATABASE_PATH` propre à cette copie. Démarrez une seule
+instance, vérifiez `GET /health`, `PRAGMA integrity_check`,
+`PRAGMA foreign_key_check`, les migrations, un compte, une séance avec son
+tarif figé et une photo authentifiée. Documentez la date, le hash de l'archive,
+la version du code et le résultat. Sans cette preuve, le plan de reprise n'est
+pas validé.
 
 `CENTRAL_CALENDAR_TIMEZONE` est la référence métier commune aux séances,
 disponibilités et espaces authentifiés. Le décalage affiché sur un calendrier
-public n'est pas une variable globale : chaque Handler choisit `GMT`, `GMT+1`
-ou `GMT+2` dans **Calendrier → Calendrier public**. Il représente strictement
-0, +60 ou +120 minutes ajoutées à l'horloge centrale lors de la réponse
+public n'est pas une variable globale : chaque Handler choisit `GMT+1`,
+`GMT+2`, `GMT+3` ou `GMT+4` dans **Calendrier → Calendrier public**. Il représente strictement
++60, +120, +180 ou +240 minutes ajoutées à l'horloge centrale lors de la réponse
 publique, après le calcul de la disponibilité centrale ; ce n'est jamais une
 conversion IANA ni un mécanisme DST public.
 
@@ -95,6 +186,13 @@ Sur Oracle Linux, reconstruisez le module SQLite après l'installation si le bin
 npm run oracle:rebuild-sqlite
 ```
 
+`ecosystem.config.js` utilise volontairement un seul processus PM2 en mode
+`fork`. Ne passez pas en cluster et ne démarrez pas plusieurs instances qui
+écrivent la même base SQLite. Avec `TRUST_PROXY=true`, Node doit rester lié à
+`127.0.0.1` et seul le reverse proxy maîtrisé doit pouvoir lui transmettre des
+requêtes : une exposition directe ferait confiance à des en-têtes proxy fournis
+par un client.
+
 ## Migrations et compatibilité des données
 
 `initialiserBaseDeDonnees()` s'exécute au démarrage. Il applique les migrations versionnées, une seule fois, dans des transactions SQLite et mémorise leur exécution dans `schema_migrations`. Ne lancez pas de SQL de migration manuellement et ne modifiez pas une migration déjà livrée : ajoutez une nouvelle migration versionnée.
@@ -111,6 +209,11 @@ npm run oracle:rebuild-sqlite
 | `2026090708_repair_public_calendar_timezone` | Corrige la reprise historique qui avait confondu fuseau personnel et choix public, sans écraser un choix UI tracé. |
 | `2026090709_historique_hmac_v2_scope` | Versionne la signature audit : les nouvelles entrées HMAC v2 signent aussi `handler_id` et `intervenant_id`; les v1 restent vérifiables. |
 | `2026090710_public_calendar_fixed_offset` | Normalise l'ancien stockage IANA vers `GMT` et réserve le workflow public aux offsets fixes `GMT`, `GMT+1`, `GMT+2`. |
+| `2026090801_public_calendar_stable_link` | Remplace le renouvellement de lien par une URL publique stable, unique au Handler et stockée sous forme de hash. |
+| `2026090802_legacy_suspended_professor_access` | Réconcilie de manière conservative les accès de Professeurs suspendus issus des données historiques. |
+| `2026090803_trusted_device_expiration` | Ajoute l'expiration et la révocation atomique des appareils de confiance. |
+| `2026090901_handler_subject_tariffs` | Ajoute les matières d'un Handler, les tarifs versionnés par matière/réalisateur et le snapshot de tarif sur les séances. |
+| `2026090902_normalize_handler_subject_keys` | Normalise les clés Unicode des matières sans fusionner silencieusement deux historiques tarifaires distincts. |
 
 Avant un déploiement sur une base existante, répétez la migration sur une copie de cette base, démarrez l'application et consultez les entrées éventuelles de `reconciliation_seances_legacy`. La migration ne supprime pas les séances, l'historique ou les comptes existants.
 
@@ -118,8 +221,8 @@ Avant un déploiement sur une base existante, répétez la migration sur une cop
 
 | Capacité | Portée effective |
 | --- | --- |
-| `professeur` | Ses propres séances, disponibilités, statistiques, monétisation et historique dans son rattachement actif. |
-| `handler` | Son équipe : lui-même comme intervenant et les Professeurs qui lui sont activement rattachés. Il peut gérer l'équipe, créer des séances et gérer leurs disponibilités. |
+| `professeur` | Ses propres séances, indisponibilités, statistiques, monétisation et historique dans son rattachement actif. |
+| `handler` | Son équipe : lui-même comme intervenant et les Professeurs qui lui sont activement rattachés. Il gère l'équipe, les matières/tarifs par matière, les séances et les réglages de son espace. |
 | `super_admin` | Fonctions globales uniquement sous `/api/admin` et `/api/admin-analytics`. Un compte qui est aussi Handler reste limité à son équipe sur les routes Handler ordinaires. |
 
 Un Professeur ne peut avoir qu'un rattachement actif à la fois, grâce à une contrainte SQLite. Les contrôleurs appliquent le scope dans les requêtes serveur; une URL ou un corps JSON falsifié pour viser une autre équipe aboutit à une ressource introuvable ou refusée. Les mises à jour temps réel et les push emploient la même portée.
@@ -144,16 +247,15 @@ GET /api/reservation-public/:token
 GET /api/reservation-public/:token/events
 ```
 
-Les anciennes routes sans jeton renvoient `404`. Le calendrier public n'expose que la disponibilité; il ne divulgue ni intervenant, ni élève, ni matière, ni détail de séance et ne crée pas de réservation.
+Les anciennes routes sans jeton renvoient `404`. Le calendrier public n'expose que les créneaux collectivement indisponibles ; les créneaux disponibles restent vides. Il ne divulgue ni intervenant, ni élève, ni matière, ni détail de séance et ne crée pas de réservation.
 
-Le Handler génère le lien depuis **Calendrier → Calendrier public**. Il règle à
-cet endroit un décalage fixe de l'horloge centrale affiché aux clients; ce
-réglage ne convertit jamais les séances, disponibilités ou tableaux de bord
-authentifiés, ni ne réalise de conversion IANA. Le jeton brut est
-affiché uniquement dans la réponse de génération, puis seul son hash SHA-256
-est conservé. Une régénération révoque immédiatement le lien précédent; la
-désactivation rend également le lien introuvable. Conservez donc le lien
-partagé dans un canal adapté et régénérez-le en cas de doute.
+Le Handler enregistre le lien depuis **Calendrier → Calendrier public**. Il
+règle à cet endroit un décalage fixe de l'horloge centrale affiché aux clients ;
+ce réglage ne convertit jamais les séances, indisponibilités ou tableaux de
+bord authentifiés, ni ne réalise de conversion IANA. L'URL est unique et
+stable pour le Handler, et seul son hash SHA-256 est conservé. La désactivation
+rend le lien introuvable sans le remplacer. Conservez donc le lien partagé dans
+un canal adapté et désactivez-le en cas de doute.
 
 ## Contrôles de sécurité conservés
 
@@ -164,7 +266,7 @@ partagé dans un canal adapté et régénérez-le en cas de doute.
 - blocage IP et journal d'authentification ;
 - historique immuable avec chaîne d'intégrité ;
 - permissions, lecture seule et statut de compte vérifiés côté serveur ;
-- accès aux photos, propositions, statistiques, monétisation, disponibilités, SSE et push restreints au même scope Handler/intervenant.
+- accès aux photos, statistiques, monétisation, indisponibilités, SSE et push restreints au même scope Handler/intervenant.
 
 ## Démarrer, vérifier et maintenir
 

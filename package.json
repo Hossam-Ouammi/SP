@@ -12,6 +12,9 @@
     "oracle:rebuild-sqlite": "npm rebuild sqlite3 --build-from-source",
     "push:due": "node scripts/run-push-jobs.js",
     "backup:seances": "node scripts/run-seances-backup.js",
+    "backup:handlers": "node scripts/run-handler-backups.js",
+    "backup:admin": "node scripts/run-admin-backup.js",
+    "reset:clean": "node scripts/reset-clean-install.js",
     "maintenance:sqlite": "node scripts/maintenance-sqlite.js"
   },
   "keywords": [
@@ -29,17 +32,22 @@
     "@fullcalendar/timegrid": "^6.1.20",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
+    "dotenv": "^17.3.1",
     "ejs": "^5.0.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.1",
     "express-session": "^1.19.0",
-    "nodemailer": "^8.0.7",
+    "nodemailer": "^10.0.1",
     "path-to-regexp": "8.4.2",
-    "puppeteer": "^24.40.0",
+    "puppeteer": "^25.10.0",
     "sqlite3": "6.0.1",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
+  },
+  "allowScripts": {
+    "puppeteer@25.10.0": true,
+    "sqlite3@6.0.1": true
   }
 }

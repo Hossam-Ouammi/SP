@@ -6,6 +6,7 @@ const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
 const { recupererSecretAudit } = require("./audit-secret");
 const { assurerDossiersScreenshots } = require("../utils/screenshot-storage");
+const { motDePasseEstCompatibleBcrypt } = require("../utils/security");
 const { executerAvecVerrou } = require("../utils/job-lock");
 const { executerMigrationsVersionnees } = require("./migrations");
 
@@ -52,6 +53,11 @@ assurerDossiersScreenshots();
 
 const db = new sqlite3.Database(databasePath);
 let initialisationBaseEnCours = null;
+// SQLite executes every statement on this single connection.  Keeping only
+// `BEGIN` / `COMMIT` in a promise chain is not enough: a request arriving
+// while a transaction callback awaits I/O would otherwise run *inside* that
+// transaction.  It could observe uncommitted rows or be rolled back with an
+// unrelated request.  This tail serializes every public database operation.
 let fileTransaction = Promise.resolve();
 const contexteTransactionImmediate = new AsyncLocalStorage();
 
@@ -62,7 +68,26 @@ db.serialize(() => {
   db.run("PRAGMA foreign_keys = ON");
 });
 
-function run(sql, params = []) {
+function executerOperationBrute(operation) {
+  return operation();
+}
+
+function executerOperationSeriee(operation) {
+  // Statements issued by the owner of the current transaction must remain in
+  // that transaction.  Sending them through `fileTransaction` would wait for
+  // the transaction that is itself awaiting the statement (deadlock).
+  if (contexteTransactionImmediate.getStore()?.active === true) {
+    return executerOperationBrute(operation);
+  }
+
+  const execution = fileTransaction.then(operation);
+  // Keep the tail alive after a failed standalone statement while preserving
+  // the rejection returned to its own caller.
+  fileTransaction = execution.catch(() => {});
+  return execution;
+}
+
+function executerRunBrut(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function onRun(error) {
       if (error) {
@@ -77,7 +102,7 @@ function run(sql, params = []) {
   });
 }
 
-function get(sql, params = []) {
+function executerGetBrut(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.get(sql, params, (error, row) => {
       if (error) {
@@ -89,7 +114,7 @@ function get(sql, params = []) {
   });
 }
 
-function all(sql, params = []) {
+function executerAllBrut(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.all(sql, params, (error, rows) => {
       if (error) {
@@ -99,6 +124,18 @@ function all(sql, params = []) {
       }
     });
   });
+}
+
+function run(sql, params = []) {
+  return executerOperationSeriee(() => executerRunBrut(sql, params));
+}
+
+function get(sql, params = []) {
+  return executerOperationSeriee(() => executerGetBrut(sql, params));
+}
+
+function all(sql, params = []) {
+  return executerOperationSeriee(() => executerAllBrut(sql, params));
 }
 
 function executerTransactionImmediate(callback) {
@@ -111,17 +148,23 @@ function executerTransactionImmediate(callback) {
   }
 
   const execution = fileTransaction.then(async () => {
-    await run("BEGIN IMMEDIATE TRANSACTION");
+    // The transaction has not entered its AsyncLocalStorage context yet, so
+    // these boundaries intentionally bypass the public serialized helpers.
+    await executerRunBrut("BEGIN IMMEDIATE TRANSACTION");
+
+    const contexte = { active: true };
 
     try {
-      const resultat = await contexteTransactionImmediate.run(
-        { active: true },
-        callback
-      );
-      await run("COMMIT");
+      const resultat = await contexteTransactionImmediate.run(contexte, callback);
+      // A fire-and-forget async resource created by the callback inherits the
+      // AsyncLocalStorage store.  It must not keep bypassing the queue once
+      // the transaction body has completed.
+      contexte.active = false;
+      await executerRunBrut("COMMIT");
       return resultat;
     } catch (error) {
-      await run("ROLLBACK").catch(() => {});
+      contexte.active = false;
+      await executerRunBrut("ROLLBACK").catch(() => {});
       throw error;
     }
   });
@@ -144,16 +187,6 @@ function fermerBaseDeDonnees() {
 
 function attendre(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function ajouterJours(dateReference, nombreDeJours) {
-  const nouvelleDate = new Date(dateReference);
-  nouvelleDate.setDate(nouvelleDate.getDate() + nombreDeJours);
-  return nouvelleDate;
-}
-
-function formaterDate(date) {
-  return date.toISOString().split("T")[0];
 }
 
 function trierObjetRecursivement(valeur) {
@@ -317,7 +350,7 @@ async function ajouterColonnesSecuriteUtilisateursSiNecessaire() {
     },
     {
       nom: "tarif_horaire",
-      sql: "ALTER TABLE utilisateurs ADD COLUMN tarif_horaire INTEGER DEFAULT 100",
+      sql: "ALTER TABLE utilisateurs ADD COLUMN tarif_horaire INTEGER DEFAULT 90",
     },
     {
       nom: "created_at",
@@ -840,58 +873,6 @@ async function marquerComptesTemporairesCommeASecuriser() {
   }
 }
 
-async function normaliserSeancesExistantes() {
-  await run(
-    `
-      UPDATE seances
-      SET
-        matiere = CASE
-          WHEN lower(matiere) LIKE '%math%' THEN 'Maths'
-          WHEN lower(matiere) LIKE '%phys%' OR lower(matiere) LIKE '%chim%' THEN 'Physique chimie'
-          WHEN lower(matiere) LIKE '%python%' THEN 'Python'
-          WHEN lower(matiere) LIKE '%c++%' OR lower(matiere) LIKE '%cpp%' THEN 'C++'
-          WHEN trim(COALESCE(matiere, '')) = '' THEN 'Maths'
-          ELSE trim(matiere)
-        END,
-        compte = CASE
-          WHEN trim(COALESCE(compte, '')) = '' THEN 'Non attribué'
-          ELSE trim(compte)
-        END,
-        parent = COALESCE(parent, ''),
-        est_essai = CASE
-          WHEN est_essai IN (0, 1) THEN est_essai
-          ELSE 0
-        END,
-        prix = 0,
-        statut_paiement = 'non_payee'
-    `
-  );
-
-  await run(
-    `
-      UPDATE seances
-      SET description = CASE description
-        WHEN 'Révision des équations et exercices guidés.' THEN 'Revision des equations et exercices guides.'
-        WHEN 'Revision des equations et exercices guides.' THEN 'Revision des equations et exercices guides.'
-        WHEN 'Mécanique et résolution d''exercices.' THEN 'Mecanique et resolution d''exercices.'
-        WHEN 'Mecanique et resolution d''exercices.' THEN 'Mecanique et resolution d''exercices.'
-        WHEN 'Séance déplacée après changement d''horaire.' THEN 'Seance deplacee apres changement d''horaire.'
-        WHEN 'Seance deplacee apres changement d''horaire.' THEN 'Seance deplacee apres changement d''horaire.'
-        WHEN 'Séance annulée à la demande de l''étudiant.' THEN 'Seance annulee a la demande de l''etudiant.'
-        WHEN 'Seance annulee a la demande de l''etudiant.' THEN 'Seance annulee a la demande de l''etudiant.'
-        ELSE description
-      END
-    `
-  );
-
-  await run(
-    `
-      UPDATE seances
-      SET titre = matiere || ' - ' || etudiant
-    `
-  );
-}
-
 async function initialiserCatalogueParDefaut() {
   for (const matiere of matieresParDefaut) {
     if (await valeurCatalogueEstSupprimee("matiere", matiere)) {
@@ -970,7 +951,7 @@ async function initialiserUtilisateursInitiaux() {
   const resultat = await get("SELECT COUNT(*) AS total FROM utilisateurs");
 
   if (resultat.total > 0) {
-    return;
+    return null;
   }
 
   const nom = String(process.env.INITIAL_SUPERADMIN_NAME || "").trim();
@@ -981,11 +962,17 @@ async function initialiserUtilisateursInitiaux() {
   // automation may provide this one-time bootstrap account; otherwise the
   // database stays empty until an operator provisions it explicitly.
   if (!nom || !email || !motDePasse) {
-    return;
+    return null;
+  }
+
+  if (!motDePasseEstCompatibleBcrypt(motDePasse)) {
+    throw new Error(
+      "INITIAL_SUPERADMIN_PASSWORD ne doit pas depasser 72 octets UTF-8 (limite bcrypt)."
+    );
   }
 
   const motDePasseHash = await bcrypt.hash(motDePasse, 12);
-  await run(
+  const creation = await run(
     `
       INSERT INTO utilisateurs (
         nom, email, mot_de_passe, est_admin, acces_active,
@@ -993,22 +980,21 @@ async function initialiserUtilisateursInitiaux() {
         peut_voir_indisponibilites, session_version, doit_changer_mot_de_passe,
         mot_de_passe_change_at, echecs_connexion, tarif_horaire, created_at
       )
-      VALUES (?, ?, ?, 1, 1, 0, 1, 1, 1, 1, 1, NULL, 0, 0, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, 1, 1, 0, 1, 1, 1, 1, 1, NULL, 0, 90, CURRENT_TIMESTAMP)
     `,
     [nom, email, motDePasseHash]
   );
+
+  return creation.id;
 }
 
-async function assurerRolesCompteBootstrap() {
-  const email = String(process.env.INITIAL_SUPERADMIN_EMAIL || "").trim().toLowerCase();
-  if (!email) {
+async function assurerRolesCompteBootstrap(utilisateurId) {
+  const id = Number(utilisateurId);
+  if (!Number.isInteger(id) || id <= 0) {
     return;
   }
 
-  const utilisateur = await get(
-    "SELECT id FROM utilisateurs WHERE lower(email) = lower(?) LIMIT 1",
-    [email]
-  );
+  const utilisateur = await get("SELECT id FROM utilisateurs WHERE id = ? LIMIT 1", [id]);
   if (!utilisateur?.id) {
     return;
   }
@@ -1178,7 +1164,7 @@ async function initialiserBaseDeDonneesInterne() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       valeur TEXT NOT NULL,
-      tarif_horaire INTEGER DEFAULT 100,
+      tarif_horaire INTEGER DEFAULT 90,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(type, valeur)
     )
@@ -1238,6 +1224,7 @@ async function initialiserBaseDeDonneesInterne() {
       device_label TEXT NOT NULL,
       user_agent TEXT,
       adresse_ip TEXT,
+      expires_at TEXT NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       last_used_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
@@ -1260,6 +1247,11 @@ async function initialiserBaseDeDonneesInterne() {
       last_today_reminder_key TEXT
     )
   `);
+
+  // This compatibility migration must precede the dependent index below.
+  // `CREATE TABLE IF NOT EXISTS` does not add a missing column to a legacy
+  // `seances` table, and SQLite rejects an index that names a missing column.
+  await ajouterColonneCompteSiNecessaire();
 
   await run(`
     CREATE INDEX IF NOT EXISTS idx_journal_auth_date ON journal_auth(created_at)
@@ -1317,7 +1309,6 @@ async function initialiserBaseDeDonneesInterne() {
     CREATE INDEX IF NOT EXISTS idx_push_subscriptions_last_used ON push_subscriptions(last_used_at)
   `);
 
-  await ajouterColonneCompteSiNecessaire();
   await ajouterColonneEssaiSiNecessaire();
   await ajouterColonnesSecuriteUtilisateursSiNecessaire();
   await normaliserRolesUtilisateurs();
@@ -1333,7 +1324,7 @@ async function initialiserBaseDeDonneesInterne() {
   await ajouterColonnesPushSubscriptionsSiNecessaire();
   await ajouterColonnesJournalAuthSiNecessaire();
   await synchroniserHistoriqueActionsSiNecessaire();
-  await initialiserUtilisateursInitiaux();
+  const utilisateurBootstrapId = await initialiserUtilisateursInitiaux();
   await marquerComptesTemporairesCommeASecuriser();
   await initialiserCatalogueParDefaut();
   await synchroniserCatalogueDepuisSeances();
@@ -1347,7 +1338,10 @@ async function initialiserBaseDeDonneesInterne() {
     all,
     executerTransactionImmediate,
   });
-  await assurerRolesCompteBootstrap();
+  // The environment variables provision a first account only.  They must
+  // never restore roles or an active self-membership on an existing account:
+  // otherwise an intentional role revocation would be undone at restart.
+  await assurerRolesCompteBootstrap(utilisateurBootstrapId);
 }
 
 async function initialiserBaseDeDonnees() {

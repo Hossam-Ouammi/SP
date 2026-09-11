@@ -7,43 +7,43 @@
   "push": {
     "prompt": {
       "status": "Inactive",
-      "permission": "A demander",
-      "info": "Les notifications sont desactivees sur cet appareil.",
+      "permission": "À demander",
+      "info": "Les notifications sont désactivées sur cet appareil.",
       "error": ""
     },
     "deniedBefore": {
       "status": "Inactive",
       "permission": "Refusee",
-      "info": "Les notifications sont desactivees sur cet appareil.",
+      "info": "Les notifications sont désactivées sur cet appareil.",
       "error": ""
     },
     "deniedAfter": {
       "status": "Inactive",
       "permission": "Refusee",
-      "info": "Les notifications sont desactivees sur cet appareil.",
-      "error": "Les notifications ont ete refusees dans ce navigateur."
+      "info": "Les notifications sont désactivées sur cet appareil.",
+      "error": "Les notifications ont été refusées dans ce navigateur."
     },
     "grantedBefore": {
       "status": "Inactive",
       "permission": "Autorisee",
-      "info": "Les notifications sont desactivees sur cet appareil.",
+      "info": "Les notifications sont désactivées sur cet appareil.",
       "error": ""
     },
     "activation": {
-      "responseStatus": null,
+      "responseStatus": 201,
       "etat": {
-        "status": "Inactive",
+        "status": "Active",
         "permission": "Autorisee",
-        "info": "Les notifications sont desactivees sur cet appareil.",
+        "info": "Les notifications temps réel et les rappels toutes les 2 heures sont actifs sur cet appareil.",
         "error": ""
       }
     },
-    "testStatus": null,
+    "testStatus": 200,
     "logs": [],
     "qualityWarnings": []
   },
   "monetisationPermissions": {
-    "userReportSelectionVisible": false,
+    "userReportSelectionVisible": true,
     "userContainsHossam": false
   },
   "pdfDownloads": {
@@ -51,14 +51,14 @@
       "ui": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 60018,
+        "size": 67661,
         "signature": "%PDF",
-        "fileName": "releve-monetisation-mensuelle-2026-05-abdo-hossam-yassine.pdf"
+        "fileName": "releve-monetisation-periode-2026-04-01-2026-04-30-abdo-e2e-hossam-e2e.pdf"
       },
       "direct": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 66757,
+        "size": 67839,
         "signature": "%PDF"
       }
     },
@@ -66,14 +66,14 @@
       "ui": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 70835,
+        "size": 70819,
         "signature": "%PDF",
-        "fileName": "releve-monetisation-annuelle-2026-abdo-hossam-yassine.pdf"
+        "fileName": "releve-monetisation-periode-2026-03-01-2026-04-30-abdo-e2e-hossam-e2e.pdf"
       },
       "direct": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 69266,
+        "size": 69791,
         "signature": "%PDF"
       }
     },
@@ -81,14 +81,14 @@
       "ui": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 72201,
+        "size": 62621,
         "signature": "%PDF",
-        "fileName": "releve-monetisation-globale-abdo-hossam-yassine.pdf"
+        "fileName": "releve-monetisation-periode-2026-04-01-2026-04-30-abdo-e2e.pdf"
       },
       "direct": {
         "status": 200,
         "contentType": "application/pdf",
-        "size": 70806,
+        "size": 71360,
         "signature": "%PDF"
       }
     }

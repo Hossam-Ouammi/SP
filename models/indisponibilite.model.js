@@ -18,6 +18,8 @@ function normaliserListeIdentifiants(valeurs = []) {
 function construireFiltreIndisponibilitesScopees(scope = {}) {
   const handlerIds = normaliserListeIdentifiants(scope.handlerIds);
   const intervenantId = normaliserIdentifiant(scope.intervenantId);
+  const possedeListeIntervenants = Array.isArray(scope.intervenantIds);
+  const intervenantIds = normaliserListeIdentifiants(scope.intervenantIds);
 
   if (handlerIds.length === 0) {
     return { clause: "1 = 0", parametres: [] };
@@ -31,6 +33,17 @@ function construireFiltreIndisponibilitesScopees(scope = {}) {
   if (intervenantId) {
     clauses.push("indisponibilites.intervenant_id = ?");
     parametres.push(intervenantId);
+  } else if (possedeListeIntervenants) {
+    // Une liste vide est intentionnelle : sans professeur actif, un Handler
+    // ne recoit pas ses anciennes indisponibilites personnelles par defaut.
+    if (intervenantIds.length === 0) {
+      return { clause: "1 = 0", parametres: [] };
+    }
+
+    clauses.push(
+      `indisponibilites.intervenant_id IN (${intervenantIds.map(() => "?").join(", ")})`
+    );
+    parametres.push(...intervenantIds);
   }
 
   return { clause: clauses.join(" AND "), parametres };

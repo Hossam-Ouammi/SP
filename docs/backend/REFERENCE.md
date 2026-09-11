@@ -95,12 +95,12 @@ Fonctions:
 Variables exportees:
 
 - `BACKUP_SEANCES_ENABLED`: vrai sauf si `BACKUP_SEANCES_DISABLED=true`.
-- `BACKUP_SEANCES_EMAIL_TO`: destinataire du backup.
+- les destinataires sont déterminés depuis les comptes actifs ayant le rôle `handler` ou `super_admin`.
 - `BACKUP_SEANCES_EMAIL_FROM`: expediteur force si besoin.
 - `BACKUP_SEANCES_TIMEZONE`: fuseau de calcul du backup.
-- `BACKUP_SEANCES_DAILY_HOUR` et `BACKUP_SEANCES_DAILY_MINUTE`: heure locale cible.
-- `BACKUP_SEANCES_OUTPUT_DIR`: dossier de sortie CSV.
-- `BACKUP_SEANCES_RETENTION_DAYS`: nombre de jours de conservation des CSV generes, `60` par defaut, `0` pour desactiver le nettoyage.
+- le Handler est exporté à `00:00`, le SuperAdmin à `00:00` et `12:00` dans `BACKUP_SEANCES_TIMEZONE`.
+- les CSV sont générés en mémoire ; aucun dossier d'export persistant n'est utilisé.
+- `BACKUP_SEANCES_DELIVERY_RETENTION_DAYS`: conservation du registre technique anti-doublon, `180` jours par défaut.
 - `BACKUP_SEANCES_EMAIL_DRY_RUN`: cree le CSV sans envoi.
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`: config mail.
 
@@ -1262,7 +1262,7 @@ Fonctions:
 - `nettoyerAnciensBackupsSeances(options)`: supprime les CSV `seances-backup-YYYY-MM-DD.csv` plus vieux que la retention configuree.
 - `smtpEstConfigure()`
 - `creerTransportSmtp()`
-- `envoyerBackupSeancesParEmail(backup)`
+- `envoyerExportBackupParEmail({ destinataire, exportBackup })`
 - `executerBackupSeancesEmail(options)`: combine verrou, generation, envoi et nettoyage.
 - `calculerProchaineExecution(dateReference)`: calcule la prochaine occurrence dans le fuseau de backup.
 - `planifierProchainBackupSeances()`: installe un `setTimeout` unique jusqu'au prochain horaire.

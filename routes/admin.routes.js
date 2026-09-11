@@ -103,6 +103,10 @@ router.post(
   notifierMiseAJourApplication(ajouterElementCatalogueAdministration, "catalogue")
 );
 router.delete(
+  "/users/:id",
+  notifierMiseAJourApplication(supprimerUtilisateurAdministration, "administration")
+);
+router.delete(
   "/catalogue-items/:id",
   notifierMiseAJourApplication(supprimerElementCatalogueAdministration, "catalogue")
 );
@@ -114,12 +118,6 @@ router.post(
   "/users",
   fonctionnaliteLegacyDesactivee(
     "La création directe est remplacée par le workflow de demande et d'activation sécurisé."
-  )
-);
-router.delete(
-  "/users/:id",
-  fonctionnaliteLegacyDesactivee(
-    "La suppression physique est désactivée. Utilisez la suspension ou la révocation du compte."
   )
 );
 router.post(

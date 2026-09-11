@@ -16,6 +16,9 @@ const {
 } = require("../models/access-scope.model");
 const { trouverUtilisateurParId } = require("../models/utilisateur.model");
 const { creerEntreeHistorique } = require("../models/historique.model");
+const {
+  attribuerCouleursCalendrierProfesseurs,
+} = require("../utils/professor-calendar-colors");
 
 function creerErreurHttp(status, message, code = null) {
   const erreur = new Error(message);
@@ -198,12 +201,15 @@ async function trouverExceptionAccessible(req, id, source = {}) {
 async function listerIntervenantsDisponibilite(req, portees) {
   const ids = Array.from(new Set(portees.map((portee) => portee.intervenantId)));
   const utilisateurs = await Promise.all(ids.map((id) => trouverUtilisateurParId(id)));
+  const intervenants = utilisateurs.filter(Boolean);
+  const couleurs = attribuerCouleursCalendrierProfesseurs(intervenants);
 
-  return utilisateurs.filter(Boolean).map((utilisateur) => ({
+  return intervenants.map((utilisateur) => ({
     id: utilisateur.id,
     public_id: utilisateur.public_id || null,
     nom: utilisateur.nom,
-    couleur_calendrier: utilisateur.couleur_calendrier || null,
+    couleur_calendrier:
+      couleurs.get(Number(utilisateur.id)) || utilisateur.couleur_calendrier || null,
   }));
 }
 

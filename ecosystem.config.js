@@ -14,7 +14,7 @@ module.exports = {
         PUSH_ENABLE_IN_MEMORY_REMINDERS: "true",
         CENTRAL_CALENDAR_TIMEZONE: "Africa/Casablanca",
         CENTRAL_CALENDAR_TIMEZONE_LABEL: "heure du Maroc",
-        BACKUP_SEANCES_ENABLED: "true",
+        BACKUP_SEANCES_ENABLED: "false",
         BACKUP_SEANCES_TIMEZONE: "Africa/Casablanca",
       },
     },

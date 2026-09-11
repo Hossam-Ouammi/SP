@@ -33,6 +33,10 @@ const {
   fermerBaseDeDonnees,
   run: executerSql,
 } = require("../models/db");
+const {
+  listerMatieresHandler,
+  mettreAJourTarifsMatieresHandler,
+} = require("../models/tarification-matieres.model");
 
 function assertStatus(response, expectedStatus, label) {
   assert.equal(
@@ -232,6 +236,19 @@ async function preparerBase() {
     `INSERT INTO rattachements_professeurs (handler_id, professeur_id, actif, cree_par)
      VALUES (?, ?, 1, ?)`,
     [alphaId, professeurId, alphaId]
+  );
+
+  const matieres = await listerMatieresHandler(alphaId);
+  const maths = matieres.find((matiere) => matiere.libelle === "Maths");
+  assert.ok(maths?.id, "La matière Maths du Handler doit être initialisée.");
+  await mettreAJourTarifsMatieresHandler(
+    alphaId,
+    [alphaId, professeurId].map((intervenantId) => ({
+      intervenant_id: intervenantId,
+      matiere_id: maths.id,
+      tarif_horaire: 100,
+    })),
+    new Date("1970-01-01T00:00:00.000Z")
   );
 
   await fermerBaseDeDonnees();

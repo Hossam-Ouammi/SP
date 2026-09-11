@@ -31,6 +31,16 @@ function verifierContratOffsetFixe(fuseauCentral) {
     `${fuseauCentral}: GMT+2 doit ajouter deux heures civiles.`
   );
   assert.deepEqual(
+    convertirDateHeureCentraleVersPublique("2026-09-07", "08:00", "GMT+3"),
+    { date: "2026-09-07", heure: "11:00" },
+    `${fuseauCentral}: GMT+3 doit ajouter trois heures civiles.`
+  );
+  assert.deepEqual(
+    convertirDateHeureCentraleVersPublique("2026-09-07", "08:00", "GMT+4"),
+    { date: "2026-09-07", heure: "12:00" },
+    `${fuseauCentral}: GMT+4 doit ajouter quatre heures civiles.`
+  );
+  assert.deepEqual(
     convertirDateHeureCentraleVersPublique("2026-09-07", "15:30", "GMT+2"),
     { date: "2026-09-07", heure: "17:30" }
   );

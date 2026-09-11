@@ -5,6 +5,17 @@ const majuscules = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const chiffres = "0123456789";
 const caracteresSpeciaux = "!@#$%^&*()_+";
 const tousLesCaracteres = `${minuscules}${majuscules}${chiffres}${caracteresSpeciaux}`;
+// bcrypt (and bcryptjs) only considers the first 72 UTF-8 bytes of a
+// password.  Keeping this boundary explicit prevents two visibly different
+// secrets from authenticating as the same password after a silent truncation.
+const BCRYPT_MAX_PASSWORD_BYTES = 72;
+
+function motDePasseEstCompatibleBcrypt(motDePasse) {
+  return (
+    typeof motDePasse === "string" &&
+    Buffer.byteLength(motDePasse, "utf8") <= BCRYPT_MAX_PASSWORD_BYTES
+  );
+}
 
 function choisirCaractereAleatoire(caracteres) {
   return caracteres[crypto.randomInt(0, caracteres.length)];
@@ -22,8 +33,9 @@ function melangerCaracteres(caracteres) {
 }
 
 function motDePasseRespectePolitique(motDePasse) {
-  const valeur = String(motDePasse || "");
+  const valeur = typeof motDePasse === "string" ? motDePasse : "";
   return (
+    motDePasseEstCompatibleBcrypt(valeur) &&
     valeur.length >= 12 &&
     /[a-z]/.test(valeur) &&
     /[A-Z]/.test(valeur) &&
@@ -49,6 +61,8 @@ function genererMotDePasseAleatoire(longueur = 12) {
 }
 
 module.exports = {
+  BCRYPT_MAX_PASSWORD_BYTES,
   genererMotDePasseAleatoire,
+  motDePasseEstCompatibleBcrypt,
   motDePasseRespectePolitique,
 };

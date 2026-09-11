@@ -1,5 +1,10 @@
 # Audit technique — évolution multi-utilisateur
 
+> **Archive historique — non normative.** Cet audit correspond à une étape de
+> l'évolution multi-utilisateur et peut décrire les disponibilités/propositions
+> alors présentes. Pour l'état actuel, suivre le code, [l'audit actuel](AUDIT-ACTUEL-2026-09-10.md)
+> et le [guide de déploiement](DEPLOIEMENT-MULTI-UTILISATEUR.md).
+
 ## Périmètre et méthode
 
 Cet audit décrit l’état du dépôt Express/EJS/SQLite après l’évolution multi-utilisateur. Il repose sur la lecture des routes, contrôleurs, modèles, migrations, middlewares, configuration et scripts de régression présents dans le projet.

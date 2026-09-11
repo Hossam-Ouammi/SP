@@ -114,6 +114,13 @@ button {
   padding: 28px;
 }
 
+.user-pill-identity { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.user-pill-identity small { font-size: .7rem; font-weight: 600; opacity: .82; }
+.nav-notification-badge { display: inline-grid; place-items: center; min-width: 1.25rem; height: 1.25rem; margin-left: .35rem; padding: 0 .3rem; border-radius: 999px; background: #dc2626; color: #fff; font-size: .72rem; font-weight: 800; }
+.account-token-locked { filter: blur(4px); pointer-events: none; user-select: none; }
+.account-token-success-dialog { position: absolute; z-index: 20; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, 85%); padding: 18px; border-radius: 12px; background: #fff; box-shadow: 0 18px 55px rgba(15, 23, 42, .28); text-align: center; font-weight: 700; }
+.login-card:has(.account-token-success-dialog) { position: relative; }
+
 .login-lifecycle-actions {
   display: grid;
   gap: 4px;
@@ -146,6 +153,29 @@ button {
 .login-secondary-form h2 {
   margin: 0;
   font-size: 1.05rem;
+}
+
+.login-return-button {
+  margin-top: -6px;
+}
+
+.login-password-visibility-option {
+  width: fit-content;
+}
+
+.form-notice {
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.form-notice.success {
+  border-color: #86efac;
+  background: var(--success-soft);
+  color: #166534;
 }
 
 .login-header {
@@ -400,6 +430,7 @@ button {
   padding: 8px;
   overflow-x: auto;
   overflow-y: hidden;
+  scroll-padding-inline: 8px;
   scroll-snap-type: x proximity;
 }
 
@@ -661,6 +692,41 @@ button {
   margin-bottom: 16px;
 }
 
+.statistiques-period-panel,
+.stats-results > .statistics-overview-grid,
+.stats-results > .stats-compare-panel {
+  margin-bottom: 16px;
+}
+
+.statistiques-period-panel {
+  padding: 16px;
+}
+
+.stats-global-toggle,
+.monetisation-global-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  color: var(--text);
+  font-size: 0.96rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.stats-global-toggle input,
+.monetisation-global-toggle input {
+  inline-size: 18px;
+  block-size: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+#stats-results[hidden] {
+  display: none !important;
+}
+
 .monetisation-period-panel {
   padding: 16px;
 }
@@ -812,37 +878,107 @@ button {
   background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
 }
 
-.monetisation-report-accounts-grid {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+.monetisation-report-accounts-dropdown {
   margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  overflow: clip;
 }
 
-.monetisation-report-accounts-grid .checkbox-option span {
+.monetisation-report-accounts-dropdown summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   min-height: 48px;
+  padding: 10px 14px;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
 }
 
-.monetisation-floating-download {
+.monetisation-report-accounts-dropdown summary::-webkit-details-marker {
+  display: none;
+}
+
+.monetisation-report-accounts-dropdown summary::after {
+  content: "⌄";
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  transition: transform 0.16s ease;
+}
+
+.monetisation-report-accounts-dropdown[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.monetisation-report-accounts-dropdown[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.monetisation-report-accounts-list {
+  display: grid;
+  gap: 2px;
+  max-height: min(340px, 46vh);
+  margin: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.monetisation-report-account-option {
   display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.monetisation-report-account-option:hover {
+  background: #f3f7fc;
+}
+
+.monetisation-report-account-option:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+  background: #f3f7fc;
+}
+
+.monetisation-report-account-option input {
+  inline-size: 18px;
+  block-size: 18px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.monetisation-report-accounts-empty {
+  margin: 6px 10px 10px;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.form-actions.monetisation-results-actions {
   justify-content: center;
-  width: 100%;
-  margin-top: 16px;
-  pointer-events: none;
-  z-index: 2;
+  margin: 16px 0 0;
 }
 
-#monetisation-section {
-  position: relative;
-  padding-bottom: 24px;
-}
-
-.monetisation-period-panel .monetisation-floating-download {
-  display: flex;
-  justify-content: flex-end;
+#monetisation-results[hidden],
+#monetisation-download-statement-button[hidden] {
+  display: none !important;
 }
 
 .monetisation-download-button {
-  width: min(360px, 100%);
+  width: 87vw;
+  max-width: 87vw;
   min-width: 0;
+  box-sizing: border-box;
   padding-inline: 20px;
   box-shadow: 0 16px 30px rgba(37, 99, 235, 0.18);
   pointer-events: auto;
@@ -1352,28 +1488,6 @@ button {
   box-shadow: none;
 }
 
-.fc .fc-event.proposition-event {
-  border: 1px dashed #15803d !important;
-  background: rgba(187, 247, 208, 0.72) !important;
-  color: #14532d !important;
-  opacity: 0.72;
-  box-shadow:
-    0 10px 18px rgba(21, 128, 61, 0.16),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.42);
-}
-
-.fc .fc-event.proposition-event .fc-event-main,
-.fc .fc-event.proposition-event .fc-event-title,
-.fc .fc-event.proposition-event .fc-event-time {
-  color: #14532d !important;
-}
-
-.fc .fc-event.proposition-event .fc-event-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .fc .fc-scrollgrid {
   width: 100% !important;
   max-width: 100%;
@@ -1596,17 +1710,6 @@ button {
   border-radius: 0 !important;
 }
 
-.fc .fc-timegrid-event.proposition-event {
-  height: 100%;
-  min-height: 100%;
-  pointer-events: auto;
-}
-
-.fc .fc-timegrid-event.proposition-event .fc-event-main-frame {
-  justify-content: flex-start;
-  padding: 7px 10px;
-}
-
 #calendar[data-calendar-view="timeGridWeek"].fc .fc-timegrid-event,
 #calendar[data-calendar-view="timeGridWeek"].fc .fc-timegrid-event .fc-event-main-frame {
   border-radius: 2px;
@@ -1619,6 +1722,80 @@ button {
   padding: 0 !important;
   box-shadow: none !important;
   background: var(--calendar-unavailability-light) !important;
+}
+
+/* Une hachure neutre apparaît seulement lorsque tous les Professeurs actifs
+ * ont déclaré le créneau indisponible. */
+#calendar.fc .fc-bg-event.calendar-availability-unavailable {
+  opacity: 1;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  border-top: 1px solid rgba(148, 163, 184, 0.34);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  /* Les créneaux restent sélectionnables : FullCalendar reçoit le clic sur la
+   * case exacte, plutôt que sur le fond fusionné de toute la plage grisée. */
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(148, 163, 184, 0.22) 0,
+    rgba(148, 163, 184, 0.22) 7px,
+    rgba(226, 232, 240, 0.26) 7px,
+    rgba(226, 232, 240, 0.26) 14px
+  ) !important;
+}
+
+#calendar.fc .fc-bg-event.calendar-availability-unavailable::after {
+  position: absolute;
+  inset: 0 6px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: rgba(71, 85, 105, 0.78);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  content: "Indisponible";
+  pointer-events: none;
+}
+
+.seance-choice-list {
+  display: grid;
+  gap: 8px;
+}
+
+.seance-choice-item {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #d7e0eb;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #17243a;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.seance-choice-item:hover,
+.seance-choice-item:focus-visible {
+  border-color: #8db4e1;
+  background: #f4f8fd;
+  outline: none;
+}
+
+.seance-choice-item:active {
+  transform: translateY(1px);
+}
+
+.seance-choice-item-title {
+  font-weight: 800;
+}
+
+.seance-choice-item-meta {
+  color: #63758b;
+  font-size: 0.86rem;
 }
 
 .modal {
@@ -2555,6 +2732,129 @@ button {
   margin-top: 0;
 }
 
+.team-subjects-card,
+.team-tarification-card {
+  display: grid;
+  gap: 16px;
+}
+
+.team-subject-form {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+
+.team-subject-form .field {
+  flex: 1 1 260px;
+  margin: 0;
+}
+
+.team-subject-list {
+  display: grid;
+  gap: 8px;
+}
+
+.team-subject-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+
+.team-subject-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 750;
+}
+
+.team-subject-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.team-subject-action {
+  min-height: 36px;
+  padding: 7px 11px;
+  font-size: 0.84rem;
+}
+
+.team-tarification-form {
+  display: grid;
+  gap: 16px;
+}
+
+.team-tarification-scroll {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.team-tarification-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.team-tarification-table th,
+.team-tarification-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.team-tarification-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--text-muted);
+  background: #f8fafc;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.team-tarification-table tbody th {
+  min-width: 150px;
+  background: #fbfcfe;
+  font-weight: 750;
+}
+
+.team-tarification-table tbody tr:last-child th,
+.team-tarification-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.team-tarification-table td {
+  min-width: 138px;
+  white-space: nowrap;
+}
+
+.team-tarification-table input[type="number"] {
+  width: 88px;
+  min-height: 38px;
+  padding: 7px 8px;
+}
+
+.team-tarification-handler {
+  color: var(--accent-strong) !important;
+}
+
+.team-tarification-actions {
+  justify-content: flex-start;
+  margin: 0;
+}
+
 .availability-rules-card {
   display: grid;
   gap: 18px;
@@ -2571,22 +2871,6 @@ button {
 .admin-session-item-current {
   border-color: #bfdbfe;
   background: #f8fbff;
-}
-
-.proposal-item {
-  align-items: stretch;
-}
-
-.proposal-inline-form {
-  display: grid;
-  gap: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.proposal-inline-actions {
-  margin-top: 0;
-  justify-content: flex-start;
 }
 
 .admin-session-empty,
@@ -2785,13 +3069,6 @@ button {
   border-color: #a7f3d0;
   background: #ecfdf5;
   color: #065f46;
-}
-
-.user-password-help {
-  margin: -4px 0 0;
-  color: var(--text-muted);
-  font-size: 0.88rem;
-  line-height: 1.5;
 }
 
 .form-error {
@@ -3415,13 +3692,6 @@ button {
   border-color: #bfdbfe;
 }
 
-.toast.proposal {
-  border-color: #86efac;
-  background: #ecfdf5;
-  color: #14532d;
-  box-shadow: 0 16px 30px rgba(22, 101, 52, 0.16);
-}
-
 .toast.error {
   border-color: #fecaca;
 }
@@ -3859,8 +4129,7 @@ button {
     align-items: flex-start;
   }
 
-  .monetisation-period-bar,
-  .monetisation-floating-download {
+  .monetisation-period-bar {
     width: 100%;
   }
 
@@ -3895,24 +4164,15 @@ button {
   }
 
   .monetisation-download-button {
-    width: auto;
-    min-width: min(280px, calc(100vw - 32px));
+    width: 87vw;
+    max-width: 87vw;
+    min-width: 0;
   }
 
-  #monetisation-section {
-    padding-bottom: 128px;
-  }
-
-  .monetisation-floating-download {
-    position: fixed;
-    left: 50%;
-    right: auto;
-    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-    width: auto;
-    max-width: calc(100vw - 32px);
-    transform: translateX(-50%);
+  .form-actions.monetisation-results-actions {
+    flex-direction: row;
+    align-items: center;
     justify-content: center;
-    z-index: 30;
   }
 
   .topbar,
@@ -4046,6 +4306,20 @@ button {
   .team-member-form,
   .team-permissions {
     grid-template-columns: 1fr;
+  }
+
+  .team-subject-form,
+  .team-subject-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .team-subject-actions {
+    width: 100%;
+  }
+
+  .team-subject-actions .button {
+    flex: 1 1 auto;
   }
 
   .availability-rule-form .form-grid {
@@ -4641,11 +4915,6 @@ button {
     font-size: 0.78rem;
   }
 
-  #calendar[data-calendar-mobile="true"].fc {
-    --calendar-mobile-yassine: #e67b73;
-    --calendar-mobile-abdo: #8e24aa;
-  }
-
   #calendar[data-calendar-mobile="true"].fc .fc-scrollgrid {
     border-color: #e6e9ef;
     border-radius: 0;
@@ -4783,8 +5052,6 @@ button {
 
   #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance,
   #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance {
-    background: var(--calendar-mobile-yassine) !important;
-    border-color: var(--calendar-mobile-yassine) !important;
     color: #ffffff !important;
   }
 
@@ -4795,29 +5062,6 @@ button {
   #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-title,
   #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-time {
     color: #ffffff !important;
-  }
-
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance.compte-abdo,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance.compte-abdo {
-    background: var(--calendar-mobile-abdo) !important;
-    border-color: var(--calendar-mobile-abdo) !important;
-    color: #ffffff !important;
-  }
-
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-proposition,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-proposition {
-    border: 1px dashed #15803d !important;
-    background: rgba(187, 247, 208, 0.76) !important;
-    color: #14532d !important;
-    opacity: 0.78;
-    box-shadow: none;
-  }
-
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-proposition .fc-event-main,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-proposition .fc-event-title,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-proposition .fc-event-main,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-proposition .fc-event-title {
-    color: #14532d !important;
   }
 
   #calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .fc-col-header-cell-cushion {
@@ -4960,15 +5204,6 @@ button {
   margin: 2px 0 0;
   font-size: clamp(1.35rem, 4vw, 2rem);
   letter-spacing: -0.035em;
-}
-
-.reservation-public-eyebrow {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .reservation-public-actions,
@@ -5156,8 +5391,6 @@ button {
   }
 
   #reservation-public-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .calendar-mobile-week-seance {
-    background: var(--calendar-mobile-yassine, #e67b73) !important;
-    border-color: var(--calendar-mobile-yassine, #e67b73) !important;
     color: #ffffff !important;
     box-shadow: none;
   }
@@ -5237,15 +5470,6 @@ button {
   margin: 2px 0 0;
   font-size: clamp(1.35rem, 4vw, 2rem);
   letter-spacing: -0.035em;
-}
-
-.reservation-public-eyebrow {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .reservation-public-actions,
@@ -5483,11 +5707,6 @@ button {
     min-height: 460px;
   }
 
-  #unavailability-calendar[data-calendar-mobile="true"].fc {
-    --calendar-mobile-yassine: #e67b73;
-    --calendar-mobile-abdo: #8e24aa;
-  }
-
   #unavailability-calendar.fc .fc-toolbar.fc-header-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -5679,15 +5898,7 @@ button {
 
   #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance,
   #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance {
-    background: var(--calendar-mobile-yassine) !important;
-    border-color: var(--calendar-mobile-yassine) !important;
     color: #ffffff !important;
-  }
-
-  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance.compte-abdo,
-  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance.compte-abdo {
-    background: var(--calendar-mobile-abdo) !important;
-    border-color: var(--calendar-mobile-abdo) !important;
   }
 
   #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance .fc-event-main,
@@ -5695,15 +5906,6 @@ button {
   #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-main,
   #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-title {
     color: #ffffff !important;
-  }
-
-  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-proposition,
-  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-proposition {
-    border: 1px dashed #15803d !important;
-    background: rgba(187, 247, 208, 0.76) !important;
-    color: #14532d !important;
-    opacity: 0.78;
-    box-shadow: none;
   }
 
   #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .fc-timegrid-slot-label-cushion,
@@ -6145,120 +6347,11 @@ button {
   font-weight: 700;
 }
 
-/* Vue privée Handler/Professeur : les pastilles sont une lecture de données
-   déjà scoppées par l'API. Aucun détail n'est réutilisé côté calendrier public. */
-.availability-overview {
-  margin: 0 0 18px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--surface-soft);
-}
-
-.availability-overview-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.availability-overview-title {
-  margin: 0;
-  font-size: 0.98rem;
-}
-
-.availability-overview-note {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.4;
-}
-
-.availability-overview-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-top: 12px;
-  color: var(--text);
-  font-size: 0.8rem;
-}
-
-.availability-overview-legend-item,
-.availability-overview-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.availability-overview-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  flex: 0 0 10px;
-  border: 1px solid color-mix(in srgb, var(--availability-color) 62%, #1e293b);
-  border-radius: 50%;
-  background: var(--availability-color, #64748b);
-}
-
-.availability-overview-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px 10px;
-  margin-top: 14px;
-}
-
-.availability-overview-row {
-  display: flex;
-  align-items: center;
-  min-height: 28px;
-  gap: 8px;
-  padding: 4px 7px;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.48);
-}
-
-.availability-overview-time {
-  min-width: 38px;
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.availability-overview-unavailable {
-  color: var(--muted);
-  font-size: 0.7rem;
-}
-
 .workspace-public-calendar {
   display: grid;
   gap: 14px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
-}
-
-@media (max-width: 780px) {
-  .availability-overview-heading {
-    display: block;
-  }
-
-  .availability-overview-note {
-    margin-top: 4px;
-  }
-
-  .availability-overview-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 430px) {
-  .availability-overview {
-    padding: 12px;
-  }
-
-  .availability-overview-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .admin-analytics-filter {

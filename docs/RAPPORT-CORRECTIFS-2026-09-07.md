@@ -1,5 +1,10 @@
 # Rapport de correction — 7 septembre 2026
 
+> **Archive historique — non normative.** Ce correctif documente un état
+> intermédiaire du 7 septembre 2026. Il peut donc contredire des évolutions
+> ultérieures. Pour l'état actuel, suivre le code, [l'audit actuel](AUDIT-ACTUEL-2026-09-10.md)
+> et le [guide de déploiement](DEPLOIEMENT-MULTI-UTILISATEUR.md).
+
 Ce document remplace toutes les conclusions devenues obsolètes de
 `RAPPORT-TECHNIQUE-COMPLET.md` relatives au calendrier public IANA, aux
 conversions GMT, à l'audit, à SuperAdmin, Push, SSE et au menu Calendrier

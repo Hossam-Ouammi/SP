@@ -225,13 +225,23 @@ async function mettreAJourAccesCompte(utilisateurId, accesActive) {
       UPDATE utilisateurs
       SET
         acces_active = ?,
+        statut_compte = CASE
+          WHEN ? = 1 AND statut_compte = 'suspendu' THEN 'active'
+          WHEN ? = 0 AND statut_compte = 'active' THEN 'suspendu'
+          ELSE statut_compte
+        END,
         session_version = session_version + 1,
         echecs_connexion = 0,
         premier_echec_connexion_at = NULL,
         bloque_jusqua = NULL
       WHERE id = ?
     `,
-    [accesActive ? 1 : 0, utilisateurId]
+    [
+      accesActive ? 1 : 0,
+      accesActive ? 1 : 0,
+      accesActive ? 1 : 0,
+      utilisateurId,
+    ]
   );
 }
 
@@ -447,8 +457,35 @@ async function restaurerElementCatalogueSupprime(elementId) {
 }
 
 async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemplacementId) {
-  return executerTransactionImmediate(async () => {
-    const totalSessionsSupprimees = await revoquerSessionsUtilisateur(utilisateurId);
+  const seancesLiees = await get(`
+    SELECT COUNT(*) AS total
+    FROM seances
+    WHERE handler_id = ? OR intervenant_id = ?
+  `, [utilisateurId, utilisateurId]);
+  if (Number(seancesLiees?.total || 0) > 0) {
+    const error = new Error("Ce compte possede des seances et ne peut pas etre supprime. Suspendez-le.");
+    error.status = 409;
+    throw error;
+  }
+
+  // Ces données personnelles ne doivent pas survivre à la suppression du compte.
+  // Elles sont retirées avant la transaction principale car les tables legacy
+  // utilisent des contraintes RESTRICT non différables.
+  for (const table of [
+    "propositions_seances",
+    "exceptions_disponibilites",
+    "disponibilites",
+    "indisponibilites",
+  ]) {
+    try {
+      await run(`DELETE FROM ${table} WHERE handler_id = ? OR intervenant_id = ?`, [utilisateurId, utilisateurId]);
+    } catch (error) {
+      error.message = `${table}: ${error.message}`;
+      throw error;
+    }
+  }
+
+  const totalSessionsSupprimees = await revoquerSessionsUtilisateur(utilisateurId);
     const seancesCreees = await run(
       `
         UPDATE seances
@@ -482,17 +519,28 @@ async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemp
       `,
       [utilisateurId]
     );
+    await run("DELETE FROM public_reservation_devices WHERE handler_id = ?", [utilisateurId]);
+    await run("UPDATE propositions_seances SET proposee_par = NULL WHERE proposee_par = ?", [utilisateurId]);
+    await run("UPDATE propositions_seances SET traitee_par = NULL WHERE traitee_par = ?", [utilisateurId]);
+    await run("UPDATE indisponibilites SET cree_par = NULL WHERE cree_par = ?", [utilisateurId]);
+    await run("UPDATE exceptions_disponibilites SET cree_par = NULL WHERE cree_par = ?", [utilisateurId]);
+    await run("UPDATE blocked_ips SET cree_par = NULL WHERE cree_par = ?", [utilisateurId]);
+    await run("UPDATE rattachements_professeurs SET cree_par = NULL WHERE cree_par = ?", [utilisateurId]);
+    await run("DELETE FROM tarifs_realisateur_matiere WHERE handler_id = ? OR intervenant_id = ?", [utilisateurId, utilisateurId]);
+    await run("DELETE FROM matieres_handler WHERE handler_id = ?", [utilisateurId]);
+    await run("DELETE FROM demandes_rattachement_equipe WHERE handler_id = ? OR professeur_id = ?", [utilisateurId, utilisateurId]);
+    await run("DELETE FROM rattachements_professeurs WHERE handler_id = ? OR professeur_id = ?", [utilisateurId, utilisateurId]);
+    await run("DELETE FROM utilisateur_roles WHERE utilisateur_id = ?", [utilisateurId]);
     const suppression = await run("DELETE FROM utilisateurs WHERE id = ?", [utilisateurId]);
 
-    return {
-      totalSessionsSupprimees,
-      totalSeancesCreeesReattribuees: Number(seancesCreees?.changes || 0),
-      totalSeancesModifieesReattribuees: Number(seancesModifiees?.changes || 0),
-      totalSeancesLegacyDetachees: Number(seancesLegacyDetachees?.changes || 0),
-      totalHistoriqueDetache: Number(historiqueDetache?.historiqueActionsChanges || 0),
-      totalUtilisateursSupprimes: Number(suppression?.changes || 0),
-    };
-  });
+  return {
+    totalSessionsSupprimees,
+    totalSeancesCreeesReattribuees: Number(seancesCreees?.changes || 0),
+    totalSeancesModifieesReattribuees: Number(seancesModifiees?.changes || 0),
+    totalSeancesLegacyDetachees: Number(seancesLegacyDetachees?.changes || 0),
+    totalHistoriqueDetache: Number(historiqueDetache?.historiqueActionsChanges || 0),
+    totalUtilisateursSupprimes: Number(suppression?.changes || 0),
+  };
 }
 
 module.exports = {

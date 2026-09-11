@@ -6,6 +6,12 @@ const {
   construireFiltreLectureSeances,
   scopePeutGererIntervenant,
 } = require("../models/access-scope.model");
+const { convertirInstantEnDateHeureZonnee } = require("../utils/timezone");
+const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
+
+function obtenirDateAujourdhui() {
+  return convertirInstantEnDateHeureZonnee(new Date(), CENTRAL_CALENDAR_TIMEZONE).date;
+}
 
 function creerErreurHttp(status, message) {
   const error = new Error(message);
@@ -25,6 +31,23 @@ function lireDateIso(valeur) {
     valeur: /^\d{4}-\d{2}-\d{2}$/.test(texte) && !Number.isNaN(date.getTime()) ? texte : null,
     invalide: !/^\d{4}-\d{2}-\d{2}$/.test(texte) || Number.isNaN(date.getTime()),
   };
+}
+
+// `globale=1` demande toutes les dates que le compte courant peut déjà lire.
+// Cela ne donne jamais accès au périmètre cross-Handler SuperAdmin, qui reste
+// réservé à sa route d'administration explicite.
+function lirePeriodeGlobale(valeur) {
+  const texte = String(valeur ?? "").trim();
+
+  if (!texte || texte === "0") {
+    return { valeur: false, invalide: false };
+  }
+
+  if (texte === "1") {
+    return { valeur: true, invalide: false };
+  }
+
+  return { valeur: false, invalide: true };
 }
 
 function premierJourDuMois(date = new Date()) {
@@ -48,9 +71,11 @@ function initialiserCompteurs() {
     seances_faites: 0,
     seances_planifiees: 0,
     seances_payantes: 0,
-    seances_essai: 0,
-    seances_reportees: 0,
-    seances_annulees: 0,
+    seances_gratuites: 0,
+    // Une séance reportée n'est pas une séance réalisée. Elle est regroupée
+    // avec les annulations dans l'indicateur métier "non faite", au lieu de
+    // disparaître du bilan quand la colonne Reportée est retirée de l'UI.
+    seances_non_faites: 0,
     duree_minutes: 0,
     matieres: {},
   };
@@ -68,14 +93,12 @@ function ajouterSeanceAuxCompteurs(compteurs, seance) {
   if (statut === "faite") {
     compteurs.seances_faites += 1;
     if (Number(seance?.est_essai) === 1 || seance?.est_essai === true) {
-      compteurs.seances_essai += 1;
+      compteurs.seances_gratuites += 1;
     } else {
       compteurs.seances_payantes += 1;
     }
-  } else if (statut === "reportee") {
-    compteurs.seances_reportees += 1;
-  } else if (statut === "annulee") {
-    compteurs.seances_annulees += 1;
+  } else if (statut === "reportee" || statut === "annulee") {
+    compteurs.seances_non_faites += 1;
   } else {
     compteurs.seances_planifiees += 1;
   }
@@ -144,7 +167,10 @@ function lireFiltreIntervenantAnalyseGlobale(req) {
   return intervenantId;
 }
 
-function construireReponseStatistiques(seances, { du, au, intervenantId = null, globale = false }) {
+function construireReponseStatistiques(
+  seances,
+  { du, au, intervenantId = null, globale = false, periodeGlobale = false }
+) {
   const global = initialiserCompteurs();
   const parIntervenant = new Map();
 
@@ -173,7 +199,7 @@ function construireReponseStatistiques(seances, { du, au, intervenantId = null, 
     .sort((premier, second) => premier.libelle.localeCompare(second.libelle));
 
   const reponse = {
-    periode: { du, au },
+    periode: periodeGlobale ? { du: null, au: null, globale: true } : { du, au },
     statistiques: {
       ...serialiserCompteurs(global),
       professeurs_actifs: intervenants.length,
@@ -199,9 +225,9 @@ async function recupererStatistiquesPourPortee(req, res, { globaleSuperAdmin = f
     return res.status(400).json({ message: "Les dates Du et Au doivent etre au format YYYY-MM-DD." });
   }
 
-  const au = filtreAu.valeur || new Date().toISOString().slice(0, 10);
+  const au = filtreAu.valeur || obtenirDateAujourdhui();
   const du = filtreDu.valeur || premierJourDuMois();
-  const aujourdHui = new Date().toISOString().slice(0, 10);
+  const aujourdHui = obtenirDateAujourdhui();
 
   if (au > aujourdHui) {
     return res.status(400).json({ message: "La date Au ne peut pas etre future." });
@@ -239,65 +265,57 @@ async function recupererStatistiquesPourPortee(req, res, { globaleSuperAdmin = f
 
 async function recupererStatistiques(req, res, next) {
   try {
+    const periodeGlobale = lirePeriodeGlobale(req.query?.globale);
     const filtreDu = lireDateIso(req.query?.du);
     const filtreAu = lireDateIso(req.query?.au);
+
+    if (periodeGlobale.invalide) {
+      return res.status(400).json({
+        message: "Le paramètre globale doit être égal à 1.",
+      });
+    }
 
     if (filtreDu.invalide || filtreAu.invalide) {
       return res.status(400).json({ message: "Les dates Du et Au doivent être au format YYYY-MM-DD." });
     }
 
-    const au = filtreAu.valeur || new Date().toISOString().slice(0, 10);
-    const du = filtreDu.valeur || premierJourDuMois();
-    const aujourdHui = new Date().toISOString().slice(0, 10);
+    const bornesDateDemandees = req.query?.du !== undefined || req.query?.au !== undefined;
 
-    if (au > aujourdHui) {
+    if (periodeGlobale.valeur && bornesDateDemandees) {
+      return res.status(400).json({
+        message: "Les dates Du et Au ne peuvent pas être utilisées avec une période globale.",
+      });
+    }
+
+    const au = periodeGlobale.valeur
+      ? null
+      : filtreAu.valeur || obtenirDateAujourdhui();
+    const du = periodeGlobale.valeur ? null : filtreDu.valeur || premierJourDuMois();
+    const aujourdHui = obtenirDateAujourdhui();
+
+    if (!periodeGlobale.valeur && au > aujourdHui) {
       return res.status(400).json({ message: "La date Au ne peut pas être future." });
     }
 
-    if (du > au) {
+    if (!periodeGlobale.valeur && du > au) {
       return res.status(400).json({ message: "La date Du doit être antérieure ou égale à la date Au." });
     }
 
     const scope = await resoudreScopeStatistiques(req);
-    const seances = (await listerSeancesScopees(scope)).filter((seance) => {
-      const date = String(seance?.date || "");
-      return date >= du && date <= au;
-    });
-    const global = initialiserCompteurs();
-    const parIntervenant = new Map();
-
-    for (const seance of seances) {
-      ajouterSeanceAuxCompteurs(global, seance);
-      const id = normaliserIdentifiant(seance.intervenant_id) || 0;
-      const ligne = parIntervenant.get(id) || {
-        intervenant_id: id || null,
-        intervenant_public_id: seance.intervenant_public_id || null,
-        intervenant_nom: seance.intervenant_nom || null,
-        libelle: libelleIntervenant(seance),
-        compteurs: initialiserCompteurs(),
-      };
-      ajouterSeanceAuxCompteurs(ligne.compteurs, seance);
-      parIntervenant.set(id, ligne);
-    }
-
-    const intervenants = Array.from(parIntervenant.values())
-      .map((ligne) => ({
-        intervenant_id: ligne.intervenant_id,
-        intervenant_public_id: ligne.intervenant_public_id,
-        intervenant_nom: ligne.intervenant_nom,
-        libelle: ligne.libelle,
-        ...serialiserCompteurs(ligne.compteurs),
-      }))
-      .sort((premier, second) => premier.libelle.localeCompare(second.libelle));
-
-    return res.json({
-      periode: { du, au },
-      statistiques: {
-        ...serialiserCompteurs(global),
-        professeurs_actifs: intervenants.length,
-        intervenants,
-      },
-    });
+    const seancesBrutes = await listerSeancesScopees(scope);
+    const seances = periodeGlobale.valeur
+      ? seancesBrutes
+      : seancesBrutes.filter((seance) => {
+          const date = String(seance?.date || "");
+          return date >= du && date <= au;
+        });
+    return res.json(
+      construireReponseStatistiques(seances, {
+        du,
+        au,
+        periodeGlobale: periodeGlobale.valeur,
+      })
+    );
   } catch (error) {
     return next(error);
   }

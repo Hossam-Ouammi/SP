@@ -1,5 +1,3 @@
-const path = require("path");
-
 function lireBooleenEnv(nom, valeurParDefaut = false) {
   const valeur = process.env[nom];
 
@@ -15,34 +13,68 @@ function lireNombreEnv(nom, valeurParDefaut) {
   return Number.isFinite(valeur) ? valeur : valeurParDefaut;
 }
 
+function lireEntierBorne(nom, valeurParDefaut, minimum, maximum) {
+  return Math.min(
+    Math.max(Math.floor(lireNombreEnv(nom, valeurParDefaut)), minimum),
+    maximum
+  );
+}
+
+function lireFuseauHoraireEnv(nom, valeurParDefaut) {
+  const valeur = String(process.env[nom] || "").trim() || valeurParDefaut;
+
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: valeur }).format(new Date());
+    return valeur;
+  } catch (error) {
+    return valeurParDefaut;
+  }
+}
+
+function lirePortSmtpEnv(nom, valeurParDefaut) {
+  const valeurBrute = String(process.env[nom] ?? "").trim();
+
+  // A non-numeric value used to fall back to port 465 even when STARTTLS was
+  // selected (`SMTP_SECURE=false`).  That pairing is incompatible with the
+  // usual SMTP deployment and made a simple typo silently break delivery.
+  if (!/^\d+$/.test(valeurBrute)) {
+    return valeurParDefaut;
+  }
+
+  const valeur = Number(valeurBrute);
+  return Number.isInteger(valeur) && valeur >= 1 && valeur <= 65535
+    ? valeur
+    : valeurParDefaut;
+}
+
 const backupSeancesExplicitementActive =
   lireBooleenEnv("BACKUP_SEANCES_ENABLED", false) &&
   !lireBooleenEnv("BACKUP_SEANCES_DISABLED", false);
+const smtpSecure = lireBooleenEnv("SMTP_SECURE", true);
+const smtpPort = lirePortSmtpEnv("SMTP_PORT", smtpSecure ? 465 : 587);
 
 module.exports = {
   BACKUP_SEANCES_ENABLED: backupSeancesExplicitementActive,
-  BACKUP_SEANCES_EMAIL_TO: process.env.BACKUP_SEANCES_EMAIL_TO || "",
   BACKUP_SEANCES_EMAIL_FROM: process.env.BACKUP_SEANCES_EMAIL_FROM || "",
-  BACKUP_SEANCES_TIMEZONE: process.env.BACKUP_SEANCES_TIMEZONE || "Africa/Casablanca",
-  BACKUP_SEANCES_DAILY_HOUR: Math.min(
-    Math.max(lireNombreEnv("BACKUP_SEANCES_DAILY_HOUR", 0), 0),
-    23
+  // This IANA timezone is exclusively an operations/scheduler convention.
+  // It is unrelated to a Handler's public-calendar display offset.
+  BACKUP_SEANCES_TIMEZONE: lireFuseauHoraireEnv(
+    "BACKUP_SEANCES_TIMEZONE",
+    "Africa/Casablanca"
   ),
-  BACKUP_SEANCES_DAILY_MINUTE: Math.min(
-    Math.max(lireNombreEnv("BACKUP_SEANCES_DAILY_MINUTE", 0), 0),
-    59
-  ),
-  BACKUP_SEANCES_OUTPUT_DIR:
-    process.env.BACKUP_SEANCES_OUTPUT_DIR ||
-    path.join(__dirname, "..", "backups", "seances"),
-  BACKUP_SEANCES_RETENTION_DAYS: Math.max(
-    Math.floor(lireNombreEnv("BACKUP_SEANCES_RETENTION_DAYS", 60)),
-    0
+  // The delivery ledger is technical operational data, not business audit
+  // history. It stays long enough to block duplicate scheduled sends and is
+  // pruned afterwards.
+  BACKUP_SEANCES_DELIVERY_RETENTION_DAYS: lireEntierBorne(
+    "BACKUP_SEANCES_DELIVERY_RETENTION_DAYS",
+    180,
+    7,
+    3650
   ),
   BACKUP_SEANCES_EMAIL_DRY_RUN: lireBooleenEnv("BACKUP_SEANCES_EMAIL_DRY_RUN", false),
   SMTP_HOST: process.env.SMTP_HOST || "",
-  SMTP_PORT: lireNombreEnv("SMTP_PORT", 465),
-  SMTP_SECURE: lireBooleenEnv("SMTP_SECURE", true),
+  SMTP_PORT: smtpPort,
+  SMTP_SECURE: smtpSecure,
   SMTP_USER: process.env.SMTP_USER || "",
   SMTP_PASS: process.env.SMTP_PASS || "",
 };

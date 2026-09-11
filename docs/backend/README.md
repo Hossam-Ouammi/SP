@@ -180,7 +180,7 @@ Le backup quotidien:
 - exporte toutes les seances en CSV
 - cree un fichier `backups/seances/seances-backup-YYYY-MM-DD.csv`
 - envoie le fichier par email si SMTP est configure
-- nettoie les anciens CSV generes par l'application selon `BACKUP_SEANCES_RETENTION_DAYS` (`60` par defaut)
+- nettoie le registre technique anti-doublon selon `BACKUP_SEANCES_DELIVERY_RETENTION_DAYS` (`180` jours par défaut) ; les CSV restent en mémoire
 - utilise un verrou disque pour eviter deux executions simultanees
 
 ## 7. Schema logique SQLite

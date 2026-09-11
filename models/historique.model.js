@@ -679,28 +679,31 @@ async function recupererEntreeHistoriqueDetailScopee(id, scope) {
 }
 
 async function supprimerEntreeHistoriqueParId(id) {
-  const entreeCible = await trouverEntreeHistoriqueParId(id);
-
-  if (!entreeCible) {
-    return {
-      deletedEntry: null,
-      changes: 0,
-    };
-  }
-
-  const entreesSuivantes = await all(
-    `
-      SELECT ${selectionHistoriqueActions}
-      FROM historique_actions
-      WHERE id > ?
-      ORDER BY id ASC
-    `,
-    [id]
-  );
-
-  let hashPrecedent = String(entreeCible.previous_hash || "");
-
   return executerTransactionImmediate(async () => {
+    // The target lookup and the list to re-chain must be read under the same
+    // write transaction as the deletion.  Otherwise an audit entry appended
+    // after these reads but before BEGIN IMMEDIATE would retain the deleted
+    // entry's hash as its predecessor, corrupting the HMAC chain.
+    const entreeCible = await trouverEntreeHistoriqueParId(id);
+
+    if (!entreeCible) {
+      return {
+        deletedEntry: null,
+        changes: 0,
+      };
+    }
+
+    const entreesSuivantes = await all(
+      `
+        SELECT ${selectionHistoriqueActions}
+        FROM historique_actions
+        WHERE id > ?
+        ORDER BY id ASC
+      `,
+      [id]
+    );
+
+    let hashPrecedent = String(entreeCible.previous_hash || "");
     const resultatSuppression = await run(
       "DELETE FROM historique_actions WHERE id = ?",
       [id]

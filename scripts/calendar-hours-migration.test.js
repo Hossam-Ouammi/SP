@@ -22,6 +22,7 @@ const migration = require("../models/migrations/2026090705-handler-calendar-hour
 const migrationFuseauPublic = require("../models/migrations/2026090707-public-calendar-timezone");
 const migrationReparationFuseauPublic = require("../models/migrations/2026090708-repair-public-calendar-timezone");
 const migrationOffsetFixePublic = require("../models/migrations/2026090710-public-calendar-fixed-offset");
+const migrationLienPublicStable = require("../models/migrations/2026090801-public-calendar-stable-link");
 
 async function main() {
   await run(`
@@ -142,14 +143,21 @@ async function main() {
   ]);
 
   await migrationOffsetFixePublic.up(contexte);
+  await run("UPDATE utilisateurs SET calendar_end_time = '00:00' WHERE id = 1");
+  await migrationLienPublicStable.up(contexte);
   const offsetsPublics = await all(
     "SELECT id, public_calendar_timezone FROM utilisateurs WHERE id IN (1, 2, 4) ORDER BY id ASC"
   );
   assert.deepEqual(offsetsPublics, [
-    { id: 1, public_calendar_timezone: "GMT" },
-    { id: 2, public_calendar_timezone: "GMT" },
-    { id: 4, public_calendar_timezone: "GMT" },
+    { id: 1, public_calendar_timezone: "GMT+1" },
+    { id: 2, public_calendar_timezone: "GMT+1" },
+    { id: 4, public_calendar_timezone: "GMT+1" },
   ]);
+  assert.equal(
+    (await get("SELECT calendar_end_time FROM utilisateurs WHERE id = 1"))?.calendar_end_time,
+    "23:30",
+    "La migration finale remplace la fin minuit par la dernière borne valide."
+  );
 
   await run("INSERT INTO utilisateurs (id, nom, timezone) VALUES (3, ?, ?)", [
     "Handler apres migration",
@@ -165,7 +173,7 @@ async function main() {
   assert.deepEqual(handlerNouveau, {
     calendar_start_time: "08:00",
     calendar_end_time: "23:30",
-    public_calendar_timezone: "GMT",
+    public_calendar_timezone: "GMT+1",
   });
 
   // Running the migration body again is harmless for a partially migrated
@@ -174,6 +182,7 @@ async function main() {
   await migrationFuseauPublic.up(contexte);
   await migrationReparationFuseauPublic.up(contexte);
   await migrationOffsetFixePublic.up(contexte);
+  await migrationLienPublicStable.up(contexte);
   const index = await get(
     `
       SELECT name

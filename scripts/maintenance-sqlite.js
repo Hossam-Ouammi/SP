@@ -1,3 +1,7 @@
+const { chargerEnvironnementRuntime } = require("./load-runtime-env");
+
+chargerEnvironnementRuntime();
+
 const {
   fermerBaseDeDonnees,
   executerMaintenanceBaseDeDonnees,

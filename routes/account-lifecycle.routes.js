@@ -11,6 +11,7 @@ const {
   approuverDemande,
   refuserDemande,
   renvoyerActivation,
+  verifierLienCycleCompte,
 } = require("../controllers/account-lifecycle.controller");
 const {
   verifierAuthentification,
@@ -59,6 +60,7 @@ router.post(
   demanderReinitialisationMotDePasse
 );
 router.post("/activation", limiteurConfirmationJeton, activerCompte);
+router.post("/tokens/validate", limiteurConfirmationJeton, verifierLienCycleCompte);
 router.post(
   "/password-resets/confirm",
   limiteurConfirmationJeton,

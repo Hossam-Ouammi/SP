@@ -1,4 +1,7 @@
 node_modules/
+.env
+.env.*
+!.env.example
 database/database.db
 database/*.db
 database/*.db-wal
@@ -26,6 +29,7 @@ public/uploads/*
 !public/uploads/.gitkeep
 storage/uploads/*
 !storage/uploads/.gitkeep
+storage/dev-emails/
 backups/
 .server.out.log
 .tmp-cookies.txt

@@ -8,6 +8,13 @@ const publicCalendarTimezone = require("./2026090707-public-calendar-timezone");
 const repairPublicCalendarTimezone = require("./2026090708-repair-public-calendar-timezone");
 const historiqueHmacV2Scope = require("./2026090709-historique-hmac-v2-scope");
 const publicCalendarFixedOffset = require("./2026090710-public-calendar-fixed-offset");
+const publicCalendarStableLink = require("./2026090801-public-calendar-stable-link");
+const legacySuspendedProfessorAccess = require("./2026090802-legacy-suspended-professor-access");
+const trustedDeviceExpiration = require("./2026090803-trusted-device-expiration");
+const handlerSubjectTariffs = require("./2026090901-handler-subject-tariffs");
+const normalizeHandlerSubjectKeys = require("./2026090902-normalize-handler-subject-keys");
+const backupEmailDeliveries = require("./2026091001-backup-email-deliveries");
+const professorMultiTeam = require("./2026091101-professor-multi-team");
 
 // Les migrations sont volontairement append-only. Une migration deja appliquee ne
 // doit jamais etre modifiee : une evolution ulterieure ajoute une nouvelle entree.
@@ -22,6 +29,13 @@ const migrations = [
   repairPublicCalendarTimezone,
   historiqueHmacV2Scope,
   publicCalendarFixedOffset,
+  publicCalendarStableLink,
+  legacySuspendedProfessorAccess,
+  trustedDeviceExpiration,
+  handlerSubjectTariffs,
+  normalizeHandlerSubjectKeys,
+  backupEmailDeliveries,
+  professorMultiTeam,
 ];
 
 function verifierDefinitionMigrations() {

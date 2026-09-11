@@ -11,6 +11,7 @@ const {
   PUSH_DAILY_SUMMARY_HOUR,
   PUSH_REMINDER_INTERVAL_HOURS,
 } = require("../config/push.config");
+const { normaliserEndpointPush } = require("../utils/push-endpoint-security");
 
 function normaliserTexte(valeur) {
   return typeof valeur === "string" ? valeur.trim() : "";
@@ -36,10 +37,28 @@ async function enregistrerAbonnementPush(req, res) {
     });
   }
 
+  let abonnementSecurise;
+
+  try {
+    abonnementSecurise = {
+      ...subscription,
+      endpoint: normaliserEndpointPush(subscription.endpoint),
+    };
+  } catch (error) {
+    if (error?.code === "PUSH_ENDPOINT_UNSAFE") {
+      return res.status(400).json({
+        code: error.code,
+        message: "Endpoint push non securise.",
+      });
+    }
+
+    throw error;
+  }
+
   try {
     await enregistrerOuMettreAJourAbonnementPush({
       utilisateurId: req.utilisateur.id,
-      subscription,
+      subscription: abonnementSecurise,
       deviceLabel: normaliserTexte(deviceLabel),
       userAgent: String(req.headers["user-agent"] || "").slice(0, 400),
     });

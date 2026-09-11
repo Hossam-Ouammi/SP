@@ -20,7 +20,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/css/style.css?v=20260611d" />
+    <link rel="stylesheet" href="/css/style.css?v=20260911-calendar-background-fix" />
   </head>
   <body>
     <main>
@@ -30,7 +30,6 @@
             <div class="login-header">
               <div class="login-brand">Gestion des séances</div>
               <h1>Connexion</h1>
-              <p>Accès partagé pour les deux utilisateurs.</p>
             </div>
 
             <noscript>
@@ -88,51 +87,58 @@
 
             <div class="login-lifecycle-actions" aria-label="Accès au cycle de compte">
               <button id="show-account-request-button" class="button link-button" type="button">
-                Vous n'avez pas encore de compte ? Envoyer une demande d'inscription.
+                Création de compte
               </button>
               <button id="show-password-reset-button" class="button link-button" type="button">
-                Mot de passe oublié ?
+                Récupérer mot de passe
               </button>
             </div>
 
             <form id="account-request-form" class="stack-form login-secondary-form hidden" novalidate>
-              <h2>Demande d'inscription</h2>
+              <h2>Création de compte</h2>
               <label class="field">
                 <span>Nom</span>
-                <input id="account-request-name" type="text" maxlength="120" required />
+                <input id="account-request-name" name="nom" type="text" maxlength="120" autocomplete="name" required />
               </label>
               <label class="field">
                 <span>Email</span>
-                <input id="account-request-email" type="email" maxlength="160" required />
+                <input id="account-request-email" name="email" type="email" maxlength="160" autocomplete="email" required />
               </label>
               <label class="field">
                 <span>Type de compte</span>
-                <select id="account-request-role" required>
+                <select id="account-request-role" name="role" required>
                   <option value="professeur">Professeur</option>
                   <option value="handler">Handler</option>
                 </select>
               </label>
               <label id="account-request-handler-field" class="field">
                 <span>Identifiant Handler</span>
-                <select id="account-request-handler"></select>
+                <select id="account-request-handler" name="handler_public_id"></select>
               </label>
               <p id="account-request-error" class="form-error hidden"></p>
+              <div id="account-request-notification" class="form-notice success hidden" role="status" aria-live="polite"></div>
               <button class="button primary full-width" type="submit">Envoyer la demande</button>
+              <button class="button secondary full-width login-return-button" type="button" data-login-lifecycle-back>
+                Retour à la connexion
+              </button>
             </form>
 
             <form id="password-reset-request-form" class="stack-form login-secondary-form hidden" novalidate>
-              <h2>Réinitialiser le mot de passe</h2>
+              <h2>Récupérer mot de passe</h2>
               <label class="field">
-                <span>Email ou ID public</span>
-                <input id="password-reset-identifier" type="text" maxlength="160" required />
+                <span>Email</span>
+                <input id="password-reset-identifier" name="email" type="email" maxlength="160" autocomplete="email" required />
               </label>
               <p id="password-reset-request-error" class="form-error hidden"></p>
-              <button class="button primary full-width" type="submit">Envoyer le lien</button>
+              <div id="password-reset-notification" class="form-notice success hidden" role="status" aria-live="polite"></div>
+              <button id="password-reset-submit-button" class="button primary full-width" type="submit">Récupérer</button>
+              <button class="button secondary full-width login-return-button" type="button" data-login-lifecycle-back>
+                Retour à la connexion
+              </button>
             </form>
 
             <form id="account-token-form" class="stack-form login-secondary-form hidden" novalidate>
               <h2 id="account-token-title">Définir votre mot de passe</h2>
-              <p class="section-note">Choisissez un mot de passe d'au moins 12 caractères, avec majuscule, minuscule, chiffre et caractère spécial.</p>
               <label class="field">
                 <span>Nouveau mot de passe</span>
                 <input id="account-token-password" type="password" minlength="12" autocomplete="new-password" required />
@@ -141,8 +147,16 @@
                 <span>Confirmer le mot de passe</span>
                 <input id="account-token-password-confirmation" type="password" minlength="12" autocomplete="new-password" required />
               </label>
+              <label class="inline-option login-password-visibility-option">
+                <input id="account-token-show-password" type="checkbox" />
+                <span>Afficher les mots de passe</span>
+              </label>
               <p id="account-token-error" class="form-error hidden"></p>
+              <div id="account-token-notification" class="form-notice success hidden" role="status" aria-live="polite"></div>
               <button class="button primary full-width" type="submit">Enregistrer le mot de passe</button>
+              <button class="button secondary full-width login-return-button" type="button" data-login-lifecycle-back>
+                Retour à la connexion
+              </button>
             </form>
 
           </div>
@@ -154,7 +168,10 @@
           <div class="topbar-left">
             <h1 class="brand-title">Gestion des séances</h1>
             <div class="topbar-meta">
-              <span class="user-pill" id="current-user-name">Utilisateur</span>
+              <span class="user-pill user-pill-identity">
+                <span id="current-user-name">Utilisateur</span>
+                <small id="current-user-public-id">ID : -</small>
+              </span>
             </div>
           </div>
 
@@ -175,14 +192,11 @@
           <button class="nav-tab" type="button" data-section-target="dashboard">
             Dashboard
           </button>
-          <button class="nav-tab hidden" type="button" data-section-target="calendrier">
-            Calendrier
-          </button>
           <button class="nav-tab hidden" type="button" data-section-target="indisponibilites">
             Indisponibilités
           </button>
           <button class="nav-tab hidden" type="button" data-section-target="equipe">
-            Équipe
+            Équipe <span id="team-request-badge" class="nav-notification-badge hidden">0</span>
           </button>
           <button class="nav-tab" type="button" data-section-target="statistiques">
             Statistiques
@@ -193,8 +207,12 @@
           <button class="nav-tab" type="button" data-section-target="historique">
             Historique
           </button>
+          <button class="nav-tab hidden" type="button" data-section-target="calendrier">
+            Calendrier
+          </button>
           <button class="nav-tab" type="button" data-section-target="utilisateur">
-            User admin
+            <span id="user-nav-label">User admin</span>
+            <span id="admin-request-badge" class="nav-notification-badge hidden">0</span>
           </button>
         </nav>
 
@@ -215,14 +233,8 @@
         <section id="dashboard-section" class="app-section hidden">
           <section class="panel calendar-panel">
             <div class="section-heading">
-              <h2>Calendrier</h2>
+              <h2>Dashboard</h2>
             </div>
-
-            <section
-              id="availability-overview"
-              class="availability-overview hidden"
-              aria-live="polite"
-            ></section>
 
             <div id="calendar"></div>
           </section>
@@ -233,141 +245,8 @@
             <div class="section-heading section-heading-stack">
               <div>
                 <h2>Indisponibilités</h2>
-                <p class="section-note">
-                  Déclare ici les créneaux non disponibles. Aucune séance ne pourra être ajoutée sur
-                  ces horaires.
-                </p>
               </div>
             </div>
-
-            <section class="admin-card availability-rules-card">
-              <div class="admin-card-head">
-                <div>
-                  <h3 class="user-form-title">Disponibilités proposées au calendrier public</h3>
-                  <p class="section-note">
-                    Sans disponibilité déclarée, aucun créneau n’est proposé publiquement. Les séances
-                    et les indisponibilités existantes restent des blocages prioritaires.
-                  </p>
-                </div>
-              </div>
-
-              <form id="availability-rule-form" class="availability-rule-form stack-form">
-                <div class="form-grid">
-                  <label class="field">
-                    <span>Intervenant</span>
-                    <select id="availability-rule-intervenant" required></select>
-                  </label>
-                  <label class="field">
-                    <span>Type</span>
-                    <select id="availability-rule-type" required>
-                      <option value="recurrente">Chaque semaine</option>
-                      <option value="ponctuelle">Date précise</option>
-                    </select>
-                  </label>
-                  <label id="availability-rule-day-field" class="field">
-                    <span>Jour</span>
-                    <select id="availability-rule-day" required>
-                      <option value="0">Lundi</option>
-                      <option value="1">Mardi</option>
-                      <option value="2">Mercredi</option>
-                      <option value="3">Jeudi</option>
-                      <option value="4">Vendredi</option>
-                      <option value="5">Samedi</option>
-                      <option value="6">Dimanche</option>
-                    </select>
-                  </label>
-                  <label id="availability-rule-date-field" class="field hidden">
-                    <span>Date</span>
-                    <input id="availability-rule-date" type="date" />
-                  </label>
-                  <label class="field">
-                    <span>Début</span>
-                    <input id="availability-rule-start" type="time" step="1800" required />
-                  </label>
-                  <label class="field">
-                    <span>Fin</span>
-                    <input id="availability-rule-end" type="time" step="1800" required />
-                  </label>
-                </div>
-                <p id="availability-rule-error" class="form-error hidden"></p>
-                <div class="form-actions">
-                  <button id="availability-rule-button" class="button primary" type="submit">
-                    Ajouter la disponibilité
-                  </button>
-                </div>
-              </form>
-              <div id="availability-rules-list" class="admin-session-list"></div>
-            </section>
-
-            <section class="admin-card availability-rules-card">
-              <div class="admin-card-head">
-                <div>
-                  <h3 class="user-form-title">Exceptions</h3>
-                  <p class="section-note">Fermez ou ouvrez exceptionnellement une date ou une plage horaire.</p>
-                </div>
-              </div>
-              <form id="availability-exception-form" class="availability-rule-form stack-form">
-                <div class="form-grid">
-                  <label class="field">
-                    <span>Intervenant</span>
-                    <select id="availability-exception-intervenant" required></select>
-                  </label>
-                  <label class="field">
-                    <span>Type</span>
-                    <select id="availability-exception-type" required>
-                      <option value="indisponible">Indisponible</option>
-                      <option value="disponible">Disponible</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    <span>Date</span>
-                    <input id="availability-exception-date" type="date" required />
-                  </label>
-                  <label class="field">
-                    <span>Début (facultatif)</span>
-                    <input id="availability-exception-start" type="time" step="1800" />
-                  </label>
-                  <label class="field">
-                    <span>Fin (facultatif)</span>
-                    <input id="availability-exception-end" type="time" step="1800" />
-                  </label>
-                  <label class="field">
-                    <span>Motif (facultatif)</span>
-                    <input id="availability-exception-reason" type="text" maxlength="500" />
-                  </label>
-                </div>
-                <p id="availability-exception-error" class="form-error hidden"></p>
-                <div class="form-actions">
-                  <button id="availability-exception-button" class="button secondary" type="submit">
-                    Ajouter l’exception
-                  </button>
-                </div>
-              </form>
-              <div id="availability-exceptions-list" class="admin-session-list"></div>
-            </section>
-
-            <nav class="unavailability-workbench-nav" aria-label="Vues des indisponibilités">
-              <button
-                class="admin-workbench-tab is-active"
-                type="button"
-                data-unavailability-view="declaration"
-              >
-                Déclaration
-              </button>
-              <button
-                id="unavailability-propositions-tab"
-                class="admin-workbench-tab"
-                type="button"
-                data-unavailability-view="propositions"
-              >
-                <span>Propositions</span>
-                <span
-                  id="unavailability-propositions-badge"
-                  class="menu-notification-badge hidden"
-                  aria-hidden="true"
-                ></span>
-              </button>
-            </nav>
 
             <div
               id="unavailability-declaration-panel"
@@ -384,25 +263,6 @@
                 <div id="unavailability-calendar"></div>
               </section>
             </div>
-
-            <div
-              id="unavailability-propositions-panel"
-              class="unavailability-workbench-panel hidden"
-              data-unavailability-panel="propositions"
-            >
-              <article class="admin-card admin-directory-card">
-                <div class="admin-card-head">
-                  <div>
-                    <h3 class="user-form-title">Propositions</h3>
-                    <p class="section-note">
-                      Valide, refuse ou ajuste les demandes qui tombent sur un créneau bloqué.
-                    </p>
-                  </div>
-                </div>
-
-                <div id="admin-unavailability-list" class="admin-session-list"></div>
-              </article>
-            </div>
           </section>
         </section>
 
@@ -411,10 +271,6 @@
             <div class="section-heading section-heading-stack">
               <div>
                 <h2>Équipe</h2>
-                <p class="section-note">
-                  Gérez les Professeurs rattachés à votre espace. Les nouveaux Professeurs
-                  rejoignent l’équipe après une demande, une validation et leur activation par email.
-                </p>
               </div>
             </div>
 
@@ -422,7 +278,6 @@
               <div class="admin-card-head">
                 <div>
                   <h3 class="user-form-title">Demandes en attente</h3>
-                  <p class="section-note">Seules les demandes adressées à votre Handler sont affichées.</p>
                 </div>
               </div>
               <div id="team-pending-requests" class="admin-user-list"></div>
@@ -432,76 +287,112 @@
               <div class="admin-card-head">
                 <div>
                   <h3 class="user-form-title">Professeurs</h3>
-                  <p class="section-note">
-                    Les suspensions conservent les données et ferment immédiatement les sessions du compte.
-                  </p>
                 </div>
               </div>
               <div id="team-list" class="admin-user-list"></div>
+            </article>
+
+            <article class="admin-card team-subjects-card">
+              <div class="admin-card-head">
+                <div>
+                  <h3 class="user-form-title">Matières</h3>
+                </div>
+              </div>
+              <form id="team-subject-form" class="team-subject-form">
+                <label class="field">
+                  <span>Nouvelle matière</span>
+                  <input
+                    id="team-subject-input"
+                    type="text"
+                    maxlength="80"
+                    placeholder="Ex. Mathématiques"
+                    autocomplete="off"
+                    required
+                  />
+                </label>
+                <button id="team-subject-add-button" class="button primary" type="submit">
+                  Ajouter
+                </button>
+              </form>
+              <div id="team-subject-list" class="team-subject-list"></div>
+            </article>
+
+            <article class="admin-card team-tarification-card">
+              <div class="admin-card-head">
+                <div>
+                  <h3 class="user-form-title">Tarifs par matière</h3>
+                </div>
+              </div>
+              <form id="team-tarification-form" class="team-tarification-form">
+                <div id="team-tarification-table" class="team-tarification-scroll"></div>
+                <div class="form-actions team-tarification-actions">
+                  <button id="team-tarification-save-button" class="button primary" type="submit">
+                    Enregistrer les tarifs
+                  </button>
+                </div>
+              </form>
             </article>
           </section>
         </section>
 
         <section id="statistiques-section" class="app-section hidden">
-          <div id="stats-accounts-overview" class="statistics-overview-grid">
-            <article class="panel stat-overview-card stat-overview-card-primary">
-              <span class="stat-overview-label">Total general</span>
-              <strong id="total-count" class="stat-overview-value">0</strong>
-            </article>
-
-          </div>
-
-          <section class="panel stats-compare-panel">
+          <section class="panel stats-compare-panel statistiques-period-panel">
             <div class="section-heading section-heading-stack">
               <div>
-                <h2>Comparatif direct</h2>
-                <p class="section-note">Les indicateurs essentiels, séparés par compte.</p>
+                <h2>Statistiques</h2>
               </div>
             </div>
 
-            <div id="stats-accounts-table" class="stats-table">
-              <div class="stats-table-row stats-table-head">
-                <span>Indicateur</span>
-                <strong>Intervenant</strong>
-                <strong>Intervenant</strong>
+            <form id="stats-filter-form" class="stack-form" novalidate>
+              <div class="form-grid">
+                <label class="field">
+                  <span>De</span>
+                  <input id="stats-date-start" type="date" required />
+                </label>
+                <label class="field">
+                  <span>À</span>
+                  <input id="stats-date-end" type="date" required />
+                </label>
               </div>
 
-              <div class="stats-table-row">
-                <span>Planifiées</span>
-                <strong>0</strong>
-                <strong>0</strong>
-              </div>
+              <label class="stats-global-toggle" for="stats-global-toggle">
+                <input id="stats-global-toggle" type="checkbox" />
+                <span>Statistiques globales</span>
+              </label>
 
-              <div class="stats-table-row">
-                <span>Faites</span>
-                <strong>0</strong>
-                <strong>0</strong>
-              </div>
+              <p id="stats-filter-error" class="form-error hidden"></p>
 
-              <div class="stats-table-row stats-table-row-muted stats-table-row-sub">
-                <span class="stats-table-label-sub">Séances d'essai</span>
-                <strong>0</strong>
-                <strong>0</strong>
+              <div class="form-actions">
+                <button id="stats-calculate-button" class="button primary" type="submit">
+                  Calculer
+                </button>
               </div>
+            </form>
+          </section>
 
-              <div class="stats-table-row stats-table-row-muted stats-table-row-sub">
-                <span class="stats-table-label-sub">Séances standard</span>
-                <strong>0</strong>
-                <strong>0</strong>
-              </div>
-
-              <div class="stats-table-row">
-                <span>Reportées</span>
-                <strong>0</strong>
-                <strong>0</strong>
-              </div>
-
-              <div class="stats-table-row">
-                <span>Annulées</span>
-                <strong>0</strong>
-                <strong>0</strong>
-              </div>
+          <section
+            id="stats-results"
+            class="stats-results hidden"
+            aria-live="polite"
+            hidden
+            inert
+          >
+            <div id="stats-accounts-overview" class="statistics-overview-grid">
+              <article class="panel stat-overview-card stat-overview-card-primary">
+                <span class="stat-overview-label">Total général</span>
+                <strong id="total-count" class="stat-overview-value">0</strong>
+              </article>
             </div>
+
+            <section class="panel stats-compare-panel">
+              <div class="section-heading section-heading-stack">
+                <div>
+                  <h2>Comparatif par réalisateur</h2>
+                </div>
+              </div>
+
+              <div id="stats-accounts-table" class="stats-table"></div>
+            </section>
           </section>
         </section>
 
@@ -511,30 +402,22 @@
               <div class="admin-card-head">
                 <div>
                   <h3 class="user-form-title">Calendrier</h3>
-                  <p class="section-note">
-                    Configurez séparément les horaires métier de votre espace et la présentation
-                    destinée aux clients.
-                  </p>
                 </div>
               </div>
 
               <div class="admin-card-body stack-form">
                 <form id="workspace-settings-form" class="stack-form" novalidate>
                   <div>
-                    <h4 class="user-form-title">Calendrier central</h4>
-                    <p class="section-note">
-                      Ces horaires s’appliquent à votre calendrier et à ceux de vos Professeurs.
-                    </p>
+                    <h4 class="user-form-title">Dashboard</h4>
                   </div>
                   <div class="form-grid">
                     <label class="field">
                       <span>Début de journée</span>
-                      <input id="calendar-start-time" type="time" step="1800" required />
+                      <input id="calendar-start-time" type="time" min="00:00" max="23:30" step="1800" required />
                     </label>
                     <label class="field">
                       <span>Fin de journée</span>
-                      <input id="calendar-end-time" type="time" step="1800" required />
-                      <small class="field-help">00:00 signifie la fin de la journée civile.</small>
+                      <input id="calendar-end-time" type="time" min="00:00" max="23:30" step="1800" required />
                     </label>
                   </div>
                   <p id="workspace-settings-error" class="form-error hidden"></p>
@@ -548,57 +431,40 @@
                 <section id="public-calendar-settings" class="workspace-public-calendar hidden">
                   <div>
                     <h4 class="user-form-title">Calendrier public</h4>
-                    <p class="section-note">
-                      Réglez un décalage fixe appliqué à l’horloge centrale, sans modifier votre planning interne.
-                    </p>
                   </div>
                   <div class="admin-identity-stats">
                     <div class="admin-identity-stat">
                       <span>Calendrier public</span>
                       <strong id="public-calendar-status">-</strong>
                     </div>
-                    <div class="admin-identity-stat">
-                      <span>Lien configuré</span>
-                      <strong id="public-calendar-token-status">-</strong>
-                    </div>
                   </div>
-
-                  <p id="public-calendar-help" class="security-notice security-notice-subtle">
-                    Le calendrier public ne révèle que « Disponible » ou « Indisponible ».
-                  </p>
 
                   <form id="public-calendar-timezone-form" class="stack-form" novalidate>
                     <label class="field">
                       <span>Décalage affiché aux clients</span>
                       <select id="public-calendar-timezone" required>
-                        <option value="GMT">GMT — horloge centrale</option>
                         <option value="GMT+1">GMT+1 — horloge centrale + 1 h</option>
                         <option value="GMT+2">GMT+2 — horloge centrale + 2 h</option>
+                        <option value="GMT+3">GMT+3 — horloge centrale + 3 h</option>
+                        <option value="GMT+4">GMT+4 — horloge centrale + 4 h</option>
                       </select>
-                      <small class="field-help">
-                        Le décalage s’applique uniquement aux heures affichées publiquement.
-                        Il ne modifie jamais les séances, disponibilités ni tableaux de bord.
-                      </small>
                     </label>
                     <p id="public-calendar-timezone-error" class="form-error hidden"></p>
                     <div class="form-actions">
-                      <button id="public-calendar-timezone-button" class="button secondary" type="submit">
-                        Enregistrer le décalage public
+                      <button id="public-calendar-timezone-button" class="button primary" type="submit">
+                        Enregistrer
                       </button>
                     </div>
                   </form>
 
                   <label class="field">
-                    <span>Nouveau lien public</span>
+                    <span>Lien public</span>
                     <input id="public-calendar-link" type="url" readonly value="" />
                   </label>
 
                   <div class="form-actions">
                     <button id="public-calendar-toggle-button" class="button secondary" type="button">
-                      Activer le calendrier
-                    </button>
-                    <button id="public-calendar-regenerate-button" class="button primary" type="button">
-                      Générer un lien
+                      Désactiver le lien
                     </button>
                     <button id="public-calendar-copy-button" class="button secondary" type="button">
                       Copier le lien
@@ -615,9 +481,6 @@
             <div class="section-heading section-heading-stack">
               <div>
                 <h2 id="admin-panel-title">User admin</h2>
-                <p id="admin-panel-note" class="section-note">
-                  Sécurité du compte et outils utilisateur.
-                </p>
               </div>
             </div>
 
@@ -659,10 +522,6 @@
               <article class="admin-guide-card">
                 <span class="summary-label">Vue rapide</span>
                 <strong id="admin-guide-title" class="admin-guide-title">Sécurité et contrôle</strong>
-                <p id="admin-guide-note" class="section-note">
-                  Le mot de passe se modifie ici. Les actions avancées sont réservées aux
-                  administrateurs et demandent toujours leur mot de passe actuel.
-                </p>
               </article>
             </section>
 
@@ -675,9 +534,6 @@
                 <div class="admin-card-head">
                   <div>
                     <h3 class="user-form-title">Sécurité du compte</h3>
-                    <p class="section-note">
-                      Modifiez votre mot de passe depuis cet espace.
-                    </p>
                   </div>
                 </div>
 
@@ -720,10 +576,6 @@
                       required
                     />
                   </label>
-
-                  <p class="user-password-help">
-                    12 caractères minimum avec minuscule, majuscule, chiffre et caractère spécial.
-                  </p>
 
                   <p id="user-password-error" class="form-error hidden"></p>
 
@@ -775,9 +627,6 @@
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Utilisateurs</h3>
-                      <p class="section-note">
-                        Suivez les comptes, leurs rôles et leur état d’accès.
-                      </p>
                     </div>
                   </div>
 
@@ -807,10 +656,6 @@
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Demandes de comptes</h3>
-                      <p class="section-note">
-                        Approuvez les demandes Handler et les demandes Professeur de toutes les équipes.
-                        Chaque activation est envoyée par lien sécurisé.
-                      </p>
                     </div>
                   </div>
                   <div id="admin-account-requests-list" class="admin-user-list"></div>
@@ -820,9 +665,6 @@
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Analyses globales</h3>
-                      <p class="section-note">
-                        Cette vue Super Admin agrège la plateforme. Elle est distincte du dashboard Handler.
-                      </p>
                     </div>
                   </div>
 
@@ -870,191 +712,10 @@
                   <div class="admin-card-head">
                     <div>
                       <h3 id="admin-actions-title" class="user-form-title">Outils de gestion</h3>
-                      <p id="admin-actions-note" class="section-note">
-                        Chaque action sensible demande votre mot de passe actuel.
-                      </p>
                     </div>
                   </div>
 
                   <div class="admin-actions-grid">
-                    <form
-                      id="admin-add-account-form"
-                      class="stack-form user-password-form user-admin-form admin-action-card"
-                      data-admin-group="catalogue"
-                    >
-                      <div>
-                        <h3 class="user-form-title">Ajouter un compte</h3>
-                        <p class="section-note">
-                          Ajoute un compte de travail disponible dans les séances.
-                        </p>
-                      </div>
-
-                      <label class="field">
-                        <span>Nom du compte</span>
-                        <input id="admin-new-account-name" type="text" maxlength="80" required />
-                      </label>
-
-                      <div id="admin-account-list" class="admin-catalog-list"></div>
-
-                      <label class="field">
-                        <span>Votre mot de passe actuel</span>
-                        <input
-                          id="admin-add-account-current-password"
-                          type="password"
-                          autocomplete="current-password"
-                          required
-                        />
-                      </label>
-
-                      <p id="admin-add-account-error" class="form-error hidden"></p>
-
-                      <div class="form-actions">
-                        <button id="admin-add-account-button" class="button primary" type="submit">
-                          Ajouter le compte
-                        </button>
-                      </div>
-                    </form>
-
-                    <form
-                      id="admin-create-user-form"
-                      class="stack-form user-password-form user-admin-form admin-action-card"
-                      data-admin-group="accounts"
-                      data-legacy-admin-workflow="true"
-                    >
-                      <div>
-                        <h3 class="user-form-title">Ajouter un utilisateur</h3>
-                        <p class="section-note">
-                          Le nouveau compte demarre avec un code temporaire unique et devra le changer.
-                        </p>
-                      </div>
-
-                      <label class="field">
-                        <span>Nom d'utilisateur</span>
-                        <input
-                          id="admin-new-user-name"
-                          type="text"
-                          maxlength="60"
-                          autocomplete="username"
-                          required
-                        />
-                      </label>
-
-                      <label class="field">
-                        <span>Email</span>
-                        <input
-                          id="admin-new-user-email"
-                          type="email"
-                          maxlength="160"
-                          autocomplete="email"
-                          required
-                        />
-                      </label>
-
-                      <label class="field">
-                        <span>Votre mot de passe actuel</span>
-                        <input
-                          id="admin-create-user-current-password"
-                          type="password"
-                          autocomplete="current-password"
-                          required
-                        />
-                      </label>
-
-                      <p id="admin-create-user-error" class="form-error hidden"></p>
-                      <div
-                        id="admin-create-user-result"
-                        class="security-notice security-notice-success hidden"
-                      ></div>
-
-                      <div class="form-actions">
-                        <button id="admin-create-user-button" class="button primary" type="submit">
-                          Ajouter l'utilisateur
-                        </button>
-                      </div>
-                    </form>
-
-                    <form
-                      id="admin-delete-user-form"
-                      class="stack-form user-password-form user-admin-form admin-action-card"
-                      data-admin-group="accounts danger"
-                      data-legacy-admin-workflow="true"
-                    >
-                      <div>
-                        <h3 class="user-form-title">Supprimer un utilisateur</h3>
-                        <p class="section-note">
-                          Supprime le compte cible et coupe immediatement toutes ses sessions.
-                        </p>
-                      </div>
-
-                      <label class="field">
-                        <span>Compte cible</span>
-                        <select id="admin-delete-user-id" required></select>
-                      </label>
-
-                      <label class="field">
-                        <span>Votre mot de passe actuel</span>
-                        <input
-                          id="admin-delete-user-current-password"
-                          type="password"
-                          autocomplete="current-password"
-                          required
-                        />
-                      </label>
-
-                      <p id="admin-delete-user-error" class="form-error hidden"></p>
-
-                      <div class="form-actions">
-                        <button id="admin-delete-user-button" class="button danger" type="submit">
-                          Supprimer l'utilisateur
-                        </button>
-                      </div>
-                    </form>
-
-                    <form
-                      id="admin-reset-password-form"
-                      class="stack-form user-password-form user-admin-form admin-action-card"
-                      data-admin-group="accounts"
-                      data-legacy-admin-workflow="true"
-                    >
-                      <div>
-                        <h3 class="user-form-title">Réinitialiser un mot de passe</h3>
-                        <p class="section-note">
-                          Génère un code temporaire unique. Pense à le copier : il ne sera pas stocké en clair.
-                        </p>
-                      </div>
-
-                      <label class="field">
-                        <span>Compte cible</span>
-                        <select id="admin-reset-user-id" required></select>
-                      </label>
-
-                      <label class="field">
-                        <span>Votre mot de passe actuel</span>
-                        <input
-                          id="admin-reset-current-password"
-                          type="password"
-                          autocomplete="current-password"
-                          required
-                        />
-                      </label>
-
-                      <p id="admin-reset-password-error" class="form-error hidden"></p>
-                      <div
-                        id="admin-reset-password-result"
-                        class="security-notice security-notice-success hidden"
-                      ></div>
-
-                      <div class="form-actions">
-                        <button
-                          id="admin-reset-password-button"
-                          class="button danger"
-                          type="submit"
-                        >
-                          Réinitialiser le mot de passe
-                        </button>
-                      </div>
-                    </form>
-
                     <form
                       id="admin-toggle-access-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
@@ -1062,9 +723,6 @@
                     >
                       <div>
                         <h3 class="user-form-title">Gérer l'accès</h3>
-                        <p class="section-note">
-                          Suspendez ou réactivez un compte collaborateur.
-                        </p>
                       </div>
 
                       <label class="field">
@@ -1106,9 +764,6 @@
                     >
                       <div>
                         <h3 class="user-form-title">Lecture seule</h3>
-                        <p class="section-note">
-                          Autorisez la consultation seule sans modification.
-                        </p>
                       </div>
 
                       <label class="field">
@@ -1146,9 +801,6 @@
                     >
                       <div>
                         <h3 class="user-form-title">Afficher Aujourd'hui</h3>
-                        <p class="section-note">
-                          Autorise ou masque le menu Aujourd'hui pour le compte cible.
-                        </p>
                       </div>
 
                       <label class="field">
@@ -1186,9 +838,6 @@
                     >
                       <div>
                         <h3 class="user-form-title">Afficher Indisponibilités</h3>
-                        <p class="section-note">
-                          Autorise ou masque le menu Indisponibilités pour le compte cible.
-                        </p>
                       </div>
 
                       <label class="field">
@@ -1230,9 +879,6 @@
                     >
                       <div>
                         <h3 class="user-form-title">Afficher Monétisation</h3>
-                        <p class="section-note">
-                          Autorise ou masque le menu Monétisation pour le compte cible.
-                        </p>
                       </div>
 
                       <label class="field">
@@ -1264,68 +910,12 @@
                     </form>
 
                     <form
-                      id="admin-rate-form"
-                      class="stack-form user-password-form user-admin-form admin-action-card"
-                      data-admin-group="catalogue"
-                    >
-                      <div>
-                        <h3 class="user-form-title">Tarif horaire</h3>
-                        <p class="section-note">
-                          Définissez le tarif appliqué à chaque compte de séance pour la monétisation.
-                        </p>
-                      </div>
-
-                      <label class="field">
-                        <span>Compte de séance</span>
-                        <select id="admin-rate-user-id" required></select>
-                      </label>
-
-                      <div class="security-notice security-notice-subtle">
-                        Tarif actuel : <strong id="admin-rate-status">-</strong>
-                      </div>
-
-                      <label class="field">
-                        <span>Nouveau tarif horaire (dh)</span>
-                        <input
-                          id="admin-rate-value"
-                          type="number"
-                          min="0"
-                          max="5000"
-                          step="1"
-                          inputmode="numeric"
-                          required
-                        />
-                      </label>
-
-                      <label class="field">
-                        <span>Votre mot de passe actuel</span>
-                        <input
-                          id="admin-rate-current-password"
-                          type="password"
-                          autocomplete="current-password"
-                          required
-                        />
-                      </label>
-
-                      <p id="admin-rate-error" class="form-error hidden"></p>
-
-                      <div class="form-actions">
-                        <button id="admin-rate-button" class="button secondary" type="submit">
-                          Mettre à jour le tarif
-                        </button>
-                      </div>
-                    </form>
-
-                    <form
                       id="admin-logout-user-form"
                       class="stack-form user-password-form user-admin-form admin-action-card"
                       data-admin-group="security"
                     >
                       <div>
                         <h3 class="user-form-title">Couper les sessions d'un compte</h3>
-                        <p class="section-note">
-                          Force la déconnexion de toutes les sessions actives du compte cible.
-                        </p>
                       </div>
 
                       <label class="field">
@@ -1359,9 +949,6 @@
                     >
                       <div>
                         <h3 class="user-form-title">Maintenance SQLite</h3>
-                        <p class="section-note">
-                          Vérifie la base, libère le journal WAL et applique les optimisations légères.
-                        </p>
                       </div>
 
                       <div class="security-notice security-notice-subtle">
@@ -1395,77 +982,6 @@
                       </div>
                     </form>
 
-                    <form
-                      id="admin-clear-seances-form"
-                      class="stack-form user-password-form user-admin-form admin-action-card"
-                      data-admin-group="danger"
-                      data-legacy-admin-workflow="true"
-                    >
-                      <div>
-                        <h3 class="user-form-title">Supprimer toutes les séances</h3>
-                        <p class="section-note">
-                          Efface toutes les séances.
-                        </p>
-                      </div>
-
-                      <label class="field">
-                        <span>Votre mot de passe actuel</span>
-                        <input
-                          id="admin-clear-seances-current-password"
-                          type="password"
-                          autocomplete="current-password"
-                          required
-                        />
-                      </label>
-
-                      <p id="admin-clear-seances-error" class="form-error hidden"></p>
-
-                      <div class="form-actions">
-                        <button
-                          id="admin-clear-seances-button"
-                          class="button danger"
-                          type="submit"
-                        >
-                          Supprimer toutes les séances
-                        </button>
-                      </div>
-                    </form>
-
-                    <form
-                      id="admin-clear-history-form"
-                      class="stack-form user-password-form user-admin-form admin-action-card"
-                      data-admin-group="danger"
-                      data-legacy-admin-workflow="true"
-                    >
-                      <div>
-                        <h3 class="user-form-title">Supprimer tout l'historique</h3>
-                        <p class="section-note">
-                          Vide l'historique des actions sans toucher aux séances.
-                        </p>
-                      </div>
-
-                      <label class="field">
-                        <span>Votre mot de passe actuel</span>
-                        <input
-                          id="admin-clear-history-current-password"
-                          type="password"
-                          autocomplete="current-password"
-                          required
-                        />
-                      </label>
-
-                      <p id="admin-clear-history-error" class="form-error hidden"></p>
-
-                      <div class="form-actions">
-                        <button
-                          id="admin-clear-history-button"
-                          class="button danger"
-                          type="submit"
-                        >
-                          Supprimer tout l'historique
-                        </button>
-                      </div>
-                    </form>
                   </div>
                 </article>
 
@@ -1473,9 +989,6 @@
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Sessions actives</h3>
-                      <p class="section-note">
-                        Visualisez les sessions en cours et fermez-les une par une si besoin.
-                      </p>
                     </div>
                   </div>
 
@@ -1499,9 +1012,6 @@
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Appareils auto-login</h3>
-                      <p class="section-note">
-                        Gère les téléphones et ordinateurs qui peuvent entrer directement sans identifiant.
-                      </p>
                     </div>
                   </div>
 
@@ -1525,9 +1035,6 @@
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Journal d'audit</h3>
-                      <p class="section-note">
-                        Suivez les tentatives de connexion et les actions sensibles.
-                      </p>
                     </div>
                   </div>
 
@@ -1538,9 +1045,6 @@
                   <div class="admin-card-head">
                     <div>
                       <h3 class="user-form-title">Blacklist IP</h3>
-                      <p class="section-note">
-                        Bloquez une adresse IP et gérez les blocages existants.
-                      </p>
                     </div>
                   </div>
 
@@ -1576,8 +1080,38 @@
 
                   <div id="admin-blocked-ips-list" class="admin-session-list"></div>
                 </article>
+
+                <article class="admin-card" data-admin-group="danger">
+                  <div class="admin-card-head"><div><h3 class="user-form-title">Supprimer un compte</h3></div></div>
+                  <form id="admin-delete-user-form" class="admin-card-body stack-form">
+                    <label class="field"><span>Compte à supprimer</span><select id="admin-delete-user-id" required></select></label>
+                    <label class="field"><span>Votre mot de passe actuel</span><input id="admin-delete-user-password" type="password" autocomplete="current-password" required /></label>
+                    <p id="admin-delete-user-error" class="form-error hidden"></p>
+                    <div class="security-notice">Cette suppression est définitive. Votre propre compte et les comptes Super Admin sont protégés.</div>
+                    <div class="form-actions"><button id="admin-delete-user-button" class="button danger" type="submit">Supprimer définitivement</button></div>
+                  </form>
+                </article>
               </section>
             </div>
+
+            <article
+              id="team-membership-card"
+              class="admin-card hidden"
+            >
+              <div class="admin-card-head"><div><h3 class="user-form-title">Intégrer une nouvelle équipe</h3></div></div>
+              <form id="team-membership-form" class="admin-card-body stack-form">
+                <label class="field">
+                  <span>ID de l'équipe / Handler</span>
+                  <select id="team-membership-handler" required></select>
+                </label>
+                <label class="field">
+                  <span>Description</span>
+                  <textarea id="team-membership-description" maxlength="500" rows="3" required></textarea>
+                </label>
+                <p id="team-membership-error" class="form-error hidden"></p>
+                <div class="form-actions"><button id="team-membership-submit" class="button primary" type="submit">Envoyer la demande</button></div>
+              </form>
+            </article>
 
             <article
               id="push-settings-card"
@@ -1587,10 +1121,6 @@
               <div class="admin-card-head">
                 <div>
                   <h3 class="user-form-title">Notifications push</h3>
-                  <p class="section-note">
-                    Activez les notifications sur cet appareil pour recevoir les mises à jour en temps réel
-                    et un rappel des séances du jour toutes les 2 heures.
-                  </p>
                 </div>
               </div>
 
@@ -1633,167 +1163,112 @@
 
         <section id="monetisation-section" class="app-section hidden">
           <section class="panel stats-compare-panel monetisation-period-panel">
-            <div class="monetisation-period-bar">
-              <div class="monetisation-period-nav" aria-label="Navigation de période">
-                <button
-                  id="monetisation-previous-month-button"
-                  class="button secondary monetisation-period-nav-button"
-                  type="button"
-                  aria-label="Periode precedente"
-                >
-                  <span aria-hidden="true">&#8249;</span>
-                </button>
-
-                <button
-                  id="monetisation-next-month-button"
-                  class="button secondary monetisation-period-nav-button"
-                  type="button"
-                  aria-label="Periode suivante"
-                >
-                  <span aria-hidden="true">&#8250;</span>
-                </button>
-              </div>
-
-              <div class="monetisation-period-current">
-                <strong id="monetisation-period-title" class="monetisation-period-title">
-                  Mois courant
-                </strong>
-              </div>
-
-              <div class="monetisation-period-modes" aria-label="Mode de période">
-                <button
-                  id="monetisation-mode-option-one-button"
-                  class="button secondary monetisation-period-mode-button"
-                  type="button"
-                >
-                  Annuelle
-                </button>
-                <button
-                  id="monetisation-mode-option-two-button"
-                  class="button secondary monetisation-period-mode-button"
-                  type="button"
-                >
-                  Globale
-                </button>
+            <div class="section-heading section-heading-stack">
+              <div>
+                <h2>Monétisation</h2>
               </div>
             </div>
 
-            <div class="monetisation-floating-download">
+            <form id="monetisation-filter-form" class="stack-form" novalidate>
+              <div class="form-grid">
+                <label class="field">
+                  <span>Date de début</span>
+                  <input id="monetisation-date-start" type="date" required />
+                </label>
+                <label class="field">
+                  <span>Date de fin</span>
+                  <input id="monetisation-date-end" type="date" required />
+                </label>
+              </div>
+
+              <label class="monetisation-global-toggle" for="monetisation-global-toggle">
+                <input id="monetisation-global-toggle" type="checkbox" />
+                <span>Monétisation globale</span>
+              </label>
+
+              <section
+                id="monetisation-report-accounts-section"
+                class="field"
+                aria-labelledby="monetisation-report-accounts-label"
+              >
+                <span id="monetisation-report-accounts-label">Réalisateurs</span>
+                <p
+                  id="monetisation-report-accounts-note"
+                  class="field-help"
+                  aria-live="polite"
+                >
+                  0 réalisateur sélectionné.
+                </p>
+                <details
+                  id="monetisation-report-accounts-dropdown"
+                  class="monetisation-report-accounts-dropdown"
+                >
+                  <summary id="monetisation-report-accounts-summary">
+                    Choisir les réalisateurs
+                  </summary>
+                  <div
+                    id="monetisation-report-accounts"
+                    class="monetisation-report-accounts-list"
+                    role="group"
+                    aria-labelledby="monetisation-report-accounts-label"
+                    aria-describedby="monetisation-report-accounts-note"
+                  ></div>
+                </details>
+              </section>
+
+              <p id="monetisation-filter-error" class="form-error hidden"></p>
+
+              <div class="form-actions">
+                <button id="monetisation-calculate-button" class="button primary" type="submit">
+                  Calculer
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section
+            id="monetisation-results"
+            class="monetisation-results hidden"
+            aria-live="polite"
+            hidden
+            inert
+          >
+            <section class="statistics-overview-grid monetisation-overview-grid">
+              <article class="panel stat-overview-card monetisation-card-primary">
+                <span class="stat-overview-label">Monétisation totale</span>
+                <strong id="monetisation-total-amount" class="stat-overview-value">0 dh</strong>
+              </article>
+            </section>
+
+            <section class="panel stats-compare-panel monetisation-details-panel">
+              <div class="section-heading section-heading-stack">
+                <div>
+                  <h2>Totaux par réalisateur</h2>
+                </div>
+              </div>
+              <div id="monetisation-totals-by-intervenant" class="account-stats-grid monetisation-details-grid"></div>
+            </section>
+
+            <section class="panel stats-compare-panel monetisation-extra-panel">
+              <div class="section-heading section-heading-stack">
+                <div>
+                  <h2>Détail des séances réalisées</h2>
+                </div>
+              </div>
+              <div id="monetisation-details" class="stats-table"></div>
+            </section>
+
+            <div class="form-actions monetisation-results-actions">
               <button
                 id="monetisation-download-statement-button"
                 class="button primary monetisation-download-button"
                 type="button"
+                hidden
+                disabled
               >
-                Télécharger le relevé mensuel
+                Télécharger le relevé
               </button>
             </div>
-          </section>
-
-          <section class="statistics-overview-grid monetisation-overview-grid">
-            <article class="panel stat-overview-card monetisation-card-primary">
-              <span class="stat-overview-label">Monétisation totale</span>
-              <strong id="monetisation-total-amount" class="stat-overview-value">0 dh</strong>
-            </article>
-
-            <article id="monetisation-primary-one-card" class="panel stat-overview-card hidden">
-              <span id="monetisation-primary-one-label" class="stat-overview-label">Intervenant</span>
-              <strong id="monetisation-primary-one-amount-card" class="stat-overview-value">0 dh</strong>
-            </article>
-
-            <article id="monetisation-primary-two-card" class="panel stat-overview-card hidden">
-              <span id="monetisation-primary-two-label" class="stat-overview-label">Intervenant</span>
-              <strong id="monetisation-primary-two-amount-card" class="stat-overview-value">0 dh</strong>
-            </article>
-          </section>
-
-          <section class="panel stats-compare-panel monetisation-details-panel">
-            <div class="section-heading section-heading-stack">
-              <div>
-                <h2>Détails par intervenant</h2>
-              </div>
-            </div>
-
-            <div class="account-stats-grid monetisation-details-grid">
-              <article id="monetisation-primary-one-details" class="account-stats-card monetisation-account-card hidden">
-                <div class="account-stats-header">
-                  <div>
-                    <h3 id="monetisation-primary-one-title">Intervenant</h3>
-                  </div>
-                  <strong id="monetisation-primary-one-amount" class="account-stats-total">0 dh</strong>
-                </div>
-
-                <div class="account-stats-list">
-                  <div class="stats-list-row">
-                    <span>Tarif unitaire</span>
-                    <strong id="monetisation-primary-one-rate">0 dh</strong>
-                  </div>
-                  <div class="stats-list-row">
-                    <span>Séances facturables</span>
-                    <strong id="monetisation-primary-one-billable-count">0</strong>
-                  </div>
-                  <div class="stats-list-row">
-                    <span>Séances d'essai faites</span>
-                    <strong id="monetisation-primary-one-trial-count">0</strong>
-                  </div>
-                </div>
-              </article>
-
-              <article id="monetisation-primary-two-details" class="account-stats-card monetisation-account-card hidden">
-                <div class="account-stats-header">
-                  <div>
-                    <h3 id="monetisation-primary-two-title">Intervenant</h3>
-                  </div>
-                  <strong id="monetisation-primary-two-amount" class="account-stats-total">0 dh</strong>
-                </div>
-
-                <div class="account-stats-list">
-                  <div class="stats-list-row">
-                    <span>Tarif unitaire</span>
-                    <strong id="monetisation-primary-two-rate">0 dh</strong>
-                  </div>
-                  <div class="stats-list-row">
-                    <span>Séances facturables</span>
-                    <strong id="monetisation-primary-two-billable-count">0</strong>
-                  </div>
-                  <div class="stats-list-row">
-                    <span>Séances d'essai faites</span>
-                    <strong id="monetisation-primary-two-trial-count">0</strong>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </section>
-
-          <section
-            id="monetisation-extra-section"
-            class="panel stats-compare-panel monetisation-extra-panel hidden"
-          >
-            <div class="section-heading section-heading-stack">
-              <div>
-                <h2>Autres intervenants</h2>
-              </div>
-            </div>
-
-            <div id="monetisation-extra-accounts" class="account-stats-grid monetisation-details-grid"></div>
-          </section>
-
-          <section
-            id="monetisation-report-accounts-section"
-            class="panel stats-compare-panel monetisation-report-accounts-panel hidden"
-          >
-            <div class="section-heading section-heading-stack">
-              <div>
-                <h2>Comptes du relevé</h2>
-                <p id="monetisation-report-accounts-note" class="section-note">
-                  Choisis les comptes à inclure dans le relevé.
-                </p>
-              </div>
-            </div>
-
-            <div
-              id="monetisation-report-accounts"
-              class="checkbox-options monetisation-report-accounts-grid"
-            ></div>
           </section>
 
         </section>
@@ -1878,15 +1353,28 @@
       </section>
     </main>
 
-    <div id="audit-log-modal" class="modal hidden" aria-hidden="true">
+    <div
+      id="audit-log-modal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="audit-log-modal-title"
+      aria-hidden="true"
+      tabindex="-1"
+    >
       <div class="modal-backdrop" data-close-modal="audit-log-modal"></div>
       <div class="modal-panel">
         <div class="modal-header">
           <div class="modal-heading">
-            <h3>Journal d'audit</h3>
+            <h3 id="audit-log-modal-title">Journal d'audit</h3>
             <p id="audit-log-modal-subtitle" class="modal-subtitle hidden"></p>
           </div>
-          <button class="icon-button" type="button" data-close-modal="audit-log-modal">
+          <button
+            class="icon-button"
+            type="button"
+            data-close-modal="audit-log-modal"
+            aria-label="Fermer"
+          >
             x
           </button>
         </div>
@@ -1931,15 +1419,28 @@
       </div>
     </div>
 
-    <div id="history-detail-modal" class="modal hidden" aria-hidden="true">
+    <div
+      id="history-detail-modal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="history-detail-modal-title"
+      aria-hidden="true"
+      tabindex="-1"
+    >
       <div class="modal-backdrop" data-close-modal="history-detail-modal"></div>
       <div class="modal-panel modal-large">
         <div class="modal-header">
           <div class="modal-heading">
-            <h3>Détail</h3>
+            <h3 id="history-detail-modal-title">Détail</h3>
             <p id="history-detail-modal-subtitle" class="modal-subtitle hidden"></p>
           </div>
-          <button class="icon-button" type="button" data-close-modal="history-detail-modal">
+          <button
+            class="icon-button"
+            type="button"
+            data-close-modal="history-detail-modal"
+            aria-label="Fermer"
+          >
             x
           </button>
         </div>
@@ -2002,7 +1503,15 @@
       </div>
     </div>
 
-    <div id="seance-modal" class="modal hidden" aria-hidden="true">
+    <div
+      id="seance-modal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="seance-modal-title"
+      aria-hidden="true"
+      tabindex="-1"
+    >
       <div class="modal-backdrop" data-close-modal="seance-modal"></div>
       <div class="modal-panel modal-large">
         <div class="modal-header">
@@ -2010,7 +1519,12 @@
             <h3 id="seance-modal-title">Nouvelle séance</h3>
             <p id="seance-modal-subtitle" class="modal-subtitle hidden"></p>
           </div>
-          <button class="icon-button" type="button" data-close-modal="seance-modal">
+          <button
+            class="icon-button"
+            type="button"
+            data-close-modal="seance-modal"
+            aria-label="Fermer"
+          >
             x
           </button>
         </div>
@@ -2023,7 +1537,6 @@
               <div class="form-section-header">
                 <div>
                   <h4>Informations</h4>
-                  <p>Identité élève, parent et matière.</p>
                 </div>
               </div>
 
@@ -2058,18 +1571,22 @@
               <div class="form-section-header">
                 <div>
                   <h4>Planification</h4>
-                  <p>Date, heure, durée et compte de travail.</p>
                 </div>
               </div>
 
               <div class="form-grid">
 
-            <label class="field">
+            <label id="seance-intervenant-field" class="field hidden">
+              <span>Réalisateur</span>
+              <select id="seance-intervenant" name="intervenant_id"></select>
+            </label>
+
+            <label id="seance-date-field" class="field">
               <span>Date</span>
               <input id="date" name="date" type="date" required />
             </label>
 
-            <fieldset class="field checkbox-field">
+            <fieldset id="seance-start-time-field" class="field checkbox-field">
               <span>Heure de début</span>
               <input id="heure_debut" name="heure_debut" type="hidden" required />
               <div class="time-select-row">
@@ -2078,12 +1595,7 @@
               </div>
             </fieldset>
 
-            <fieldset class="field checkbox-field">
-              <span>Compte</span>
-              <div id="compte-options" class="checkbox-options checkbox-options-2"></div>
-            </fieldset>
-
-            <fieldset class="field checkbox-field duration-field">
+            <fieldset id="seance-duration-field" class="field checkbox-field duration-field">
               <span>Durée</span>
               <div class="checkbox-options checkbox-options-3">
                 <label class="checkbox-option">
@@ -2140,7 +1652,7 @@
               </div>
             </fieldset>
 
-            <fieldset class="field field-full checkbox-field">
+            <fieldset id="seance-trial-field" class="field field-full checkbox-field">
               <span>Séance d'essai</span>
               <div class="checkbox-options checkbox-options-2">
                 <label class="checkbox-option">
@@ -2161,7 +1673,6 @@
               <div class="form-section-header">
                 <div>
                   <h4>Description</h4>
-                  <p>Conservez ici les remarques utiles.</p>
                 </div>
               </div>
 
@@ -2193,12 +1704,52 @@
       </div>
     </div>
 
-    <div id="detail-modal" class="modal hidden" aria-hidden="true">
+    <div
+      id="seance-choice-modal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="seance-choice-modal-title"
+      aria-hidden="true"
+      tabindex="-1"
+    >
+      <div class="modal-backdrop" data-close-modal="seance-choice-modal"></div>
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h3 id="seance-choice-modal-title">Choisir une séance</h3>
+          <button
+            class="icon-button"
+            type="button"
+            data-close-modal="seance-choice-modal"
+            aria-label="Fermer"
+          >
+            x
+          </button>
+        </div>
+
+        <div id="seance-choice-list" class="seance-choice-list"></div>
+      </div>
+    </div>
+
+    <div
+      id="detail-modal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="detail-title"
+      aria-hidden="true"
+      tabindex="-1"
+    >
       <div class="modal-backdrop" data-close-modal="detail-modal"></div>
       <div class="modal-panel">
         <div class="modal-header">
           <h3 id="detail-title">Séance</h3>
-          <button class="icon-button" type="button" data-close-modal="detail-modal">
+          <button
+            class="icon-button"
+            type="button"
+            data-close-modal="detail-modal"
+            aria-label="Fermer"
+          >
             x
           </button>
         </div>
@@ -2211,7 +1762,7 @@
 
             <div class="detail-list">
               <div class="detail-row">
-                <span>?tudiant</span>
+                <span>Étudiant</span>
                 <strong id="detail-student">-</strong>
               </div>
               <div class="detail-row">
@@ -2223,7 +1774,7 @@
                 <strong id="detail-subject">-</strong>
               </div>
               <div class="detail-row">
-                <span>Compte</span>
+                <span>Réalisateur</span>
                 <strong id="detail-account">-</strong>
               </div>
               <div class="detail-row">
@@ -2243,7 +1794,7 @@
                 <strong id="detail-trial">-</strong>
               </div>
               <div class="detail-row">
-                <span>Cr??e par</span>
+                <span>Créée par</span>
                 <strong id="detail-created-by">-</strong>
               </div>
               <div class="detail-row">
@@ -2251,11 +1802,11 @@
                 <strong id="detail-updated-by">-</strong>
               </div>
               <div class="detail-row">
-                <span>Cr??e le</span>
+                <span>Créée le</span>
                 <strong id="detail-created-at">-</strong>
               </div>
               <div class="detail-row">
-                <span>Mis ? jour le</span>
+                <span>Mis à jour le</span>
                 <strong id="detail-updated-at">-</strong>
               </div>
             </div>
@@ -2299,15 +1850,28 @@
       </div>
     </div>
 
-    <div id="unavailability-detail-modal" class="modal hidden" aria-hidden="true">
+    <div
+      id="unavailability-detail-modal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="unavailability-detail-title"
+      aria-hidden="true"
+      tabindex="-1"
+    >
       <div class="modal-backdrop" data-close-modal="unavailability-detail-modal"></div>
       <div class="modal-panel">
         <div class="modal-header">
           <div class="modal-heading">
-            <h3 id="unavailability-detail-title">Indisponibilit?</h3>
+            <h3 id="unavailability-detail-title">Indisponibilité</h3>
             <p id="unavailability-detail-subtitle" class="modal-subtitle hidden"></p>
           </div>
-          <button class="icon-button" type="button" data-close-modal="unavailability-detail-modal">
+          <button
+            class="icon-button"
+            type="button"
+            data-close-modal="unavailability-detail-modal"
+            aria-label="Fermer"
+          >
             x
           </button>
         </div>
@@ -2328,11 +1892,11 @@
                 <strong id="unavailability-detail-time">-</strong>
               </div>
               <div class="detail-row">
-                <span>Cr??e par</span>
+                <span>Créée par</span>
                 <strong id="unavailability-detail-created-by">-</strong>
               </div>
               <div class="detail-row">
-                <span>Cr??e le</span>
+                <span>Créée le</span>
                 <strong id="unavailability-detail-created-at">-</strong>
               </div>
             </div>
@@ -2425,6 +1989,8 @@
     <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
-    <script type="module" src="/js/ui.js?v=20260907-central-public-timezone"></script>
+    <script src="/js/service-worker-recovery.js?v=20260908-sw-recovery"></script>
+    <script src="/js/login-lifecycle.js?v=20260911-multi-team"></script>
+    <script type="module" src="/js/ui.js?v=20260911-toast-fix"></script>
   </body>
 </html>

@@ -14,11 +14,81 @@ const repertoireTemporaire = fs.mkdtempSync(
 process.env.DATABASE_PATH = path.join(repertoireTemporaire, "calendrier-public.db");
 
 const { run, fermerBaseDeDonnees } = require("../models/db");
-const { creerJetonCalendrierPublic } = require("../models/public-calendar.model");
+const {
+  creerJetonCalendrierPublic,
+  listerIntervenantsActifsHandler,
+  listerPlagesIndisponiblesCalendrierPublic,
+} = require("../models/public-calendar.model");
 const {
   apiRouter,
   pageRouter,
 } = require("../routes/public-reservation.routes");
+
+function verifierFenetreVisibleCoteClient() {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "public", "js", "public-reservation.js"),
+    "utf8"
+  );
+  const debut = source.indexOf("function convertirHeureOptionEnMinutes");
+  const fin = source.indexOf("function obtenirMaintenantPublicPourCalendrier", debut);
+
+  assert.notEqual(debut, -1, "Le calcul de fenêtre publique client est introuvable.");
+  assert.notEqual(fin, -1, "La fin du calcul de fenêtre publique client est introuvable.");
+
+  const { calculerFenetreHoraireVisible } = new Function(
+    `${source.slice(debut, fin)}\nreturn { calculerFenetreHoraireVisible };`
+  )();
+
+  assert.deepEqual(
+    calculerFenetreHoraireVisible({
+      slotMinTime: "10:00",
+      slotMaxTime: "25:30",
+    }),
+    {
+      slotMinTime: "10:00:00",
+      slotMaxTime: "25:30:00",
+    },
+    "Le client ne doit pas borner une fenêtre publique qui traverse minuit à 24:00."
+  );
+}
+
+function verifierRenduIndisponibilitesCoteClient() {
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "public", "js", "public-reservation.js"),
+    "utf8"
+  );
+  const debut = source.indexOf("function ajouterJoursIso");
+  const fin = source.indexOf("function mettreAJourCalendrier", debut);
+
+  assert.notEqual(debut, -1, "Le rendu des créneaux publics est introuvable.");
+  assert.notEqual(fin, -1, "La fin du rendu des créneaux publics est introuvable.");
+
+  const { construireEvenementsIndisponibles } = new Function(
+    `${source.slice(debut, fin)}\nreturn { construireEvenementsIndisponibles };`
+  )();
+  const evenements = construireEvenementsIndisponibles([
+    {
+      date: "2026-09-07",
+      heure_debut: "08:00",
+      heure_fin: "08:30",
+      etat: "disponible",
+    },
+    {
+      date: "2026-09-07",
+      heure_debut: "08:30",
+      heure_fin: "09:00",
+      etat: "indisponible",
+    },
+  ]);
+
+  assert.equal(
+    evenements.length,
+    1,
+    "Les créneaux disponibles doivent rester vides dans le calendrier public."
+  );
+  assert.equal(evenements[0].title, "Indisponible");
+  assert.equal(evenements[0].extendedProps.etat, "indisponible");
+}
 
 async function ecouterServeur(application) {
   const serveur = await new Promise((resolve) => {
@@ -152,6 +222,18 @@ async function insererUtilisateur({
   );
 }
 
+async function insererProfesseurActifRattache({ handlerId, professeurId }) {
+  await insererUtilisateur({ id: professeurId });
+  await run(
+    "INSERT INTO utilisateur_roles (utilisateur_id, role) VALUES (?, 'professeur')",
+    [professeurId]
+  );
+  await run(
+    "INSERT INTO rattachements_professeurs (handler_id, professeur_id, actif) VALUES (?, ?, 1)",
+    [handlerId, professeurId]
+  );
+}
+
 function convertirHeureEnMinutes(heure) {
   const correspondance = /^(\d{2}):(\d{2})$/.exec(String(heure || ""));
   if (!correspondance) {
@@ -202,6 +284,8 @@ async function principal() {
   let serveur = null;
 
   try {
+    verifierFenetreVisibleCoteClient();
+    verifierRenduIndisponibilitesCoteClient();
     await preparerSchema();
     const calendrierHandler = creerJetonCalendrierPublic();
     const calendrierInactif = creerJetonCalendrierPublic();
@@ -212,6 +296,7 @@ async function principal() {
     const calendrierFenetreDst = creerJetonCalendrierPublic();
     const calendrierDebutMinuit = creerJetonCalendrierPublic();
     const calendrierOffsetReference = creerJetonCalendrierPublic();
+    const calendrierFenetreTraverseMinuit = creerJetonCalendrierPublic();
 
     assert.match(calendrierHandler.token, /^[A-Za-z0-9_-]{32,160}$/);
     assert.match(calendrierHandler.tokenHash, /^[a-f0-9]{64}$/);
@@ -289,6 +374,14 @@ async function principal() {
       calendarStartTime: "08:00",
       calendarEndTime: "09:00",
     });
+    await insererUtilisateur({
+      id: 11,
+      publicCalendarTimezone: "GMT+2",
+      tokenHash: calendrierFenetreTraverseMinuit.tokenHash,
+      calendrierActif: 1,
+      calendarStartTime: "08:00",
+      calendarEndTime: "23:30",
+    });
     await run("INSERT INTO utilisateur_roles (utilisateur_id, role) VALUES (1, 'handler')");
     await run("INSERT INTO utilisateur_roles (utilisateur_id, role) VALUES (2, 'professeur')");
     await run("INSERT INTO utilisateur_roles (utilisateur_id, role) VALUES (3, 'handler')");
@@ -297,9 +390,26 @@ async function principal() {
     await run("INSERT INTO utilisateur_roles (utilisateur_id, role) VALUES (8, 'handler')");
     await run("INSERT INTO utilisateur_roles (utilisateur_id, role) VALUES (9, 'handler')");
     await run("INSERT INTO utilisateur_roles (utilisateur_id, role) VALUES (10, 'handler')");
+    await run("INSERT INTO utilisateur_roles (utilisateur_id, role) VALUES (11, 'handler')");
     await run(
       "INSERT INTO rattachements_professeurs (handler_id, professeur_id, actif) VALUES (1, 2, 1)"
     );
+    // Un ancien auto-rattachement ne doit pas remettre le Handler dans la
+    // population publique, meme s'il porte aussi le role professeur.
+    await run("INSERT INTO utilisateur_roles (utilisateur_id, role) VALUES (1, 'professeur')");
+    await run(
+      "INSERT INTO rattachements_professeurs (handler_id, professeur_id, actif) VALUES (1, 1, 1)"
+    );
+    // Chaque calendrier de test qui attend des creneaux disponibles dispose
+    // d'au moins un professeur actif rattache. Le Handler ne constitue plus
+    // une disponibilite publique a lui seul.
+    await insererProfesseurActifRattache({ handlerId: 3, professeurId: 12 });
+    await insererProfesseurActifRattache({ handlerId: 6, professeurId: 13 });
+    await insererProfesseurActifRattache({ handlerId: 7, professeurId: 14 });
+    await insererProfesseurActifRattache({ handlerId: 8, professeurId: 15 });
+    await insererProfesseurActifRattache({ handlerId: 9, professeurId: 16 });
+    await insererProfesseurActifRattache({ handlerId: 10, professeurId: 17 });
+    await insererProfesseurActifRattache({ handlerId: 11, professeurId: 18 });
     await run(
       `
         INSERT INTO disponibilites (
@@ -458,6 +568,35 @@ async function principal() {
         VALUES (1, 1, '2026-09-07', '09:00', '10:00', 'planifiee')
       `
     );
+    // Les donnees legacy peuvent contenir une seance qui n'a jamais ete
+    // attribuee a un realisateur. Elle doit rester a reconcilier sans rendre
+    // toute l'equipe indisponible dans le calendrier public.
+    await run(
+      `
+        INSERT INTO seances (
+          handler_id,
+          intervenant_id,
+          date,
+          heure_debut,
+          heure_fin,
+          statut_seance
+        )
+        VALUES (1, NULL, '2026-09-07', '11:00', '11:30', 'planifiee')
+      `
+    );
+    await run(
+      `
+        INSERT INTO seances (
+          handler_id,
+          intervenant_id,
+          date,
+          heure_debut,
+          heure_fin,
+          statut_seance
+        )
+        VALUES (1, 0, '2026-09-07', '11:30', '12:00', 'planifiee')
+      `
+    );
     await run(
       `
         INSERT INTO indisponibilites (
@@ -469,6 +608,34 @@ async function principal() {
           jour_complet
         )
         VALUES (1, 2, '2026-09-07', '09:00', '09:30', 0)
+      `
+    );
+    // Les anciennes indisponibilites du Handler ne participent plus a la
+    // disponibilite publique : seuls les professeurs rattaches comptent.
+    await run(
+      `
+        INSERT INTO indisponibilites (
+          handler_id,
+          intervenant_id,
+          date,
+          heure_debut,
+          heure_fin,
+          jour_complet
+        )
+        VALUES (1, 1, '2026-09-07', '16:00', '16:30', 0)
+      `
+    );
+    await run(
+      `
+        INSERT INTO indisponibilites (
+          handler_id,
+          intervenant_id,
+          date,
+          heure_debut,
+          heure_fin,
+          jour_complet
+        )
+        VALUES (1, 2, '2026-09-07', '15:00', '15:30', 0)
       `
     );
     await run(
@@ -483,6 +650,23 @@ async function principal() {
         )
         VALUES (3, 3, '2026-09-07', '10:00', '11:00', 'planifiee')
       `
+    );
+
+    const intervenantsPublics = await listerIntervenantsActifsHandler(1);
+    assert.deepEqual(
+      intervenantsPublics,
+      [2],
+      "Le Handler ne doit jamais etre un intervenant du calendrier public."
+    );
+    const plagesPubliques = await listerPlagesIndisponiblesCalendrierPublic({
+      handlerId: 1,
+      dateDebut: "2026-09-07",
+      dateFin: "2026-09-07",
+    });
+    assert.ok(
+      plagesPubliques.length > 0 &&
+        plagesPubliques.every((plage) => Number(plage.intervenant_id) === 2),
+      "Les seances et indisponibilites historiques du Handler ne doivent pas etre lues par le calendrier public."
     );
 
     const application = express();
@@ -560,8 +744,24 @@ async function principal() {
       creneauCouvre(donnees.planning, {
         date: "2026-09-07",
         heure: "10:00",
-        etat: "indisponible",
+        etat: "disponible",
       })
+    );
+    assert.ok(
+      creneauCouvre(donnees.planning, {
+        date: "2026-09-07",
+        heure: "11:00",
+        etat: "disponible",
+      }),
+      "Une seance legacy sans realisateur ne doit pas bloquer toute l'equipe."
+    );
+    assert.ok(
+      creneauCouvre(donnees.planning, {
+        date: "2026-09-07",
+        heure: "11:30",
+        etat: "disponible",
+      }),
+      "Un intervenant legacy invalide ne doit pas bloquer toute l'equipe."
     );
     assert.ok(
       creneauCouvre(donnees.planning, {
@@ -572,9 +772,25 @@ async function principal() {
     );
     assert.ok(
       creneauCouvre(donnees.planning, {
+        date: "2026-09-07",
+        heure: "15:00",
+        etat: "indisponible",
+      }),
+      "Un creneau est public indisponible quand le seul professeur actif est bloque, meme si le Handler est libre."
+    );
+    assert.ok(
+      creneauCouvre(donnees.planning, {
+        date: "2026-09-07",
+        heure: "16:00",
+        etat: "disponible",
+      }),
+      "Une indisponibilite historique du Handler ne doit pas masquer un professeur disponible."
+    );
+    assert.ok(
+      creneauCouvre(donnees.planning, {
         date: "2026-09-08",
         heure: "09:00",
-        etat: "indisponible",
+        etat: "disponible",
       })
     );
     assert.ok(
@@ -607,21 +823,71 @@ async function principal() {
       "Une disponibilité centrale 08:00–09:00 doit devenir 10:00–11:00 en GMT+2."
     );
 
+    const reponseFenetreTraverseMinuit = await fetch(
+      `${ecoute.origine}/api/reservation-public/${calendrierFenetreTraverseMinuit.token}?week_start=2026-09-07`
+    );
+    assert.equal(reponseFenetreTraverseMinuit.status, 200);
+    const donneesFenetreTraverseMinuit = await reponseFenetreTraverseMinuit.json();
+    assert.equal(donneesFenetreTraverseMinuit.config?.calendar_start_time, "10:00");
+    assert.equal(donneesFenetreTraverseMinuit.config?.calendar_end_time, "01:30");
+    assert.equal(
+      donneesFenetreTraverseMinuit.config?.slot_min_time,
+      "10:00",
+      "La grille publique doit commencer a la borne projetee, pas a minuit."
+    );
+    assert.equal(
+      donneesFenetreTraverseMinuit.config?.slot_max_time,
+      "25:30",
+      "La fin projetee apres minuit doit rester attachee a la meme journee FullCalendar."
+    );
+    assert.ok(
+      creneauCouvre(donneesFenetreTraverseMinuit.planning, {
+        date: "2026-09-07",
+        heure: "10:00",
+        etat: "disponible",
+      }),
+      "La borne de debut projetee doit etre disponible le lundi a 10:00."
+    );
+    assert.ok(
+      creneauCouvre(donneesFenetreTraverseMinuit.planning, {
+        date: "2026-09-13",
+        heure: "23:30",
+        etat: "disponible",
+      }),
+      "La derniere colonne doit conserver la fin de journee du dimanche."
+    );
+    assert.ok(
+      creneauCouvre(donneesFenetreTraverseMinuit.planning, {
+        date: "2026-09-14",
+        heure: "00:00",
+        etat: "disponible",
+      }),
+      "Le debut du lundi doit rester disponible afin d'etre rendu dans la colonne dimanche."
+    );
+    assert.equal(
+      planningExposeHeure(donneesFenetreTraverseMinuit.planning, {
+        date: "2026-09-14",
+        heure: "10:00",
+      }),
+      false,
+      "La reponse ne doit pas inclure les creneaux de journee de la semaine suivante."
+    );
+
     const reponseMinuit = await fetch(
       `${ecoute.origine}/api/reservation-public/${calendrierMinuit.token}?week_start=2026-09-07`
     );
-    assert.equal(reponseMinuit.status, 200, "Le calendrier public doit accepter une fin minuit.");
+    assert.equal(reponseMinuit.status, 200, "Le calendrier public doit normaliser une fin minuit héritée.");
     const donneesMinuit = await reponseMinuit.json();
     assert.equal(donneesMinuit.config?.slot_min_time, "08:00");
     assert.equal(
       donneesMinuit.config?.calendar_end_time,
-      "00:00",
-      "L'API conserve la convention metier 00:00 comme fin de journee."
+      "23:30",
+      "Une fin de journée héritée à minuit est ramenée à 23:30."
     );
     assert.equal(
       donneesMinuit.config?.slot_max_time,
-      "24:00",
-      "La grille publique doit representer 00:00 comme la fin exclusive de journee."
+      "23:30",
+      "La grille publique ne dépasse jamais 23:30."
     );
     const creneauxMinuitLundi = donneesMinuit.planning.creneaux.filter(
       (creneau) => creneau.date === "2026-09-07"
@@ -630,8 +896,8 @@ async function principal() {
     assert.equal(creneauxMinuitLundi[0].heure_debut, "08:00");
     assert.equal(
       creneauxMinuitLundi.at(-1).heure_fin,
-      "24:00",
-      "Le dernier creneau doit finir a minuit, jamais avant."
+      "23:30",
+      "Le dernier créneau respecte la nouvelle borne de 23:30."
     );
 
     const reponseDebutMinuit = await fetch(
@@ -662,7 +928,7 @@ async function principal() {
       creneauCouvre(donneesDebutMinuit.planning, {
         date: "2026-09-07",
         heure: "02:00",
-        etat: "indisponible",
+        etat: "disponible",
       })
     );
 
@@ -725,13 +991,13 @@ async function principal() {
     assert.equal(donneesPassageAnnee.config?.public_calendar_timezone, "GMT+2");
     assert.equal(donneesPassageAnnee.config?.public_calendar_offset_minutes, 120);
     assert.equal(donneesPassageAnnee.config?.calendar_start_time, "00:30");
-    assert.equal(donneesPassageAnnee.config?.calendar_end_time, "02:00");
+    assert.equal(donneesPassageAnnee.config?.calendar_end_time, "01:30");
     assert.equal(
       donneesPassageAnnee.config?.slot_min_time,
       "00:30",
       "Une fenêtre publique fixe doit commencer après le décalage de deux heures."
     );
-    assert.equal(donneesPassageAnnee.config?.slot_max_time, "02:00");
+    assert.equal(donneesPassageAnnee.config?.slot_max_time, "01:30");
     assert.ok(
       creneauCouvre(donneesPassageAnnee.planning, {
         date: "2027-01-01",
@@ -742,7 +1008,7 @@ async function principal() {
     assert.ok(
       creneauCouvre(donneesPassageAnnee.planning, {
         date: "2027-01-01",
-        heure: "01:30",
+        heure: "01:00",
         etat: "disponible",
       })
     );

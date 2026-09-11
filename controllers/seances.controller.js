@@ -13,10 +13,10 @@ const {
 const { executerTransactionImmediate } = require("../models/db");
 const { listerCatalogueOptions } = require("../models/catalogue.model");
 const {
-  creerIndisponibilite,
-  listerIndisponibilitesInclusesDansPlage,
-  listerIndisponibilitesTouchantPlage,
-  supprimerIndisponibilite,
+  listerMatieresHandler,
+  obtenirTarifHorairePourSeance,
+} = require("../models/tarification-matieres.model");
+const {
   trouverIndisponibiliteChevauchante,
   trouverIndisponibiliteIntervenantChevauchante,
 } = require("../models/indisponibilite.model");
@@ -33,7 +33,6 @@ const {
 } = require("../models/historique.model");
 const {
   detacherSeancesPropositions,
-  trouverPropositionAccepteeParSeanceId,
 } = require("../models/proposition-seance.model");
 const { resoudreCheminScreenshot } = require("../utils/screenshot-storage");
 const {
@@ -55,7 +54,7 @@ const libellesChampHistorique = {
   parent: "Parent",
   etudiant: "Étudiant",
   matiere: "Matière",
-  compte: "Compte",
+  compte: "Réalisateur",
   est_essai: "Séance d'essai",
   date: "Date",
   heure_debut: "Heure de début",
@@ -156,19 +155,64 @@ async function resoudreAffectationSeance({ scope, acteur, donneesSeance, seanceE
   return { handler_id: handlerId, intervenant_id: intervenantId };
 }
 
-async function ajouterTarifSnapshotIntervenant(donneesSeance) {
-  const intervenantId = normaliserIdentifiant(donneesSeance?.intervenant_id);
+function obtenirInstantSeance(donneesSeance, { fin = false } = {}) {
+  const heure = fin ? donneesSeance?.heure_fin : donneesSeance?.heure_debut;
+  return convertirDateHeureZonneeEnInstant(
+    donneesSeance?.date,
+    heure,
+    CENTRAL_CALENDAR_TIMEZONE
+  );
+}
 
-  if (!intervenantId) {
+function seanceEstHistorique(donneesSeance, maintenant = new Date()) {
+  if (String(donneesSeance?.statut_seance || "").toLowerCase() === "faite") {
+    return true;
+  }
+
+  const instantFin = obtenirInstantSeance(donneesSeance, { fin: true });
+  return Boolean(instantFin && instantFin.getTime() <= maintenant.getTime());
+}
+
+async function ajouterTarifSnapshotIntervenant(donneesSeance, { seanceExistante = null } = {}) {
+  const intervenantId = normaliserIdentifiant(donneesSeance?.intervenant_id);
+  const handlerId = normaliserIdentifiant(donneesSeance?.handler_id);
+
+  if (!intervenantId || !handlerId) {
     return donneesSeance;
   }
 
   const intervenant = await trouverUtilisateurParId(intervenantId);
-  const tarifHoraire = Number(intervenant?.tarif_horaire);
+  const maintenant = new Date();
+  // A completed or already elapsed session is accounting history.  Use the
+  // former session itself to make that decision: changing its displayed date
+  // later must never rewrite the frozen hourly-rate snapshot.
+  const conserverSnapshotHistorique =
+    seanceExistante && seanceEstHistorique(seanceExistante, maintenant);
+  const snapshotBrut = seanceExistante?.tarif_horaire_applique;
+  const snapshotExistant =
+    snapshotBrut === null || snapshotBrut === undefined ? null : Number(snapshotBrut);
+  const snapshotExistantValide =
+    Number.isFinite(snapshotExistant) && snapshotExistant >= 0;
+  const instantSeance = obtenirInstantSeance(donneesSeance);
+  const tarifHoraire = conserverSnapshotHistorique && snapshotExistantValide
+    ? snapshotExistant
+    : await obtenirTarifHorairePourSeance({
+        handlerId,
+        intervenantId,
+        matiere: donneesSeance?.matiere,
+        effectifAu: (instantSeance || maintenant).toISOString(),
+      });
+  // `compte` demeure une colonne historique et une clé de compatibilité pour
+  // les relevés existants. Il ne doit toutefois plus être choisi par le
+  // client : une séance est toujours rattachée au Réalisateur effectivement
+  // autorisé par `resoudreAffectationSeance`.
+  const realisateur = normaliserTexte(intervenant?.nom);
 
   return {
     ...donneesSeance,
-    tarif_horaire_applique: Number.isFinite(tarifHoraire) && tarifHoraire >= 0 ? tarifHoraire : 0,
+    compte: realisateur,
+    tarif_horaire_applique:
+      Number.isFinite(tarifHoraire) && tarifHoraire >= 0 ? tarifHoraire : null,
   };
 }
 
@@ -320,9 +364,12 @@ async function verifierSeanceDansPlageCalendrier(donneesSeance, options = {}) {
   }
 }
 
-function creerErreurHttp(status, message) {
+function creerErreurHttp(status, message, code = null) {
   const erreur = new Error(message);
   erreur.status = status;
+  if (code) {
+    erreur.code = code;
+  }
   return erreur;
 }
 
@@ -331,10 +378,47 @@ function creneauSeanceEquivalent(seance, donneesSeance) {
     return false;
   }
 
+  // Les contrôles de conflit sont omis uniquement pour une vraie mise à jour
+  // de métadonnées. Depuis qu'un Handler peut réaffecter une séance à un
+  // autre intervenant, conserver les mêmes heures ne suffit plus : la
+  // nouvelle personne doit être contrôlée contre ses indisponibilités et ses
+  // autres séances.
   return (
     seance.date === donneesSeance.date &&
     seance.heure_debut === donneesSeance.heure_debut &&
-    seance.heure_fin === donneesSeance.heure_fin
+    seance.heure_fin === donneesSeance.heure_fin &&
+    normaliserIdentifiant(seance.intervenant_id) ===
+      normaliserIdentifiant(donneesSeance.intervenant_id)
+  );
+}
+
+function seanceEstAnnulee(seance) {
+  return String(seance?.statut_seance || "planifiee").toLowerCase() === "annulee";
+}
+
+function seanceDevientActive(seanceAvant, donneesSeance) {
+  return seanceEstAnnulee(seanceAvant) && !seanceEstAnnulee(donneesSeance);
+}
+
+/**
+ * A Handler may reserve a slot for themself even when the team availability
+ * layer marks that slot unavailable.  This exception is deliberately narrow:
+ * it is derived only after the server has resolved the assignment, so a
+ * client cannot use it to bypass a Professor's own availability.
+ *
+ * It never bypasses the Handler's own session-conflict check nor the Handler
+ * calendar window; those controls are applied independently below.
+ */
+function seanceEstAffecteeAuHandlerLuiMeme({ scope, acteur, donneesSeance }) {
+  const acteurId = normaliserIdentifiant(acteur?.id);
+  const handlerId = normaliserIdentifiant(donneesSeance?.handler_id);
+  const intervenantId = normaliserIdentifiant(donneesSeance?.intervenant_id);
+
+  return Boolean(
+    scope?.estHandler === true &&
+      acteurId &&
+      handlerId === acteurId &&
+      intervenantId === acteurId
   );
 }
 
@@ -400,117 +484,49 @@ async function verifierAbsenceConflitSeance(donneesSeance, utilisateur, options 
   }
 }
 
-function construirePlageIndisponibiliteRestaurable(seance, fragments) {
-  const debutSeance = convertirHeureEnMinutes(seance.heure_debut);
-  const finSeance = convertirHeureEnMinutes(seance.heure_fin);
-  let debut = debutSeance;
-  let fin = finSeance;
+/**
+ * The central calendar remains bookable while at least one active
+ * Realisateur is free. A Realisateur means the Handler plus active attached
+ * Professors; individual target validation remains separate below.
+ */
+async function verifierDisponibiliteCollectiveHandler(donneesSeance) {
+  const handlerId = normaliserIdentifiant(donneesSeance?.handler_id);
 
-  for (const fragment of fragments) {
-    debut = Math.min(debut, convertirHeureEnMinutes(fragment.heure_debut));
-    fin = Math.max(fin, convertirHeureEnMinutes(fragment.heure_fin));
-  }
-
-  return {
-    heureDebut: convertirMinutesEnHeure(debut),
-    heureFin: convertirMinutesEnHeure(fin),
-    jourComplet: debut === 0 && fin === convertirHeureEnMinutes("23:59"),
-  };
-}
-
-function extrairePlageIndisponibiliteOriginale(proposition) {
-  const date = normaliserTexte(proposition?.indisponibilite_date_originale);
-  const heureDebut = normaliserTexte(proposition?.indisponibilite_heure_debut_originale);
-  const heureFin = normaliserTexte(proposition?.indisponibilite_heure_fin_originale);
-
-  if (!estDateIsoValide(date) || !estHeureValide(heureDebut) || !estHeureFinLegacyValide(heureFin)) {
-    return null;
-  }
-
-  if (convertirHeureEnMinutes(heureFin) <= convertirHeureEnMinutes(heureDebut)) {
-    return null;
-  }
-
-  return {
-    date,
-    heureDebut,
-    heureFin,
-    jourComplet: Number(proposition?.indisponibilite_jour_complet_original) === 1,
-  };
-}
-
-async function restaurerIndisponibiliteDepuisPropositionAcceptee({
-  seance,
-  proposition,
-  acteur,
-}) {
-  if (!proposition || proposition.statut !== "acceptee") {
+  if (!handlerId) {
     return;
   }
 
-  const plageOriginale = extrairePlageIndisponibiliteOriginale(proposition);
+  const realisateurIds = Array.from(
+    new Set(
+      (await listerIntervenantsAutorisesHandler(handlerId))
+        .map(normaliserIdentifiant)
+        .filter(Boolean)
+    )
+  );
 
-  if (plageOriginale) {
-    const fragments = await listerIndisponibilitesInclusesDansPlage({
-      date: plageOriginale.date,
-      heureDebut: plageOriginale.heureDebut,
-      heureFin: plageOriginale.heureFin,
-      handlerId: seance.handler_id,
-      intervenantId: seance.intervenant_id,
-    });
-    const createur =
-      fragments.find((fragment) => Number(fragment.cree_par) > 0)?.cree_par ||
-      proposition.traitee_par ||
-      acteur?.id ||
-      seance.cree_par ||
-      null;
-
-    for (const fragment of fragments) {
-      await supprimerIndisponibilite(fragment.id);
-    }
-
-    await creerIndisponibilite({
-      date: plageOriginale.date,
-      heureDebut: plageOriginale.heureDebut,
-      heureFin: plageOriginale.heureFin,
-      jourComplet: plageOriginale.jourComplet,
-      raison: "",
-      creePar: createur,
-      handlerId: seance.handler_id,
-      intervenantId: seance.intervenant_id,
-    });
+  if (realisateurIds.length === 0) {
     return;
   }
 
-  const fragments = await listerIndisponibilitesTouchantPlage({
-    date: seance.date,
-    heureDebut: seance.heure_debut,
-    heureFin: seance.heure_fin,
-    handlerId: seance.handler_id,
-    intervenantId: seance.intervenant_id,
-  });
-  const plage = construirePlageIndisponibiliteRestaurable(seance, fragments);
-  const createur =
-    fragments.find((fragment) => Number(fragment.cree_par) > 0)?.cree_par ||
-    proposition.traitee_par ||
-    acteur?.id ||
-    seance.cree_par ||
-    null;
+  const conflits = await Promise.all(
+    realisateurIds.map((intervenantId) =>
+      trouverIndisponibiliteIntervenantChevauchante({
+        handlerId,
+        intervenantId,
+        date: donneesSeance.date,
+        heureDebut: donneesSeance.heure_debut,
+        heureFin: donneesSeance.heure_fin,
+      })
+    )
+  );
 
-  for (const fragment of fragments) {
-    await supprimerIndisponibilite(fragment.id);
+  if (conflits.every(Boolean)) {
+    throw creerErreurHttp(
+      409,
+      "Aucun Réalisateur actif de l'équipe n'est disponible sur ce créneau. Choisissez un autre horaire.",
+      "COLLECTIVE_UNAVAILABILITY"
+    );
   }
-
-  await creerIndisponibilite({
-    date: seance.date,
-    heureDebut: plage.heureDebut,
-    heureFin: plage.heureFin,
-    jourComplet: plage.jourComplet,
-    raison: "",
-    creePar: createur,
-    handlerId: seance.handler_id,
-    intervenantId: seance.intervenant_id,
-  });
 }
 
 function normaliserValeurHistorique(champ, valeur) {
@@ -680,13 +696,17 @@ function normaliserValeurEssai(valeur) {
   return 0;
 }
 
-async function recupererCatalogueSeances() {
+async function recupererCatalogueSeances(handlerId = null) {
   const catalogue = await listerCatalogueOptions();
+  const handler = normaliserIdentifiant(handlerId);
+  const matieresHandler = handler ? await listerMatieresHandler(handler) : [];
 
   return {
-    matieres: Array.isArray(catalogue.matieres)
-      ? catalogue.matieres.map((matiere) => matiere.valeur)
-      : [],
+    matieres: handler
+      ? matieresHandler.map((matiere) => matiere.libelle)
+      : Array.isArray(catalogue.matieres)
+        ? catalogue.matieres.map((matiere) => matiere.valeur)
+        : [],
     comptes: Array.isArray(catalogue.comptes)
       ? catalogue.comptes.map((compte) => compte.valeur)
       : [],
@@ -701,10 +721,13 @@ async function validerDonneesSeance(donneesSeance, utilisateur, options = {}) {
   const nomÉtudiant = normaliserTexte(donneesSeance.etudiant);
   const nomParent = normaliserTexte(donneesSeance.parent);
   const description = normaliserTexte(donneesSeance.description);
-  const catalogue = await recupererCatalogueSeances();
+  const catalogue = await recupererCatalogueSeances(donneesSeance?.handler_id);
   const seanceExistante = options.seanceExistante || null;
   const matiereExisteAuCatalogue = catalogue.matieres.includes(donneesSeance.matiere);
   const compteExisteAuCatalogue = catalogue.comptes.includes(donneesSeance.compte);
+  const compteEstDeriveDuRealisateur = Boolean(
+    normaliserIdentifiant(donneesSeance?.intervenant_id) && normaliserTexte(donneesSeance.compte)
+  );
   const matiereLegacyInchangee =
     seanceExistante &&
     valeurCatalogueInchangee(donneesSeance.matiere, seanceExistante.matiere);
@@ -726,8 +749,10 @@ async function validerDonneesSeance(donneesSeance, utilisateur, options = {}) {
     erreurs.push("La matière est invalide.");
   }
 
-  if (!compteExisteAuCatalogue && !compteLegacyInchange) {
-    erreurs.push("Le compte est invalide.");
+  if (!normaliserTexte(donneesSeance.compte)) {
+    erreurs.push("Le réalisateur est invalide.");
+  } else if (!compteEstDeriveDuRealisateur && !compteExisteAuCatalogue && !compteLegacyInchange) {
+    erreurs.push("Le réalisateur est invalide.");
   }
 
   if (!valeursEssaiValides.includes(Number(donneesSeance.est_essai))) {
@@ -752,6 +777,16 @@ async function validerDonneesSeance(donneesSeance, utilisateur, options = {}) {
 
   if (heureValide && dureeValide && !calculerHeureFin(donneesSeance.heure_debut, dureeMinutes)) {
     erreurs.push("La séance ne peut pas dépasser minuit.");
+  }
+
+  const tarifSnapshotRenseigne =
+    donneesSeance.tarif_horaire_applique !== null &&
+    donneesSeance.tarif_horaire_applique !== undefined &&
+    Number.isFinite(Number(donneesSeance.tarif_horaire_applique));
+  if (Number(donneesSeance.est_essai) !== 1 && !tarifSnapshotRenseigne) {
+    erreurs.push(
+      "Définissez d'abord le tarif de ce réalisateur pour cette matière dans Équipe."
+    );
   }
 
   if (heureValide && dureeValide && donneesSeance.heure_fin) {
@@ -863,6 +898,7 @@ async function recupererOptionsSeances(req, res) {
   const intervenantIds = handlerId
     ? await listerIntervenantsAutorisesHandler(handlerId)
     : [];
+  const matieresHandler = handlerId ? await listerMatieresHandler(handlerId) : [];
   const intervenants = (
     await Promise.all(intervenantIds.map((intervenantId) => trouverUtilisateurParId(intervenantId)))
   )
@@ -880,7 +916,14 @@ async function recupererOptionsSeances(req, res) {
 
   return res.json({
     options: {
-      matieres: Array.isArray(catalogue.matieres) ? catalogue.matieres : [],
+      matieres: handlerId
+        ? matieresHandler.map((matiere) => ({
+            id: Number(matiere.id),
+            valeur: matiere.libelle,
+          }))
+        : Array.isArray(catalogue.matieres)
+          ? catalogue.matieres
+          : [],
       comptes: Array.isArray(catalogue.comptes) ? catalogue.comptes : [],
       intervenants,
     },
@@ -908,6 +951,7 @@ async function creerSeanceDepuisDonneesValidees({
   donneesSeance,
   acteur,
   verifierIndisponibilite = true,
+  verifierDisponibiliteCollective = false,
   exclureSeanceId = null,
   utiliserTransaction = true,
 }) {
@@ -920,6 +964,10 @@ async function creerSeanceDepuisDonneesValidees({
   };
 
   await verifierSeanceDansPlageCalendrier(donneesAffectees);
+
+  if (verifierDisponibiliteCollective) {
+    await verifierDisponibiliteCollectiveHandler(donneesAffectees);
+  }
 
   await verifierAbsenceConflitSeance(donneesAffectees, acteur, {
     exclureSeanceId,
@@ -962,6 +1010,7 @@ async function modifierSeanceDepuisDonneesValidees({
   donneesSeance,
   acteur,
   verifierIndisponibilite = true,
+  verifierDisponibiliteCollective = false,
   utiliserTransaction = true,
 }) {
   const operation = async () => {
@@ -983,23 +1032,32 @@ async function modifierSeanceDepuisDonneesValidees({
   };
 
   const creneauInchange = creneauSeanceEquivalent(seanceExistante, donneesAffectees);
+  // Une séance annulée ne participe pas aux conflits. La remettre dans un
+  // statut actif équivaut donc à réserver de nouveau son créneau, même si les
+  // heures et l'intervenant n'ont pas changé.
+  const controlesCreneauRequis =
+    !creneauInchange || seanceDevientActive(seanceExistante, donneesAffectees);
 
   await verifierSeanceDansPlageCalendrier(donneesAffectees, {
     seanceExistante,
   });
 
+  if (verifierDisponibiliteCollective && controlesCreneauRequis) {
+    await verifierDisponibiliteCollectiveHandler(donneesAffectees);
+  }
+
   const conflitSeance = await recupererConflitSeance(donneesAffectees, {
     exclureSeanceId: seanceId,
   });
 
-  if (conflitSeance && !creneauInchange) {
+  if (conflitSeance && controlesCreneauRequis) {
     throw creerErreurHttp(400, construireMessageConflitSeance(conflitSeance));
   }
 
   if (verifierIndisponibilite) {
     const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesAffectees);
 
-    if (conflitIndisponibilite && !creneauInchange) {
+    if (conflitIndisponibilite && controlesCreneauRequis) {
       throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite));
     }
   }
@@ -1055,10 +1113,22 @@ async function ajouterSeance(req, res) {
     });
   }
 
+  const seanceHandlerLuiMeme = seanceEstAffecteeAuHandlerLuiMeme({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donneesSeance,
+  });
+
   const nouvelleSeance = await creerSeanceDepuisDonneesValidees({
     donneesSeance,
     acteur: req.utilisateur,
-    verifierIndisponibilite: true,
+    // A Handler's own session is private to that Handler and may replace the
+    // visual collective-unavailable state.  The lower-level session-conflict
+    // and calendar-window checks remain active in all cases.
+    verifierIndisponibilite: !seanceHandlerLuiMeme,
+    // Collective availability is a Dashboard visualization, not a booking
+    // authorization rule.  A Professor target is still validated individually.
+    verifierDisponibiliteCollective: false,
   });
   res.locals.realtimeScope = {
     handlerId: nouvelleSeance.handler_id,
@@ -1094,7 +1164,7 @@ async function modifierSeance(req, res) {
   const donneesSeance = await ajouterTarifSnapshotIntervenant({
     ...preparerDonneesSeance(req.body),
     ...affectation,
-  });
+  }, { seanceExistante });
   const erreurs = await validerDonneesSeance(donneesSeance, req.utilisateur, {
     seanceExistante,
   });
@@ -1103,11 +1173,18 @@ async function modifierSeance(req, res) {
     return res.status(400).json({ message: erreurs.join(" ") });
   }
 
+  const seanceHandlerLuiMeme = seanceEstAffecteeAuHandlerLuiMeme({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donneesSeance,
+  });
+
   const seanceTransactionnelle = await modifierSeanceDepuisDonneesValidees({
     seanceExistante,
     donneesSeance,
     acteur: req.utilisateur,
-    verifierIndisponibilite: true,
+    verifierIndisponibilite: !seanceHandlerLuiMeme,
+    verifierDisponibiliteCollective: false,
   });
   res.locals.realtimeScope = {
     handlerId: seanceTransactionnelle.handler_id,
@@ -1137,6 +1214,29 @@ async function changerStatutSeance(req, res) {
 
   if (!statutsSeanceValides.includes(statutSeance)) {
     return res.status(400).json({ message: "Statut de séance invalide." });
+  }
+
+  if (seanceDevientActive(seanceExistante, { statut_seance: statutSeance })) {
+    const donneesSeance = {
+      ...seanceExistante,
+      statut_seance: statutSeance,
+    };
+    const seanceHandlerLuiMeme = seanceEstAffecteeAuHandlerLuiMeme({
+      scope: req.scope,
+      acteur: req.utilisateur,
+      donneesSeance,
+    });
+
+    await verifierAbsenceConflitSeance(donneesSeance, req.utilisateur, {
+      exclureSeanceId: seanceExistante.id,
+    });
+
+    const conflitIndisponibilite = seanceHandlerLuiMeme
+      ? null
+      : await recupererConflitIndisponibilite(donneesSeance);
+    if (conflitIndisponibilite) {
+      throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite));
+    }
   }
 
   const seanceMiseAJour = await mettreAJourStatutSeance(
@@ -1194,13 +1294,9 @@ async function supprimerUneSeance(req, res) {
   const photos = await recupererPhotosParSeance(req.params.id);
   const etatAvantSuppression = extraireEtatAuditSeance(seance);
   await executerTransactionImmediate(async () => {
-    const propositionAcceptee = await trouverPropositionAccepteeParSeanceId(seance.id);
-
-    await restaurerIndisponibiliteDepuisPropositionAcceptee({
-      seance,
-      proposition: propositionAcceptee,
-      acteur: req.utilisateur,
-    });
+    // Les anciennes propositions d'exception sont retirées : supprimer une
+    // séance ne peut plus recréer, modifier ou supprimer l'indisponibilité
+    // personnelle d'un Professeur.
     await detacherSeancesHistorique([seance]);
     await detacherSeancesPropositions([seance]);
     await supprimerSeance(req.params.id);
@@ -1252,6 +1348,7 @@ module.exports = {
   transformerSeancePourClientSelonUtilisateur,
   recupererConflitSeance,
   verifierAbsenceConflitSeance,
+  verifierDisponibiliteCollectiveHandler,
   creerSeanceDepuisDonneesValidees,
   modifierSeanceDepuisDonneesValidees,
   resoudreAffectationSeance,

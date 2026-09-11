@@ -2,6 +2,7 @@ const crypto = require("crypto");
 
 const { all, get } = require("./db");
 const { PUBLIC_CALENDAR_TOKEN_BYTES } = require("../config/public-calendar.config");
+const { recupererSecretSession } = require("./session-secret");
 
 const FORMAT_JETON_CALENDRIER_PUBLIC = /^[A-Za-z0-9_-]{32,160}$/;
 
@@ -47,6 +48,31 @@ function creerJetonCalendrierPublic() {
     token,
     tokenHash: hacherJetonCalendrierPublic(token),
   };
+}
+
+/**
+ * The public URL must remain copyable after a page reload without keeping its
+ * raw bearer token in SQLite. A domain-separated HMAC gives each Handler one
+ * opaque, stable token; the database still stores only its SHA-256 hash.
+ */
+function creerJetonCalendrierPublicStable(handlerId) {
+  const id = normaliserIdentifiant(handlerId);
+
+  if (!id) {
+    return null;
+  }
+
+  return crypto
+    .createHmac("sha256", recupererSecretSession())
+    .update(`gestion-seances:public-calendar:v1:${id}`)
+    .digest("base64url");
+}
+
+function jetonCalendrierPublicStableCorrespond(handlerId, tokenHash) {
+  const token = creerJetonCalendrierPublicStable(handlerId);
+  const hashAttendu = hacherJetonCalendrierPublic(token);
+
+  return Boolean(hashAttendu && hachagesEgaux(tokenHash, hashAttendu));
 }
 
 async function trouverHandlerCalendrierPublicParToken(token) {
@@ -99,33 +125,22 @@ async function listerIntervenantsActifsHandler(handlerId) {
     return [];
   }
 
+  // Le nom est historique : le Handler n'est jamais retourne ici, meme s'il
+  // possede egalement le role professeur dans des donnees anciennes.
   const intervenants = await all(
     `
       SELECT DISTINCT utilisateurs.id
-      FROM utilisateurs
-      WHERE COALESCE(utilisateurs.acces_active, 1) = 1
+      FROM rattachements_professeurs
+      INNER JOIN utilisateurs
+        ON utilisateurs.id = rattachements_professeurs.professeur_id
+      INNER JOIN utilisateur_roles
+        ON utilisateur_roles.utilisateur_id = utilisateurs.id
+        AND utilisateur_roles.role = 'professeur'
+      WHERE rattachements_professeurs.handler_id = ?
+        AND rattachements_professeurs.professeur_id <> ?
+        AND rattachements_professeurs.actif = 1
+        AND COALESCE(utilisateurs.acces_active, 1) = 1
         AND lower(COALESCE(utilisateurs.statut_compte, 'active')) = 'active'
-        AND (
-          (
-            utilisateurs.id = ?
-            AND EXISTS (
-              SELECT 1
-              FROM utilisateur_roles
-              WHERE utilisateur_roles.utilisateur_id = utilisateurs.id
-                AND utilisateur_roles.role = 'handler'
-            )
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM rattachements_professeurs
-            INNER JOIN utilisateur_roles
-              ON utilisateur_roles.utilisateur_id = rattachements_professeurs.professeur_id
-              AND utilisateur_roles.role = 'professeur'
-            WHERE rattachements_professeurs.handler_id = ?
-              AND rattachements_professeurs.professeur_id = utilisateurs.id
-              AND rattachements_professeurs.actif = 1
-          )
-        )
       ORDER BY utilisateurs.id ASC
     `,
     [id, id]
@@ -146,9 +161,25 @@ async function listerPlagesIndisponiblesCalendrierPublic({
   }
 
   // La provenance d'un blocage (seance ou indisponibilite) est volontairement
-  // effacee ici. L'appelant ne recoit que des plages de disponibilite.
+  // effacee ici. Le calendrier public ne lit que les plages des professeurs
+  // actifs rattaches : les anciennes donnees du Handler ne doivent jamais
+  // changer la disponibilite annoncee aux clients.
   return all(
     `
+      WITH professeurs_actifs AS (
+        SELECT DISTINCT rattachements_professeurs.professeur_id AS intervenant_id
+        FROM rattachements_professeurs
+        INNER JOIN utilisateurs
+          ON utilisateurs.id = rattachements_professeurs.professeur_id
+        INNER JOIN utilisateur_roles
+          ON utilisateur_roles.utilisateur_id = utilisateurs.id
+          AND utilisateur_roles.role = 'professeur'
+        WHERE rattachements_professeurs.handler_id = ?
+          AND rattachements_professeurs.professeur_id <> ?
+          AND rattachements_professeurs.actif = 1
+          AND COALESCE(utilisateurs.acces_active, 1) = 1
+          AND lower(COALESCE(utilisateurs.statut_compte, 'active')) = 'active'
+      )
       SELECT
         date,
         heure_debut,
@@ -163,6 +194,8 @@ async function listerPlagesIndisponiblesCalendrierPublic({
           0 AS jour_complet,
           seances.intervenant_id AS intervenant_id
         FROM seances
+        INNER JOIN professeurs_actifs
+          ON professeurs_actifs.intervenant_id = seances.intervenant_id
         WHERE seances.handler_id = ?
           AND seances.date BETWEEN ? AND ?
           AND COALESCE(seances.statut_seance, 'planifiee') <> 'annulee'
@@ -176,12 +209,14 @@ async function listerPlagesIndisponiblesCalendrierPublic({
           COALESCE(indisponibilites.jour_complet, 0) AS jour_complet,
           indisponibilites.intervenant_id AS intervenant_id
         FROM indisponibilites
+        INNER JOIN professeurs_actifs
+          ON professeurs_actifs.intervenant_id = indisponibilites.intervenant_id
         WHERE indisponibilites.handler_id = ?
           AND indisponibilites.date BETWEEN ? AND ?
       )
       ORDER BY date ASC, jour_complet DESC, heure_debut ASC, heure_fin ASC
     `,
-    [id, dateDebut, dateFin, id, dateDebut, dateFin]
+    [id, id, id, dateDebut, dateFin, id, dateDebut, dateFin]
   );
 }
 
@@ -191,6 +226,8 @@ module.exports = {
   hacherJetonCalendrierPublic,
   hachagesEgaux,
   creerJetonCalendrierPublic,
+  creerJetonCalendrierPublicStable,
+  jetonCalendrierPublicStableCorrespond,
   trouverHandlerCalendrierPublicParToken,
   listerIntervenantsActifsHandler,
   listerPlagesIndisponiblesCalendrierPublic,

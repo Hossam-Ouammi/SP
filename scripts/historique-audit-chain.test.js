@@ -21,6 +21,7 @@ if (!process.env.AUDIT_SECRET) {
 
 const {
   all,
+  db,
   executerTransactionImmediate,
   fermerBaseDeDonnees,
   initialiserBaseDeDonnees,
@@ -30,6 +31,7 @@ const {
   creerEntreeHistorique,
   detacherUtilisateurHistorique,
   listerEntreesHistorique,
+  supprimerEntreeHistoriqueParId,
 } = require("../models/historique.model");
 const migrationHmacV2 = require("../models/migrations/2026090709-historique-hmac-v2-scope");
 
@@ -152,6 +154,100 @@ async function verifierChaineValide() {
     entrees.every((entree) => entree.integrite_valide === true),
     "Toute la chaine HMAC doit etre valide."
   );
+}
+
+function attendreSignal(promesse, message, delaiMs = 2000) {
+  return Promise.race([
+    promesse,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), delaiMs).unref?.();
+    }),
+  ]);
+}
+
+async function verifierSuppressionConcurrenteConserveChaine({ handlerId, intervenantId }) {
+  const entreeCible = await creerEntreeHistorique({
+    seanceId: null,
+    handlerId,
+    intervenantId,
+    seanceLibelle: "Suppression concurrente cible",
+    actionType: "suppression_concurrente_test",
+    actionLabel: "Cible suppression concurrente",
+    acteurId: handlerId,
+    acteurNom: "Handler audit A",
+    details: { cible: true },
+  });
+  await creerEntreeHistorique({
+    seanceId: null,
+    handlerId,
+    intervenantId,
+    seanceLibelle: "Suppression concurrente suivante",
+    actionType: "suppression_concurrente_test",
+    actionLabel: "Suivante suppression concurrente",
+    acteurId: handlerId,
+    acteurNom: "Handler audit A",
+    details: { suivante: true },
+  });
+
+  let signalerLectureSuivantes;
+  let libererLectureSuivantes;
+  const lectureSuivantesAtteinte = new Promise((resolve) => {
+    signalerLectureSuivantes = resolve;
+  });
+  const lectureSuivantesLiberee = new Promise((resolve) => {
+    libererLectureSuivantes = resolve;
+  });
+  const allOriginal = db.all;
+
+  db.all = function allAvecLectureRetardee(sql, parametres, callback) {
+    const estLectureSuivantes =
+      String(sql || "").includes("FROM historique_actions") &&
+      String(sql || "").includes("WHERE id > ?") &&
+      Array.isArray(parametres) &&
+      Number(parametres[0]) === Number(entreeCible.id);
+
+    if (!estLectureSuivantes) {
+      return allOriginal.call(this, sql, parametres, callback);
+    }
+
+    return allOriginal.call(this, sql, parametres, (erreur, lignes) => {
+      signalerLectureSuivantes();
+      lectureSuivantesLiberee.then(() => callback(erreur, lignes));
+    });
+  };
+
+  try {
+    const suppression = supprimerEntreeHistoriqueParId(entreeCible.id);
+    await attendreSignal(
+      lectureSuivantesAtteinte,
+      "La suppression n'a pas atteint la lecture des entrees suivantes."
+    );
+
+    // With the old implementation this append could start after the rows to
+    // re-chain were read and before the deletion transaction began.  The
+    // resulting row retained the deleted hash as its predecessor.  The fixed
+    // implementation already owns the transaction here, so this append waits
+    // and is chained only after the deletion commits.
+    const appendConcurrent = creerEntreeHistorique({
+      seanceId: null,
+      handlerId,
+      intervenantId,
+      seanceLibelle: "Append pendant suppression",
+      actionType: "suppression_concurrente_test",
+      actionLabel: "Append concurrent suppression",
+      acteurId: handlerId,
+      acteurNom: "Handler audit A",
+      details: { append_concurrent: true },
+    });
+    libererLectureSuivantes();
+
+    const [resultatSuppression] = await Promise.all([suppression, appendConcurrent]);
+    assert.equal(resultatSuppression.changes, 1, "La cible doit etre supprimee.");
+  } finally {
+    db.all = allOriginal;
+  }
+
+  await verifierChaineValide();
 }
 
 async function main() {
@@ -357,6 +453,11 @@ async function main() {
     );
   }
   await verifierChaineValide();
+
+  await verifierSuppressionConcurrenteConserveChaine({
+    handlerId: handlerA,
+    intervenantId: professeurA,
+  });
 
   // v2 also remains valid through the account deletion flow. The model
   // neutralises signed foreign keys before SQLite's ON DELETE SET NULL runs.

@@ -23,10 +23,6 @@ const {
   listerPlagesIndisponiblesCalendrierPublic,
 } = require("../models/public-calendar.model");
 const {
-  listerReglesDisponibiliteActivesIntervenant,
-  listerExceptionsDisponibiliteIntervenant,
-} = require("../models/disponibilite.model");
-const {
   autoriserNouveauClientTempsReel,
   ajouterClientTempsReel,
   retirerClientTempsReel,
@@ -105,12 +101,6 @@ function obtenirContexteSemaine(valeurReference, fuseauHoraire) {
   };
 }
 
-function convertirHeureEnMinutes(heure) {
-  return convertirHeureCalendrierEnMinutes(heure, {
-    accepterMinuit24: true,
-  });
-}
-
 function convertirMinutesEnHeure(minutes) {
   const total = Math.max(0, Math.min(24 * 60, Number(minutes) || 0));
   const heures = String(Math.floor(total / 60)).padStart(2, "0");
@@ -128,39 +118,28 @@ function convertirHeureHorlogeEnMinutes(heure) {
   return convertirHeureCalendrierEnMinutes(heure);
 }
 
-function extraireSegmentsPlagePublique(projection) {
-  if (!projection || !estDateIsoValide(projection.date) || !estDateIsoValide(projection.date_fin)) {
-    return [];
+function convertirMinutesEnDureeCalendrier(minutes) {
+  // slotMaxTime de FullCalendar est une durée. Une borne de fin peut donc
+  // dépasser 24:00 lorsque le décalage public traverse minuit.
+  const total = Math.max(0, Math.min(48 * 60, Math.floor(Number(minutes) || 0)));
+  const heures = String(Math.floor(total / 60)).padStart(2, "0");
+  const minutesRestantes = String(total % 60).padStart(2, "0");
+  return `${heures}:${minutesRestantes}`;
+}
+
+function convertirDureeCalendrierEnMinutes(duree) {
+  const correspondance = String(duree || "")
+    .trim()
+    .match(/^(\d{2,}):([0-5]\d)(?::[0-5]\d)?$/);
+  if (!correspondance) {
+    return null;
   }
 
-  const debut = convertirHeureHorlogeEnMinutes(projection.heure_debut);
-  const fin = convertirHeureHorlogeEnMinutes(projection.heure_fin);
+  const heures = Number(correspondance[1]);
+  const minutes = Number(correspondance[2]);
+  const total = heures * 60 + minutes;
 
-  if (!Number.isFinite(debut) || !Number.isFinite(fin)) {
-    return [];
-  }
-
-  if (projection.date_fin === projection.date && fin > debut) {
-    return [{ debut, fin }];
-  }
-
-  const lendemain = ajouterJoursIso(projection.date, 1);
-  if (projection.date_fin !== lendemain) {
-    return [];
-  }
-
-  if (projection.heure_fin === "24:00") {
-    return debut < 24 * 60 ? [{ debut, fin: 24 * 60 }] : [];
-  }
-
-  const segments = [];
-  if (debut < 24 * 60) {
-    segments.push({ debut, fin: 24 * 60 });
-  }
-  if (fin > 0) {
-    segments.push({ debut: 0, fin });
-  }
-  return segments;
+  return Number.isFinite(total) && total >= 0 && total <= 48 * 60 ? total : null;
 }
 
 function obtenirFenetreHorairePublique(
@@ -187,19 +166,36 @@ function obtenirFenetreHorairePublique(
       calendar_end_time: plage.calendar_end_time,
       slot_min_time: plage.slot_min_time,
       slot_max_time: plage.slot_max_time,
+      slot_min_minutes: plage.startMinutes,
+      slot_max_minutes: plage.endMinutes,
     };
   }
 
   // Le décalage public est fixe : une seule projection civile suffit. Il
   // n'existe plus d'union saisonnière de fenêtres IANA à calculer.
-  const segments = extraireSegmentsPlagePublique(projection);
+  const debutProjete = convertirHeureHorlogeEnMinutes(projection.heure_debut);
+  const finProjete = convertirHeureHorlogeEnMinutes(projection.heure_fin);
+  const franchitMinuit =
+    projection.date_fin === ajouterJoursIso(projection.date, 1) &&
+    projection.heure_fin !== "24:00";
+  const slotMin = debutProjete;
+  // La grille doit représenter une période continue. Ainsi 08:00–23:30 en
+  // GMT+2 devient 10:00–25:30, plutôt qu'une union 00:00–24:00 qui masque
+  // la borne de début et dissocie les créneaux du lendemain.
+  const slotMax = finProjete + (franchitMinuit ? 24 * 60 : 0);
 
-  const slotMin = segments.length
-    ? Math.min(...segments.map((segment) => segment.debut))
-    : plage.startMinutes;
-  const slotMax = segments.length
-    ? Math.max(...segments.map((segment) => segment.fin))
-    : plage.endMinutes;
+  if (!Number.isFinite(slotMin) || !Number.isFinite(slotMax) || slotMax <= slotMin) {
+    return {
+      debut: plage.startMinutes,
+      fin: plage.endMinutes,
+      calendar_start_time: plage.calendar_start_time,
+      calendar_end_time: plage.calendar_end_time,
+      slot_min_time: plage.slot_min_time,
+      slot_max_time: plage.slot_max_time,
+      slot_min_minutes: plage.startMinutes,
+      slot_max_minutes: plage.endMinutes,
+    };
+  }
 
   return {
     debut: plage.startMinutes,
@@ -207,8 +203,10 @@ function obtenirFenetreHorairePublique(
     calendar_start_time: projection.heure_debut,
     calendar_end_time:
       projection.heure_fin === "24:00" ? "00:00" : projection.heure_fin,
-    slot_min_time: `${convertirMinutesEnHeure(slotMin)}:00`,
-    slot_max_time: `${convertirMinutesEnHeure(slotMax)}:00`,
+    slot_min_time: `${convertirMinutesEnDureeCalendrier(slotMin)}:00`,
+    slot_max_time: `${convertirMinutesEnDureeCalendrier(slotMax)}:00`,
+    slot_min_minutes: slotMin,
+    slot_max_minutes: slotMax,
   };
 }
 
@@ -253,7 +251,12 @@ function transformerPlageIndisponible(plage) {
   const intervenantId = normaliserIdentifiant(plage?.intervenant_id);
   const date = String(plage?.date || "");
 
-  if (!estDateIsoValide(date)) {
+  // Une seance legacy sans intervenant ne peut pas etre attribuee a toute
+  // l'equipe par defaut. Le calendrier public suit le calendrier central :
+  // seul le realisateur explicitement porte par la plage peut etre bloque.
+  // Les identifiants absents ou invalides sont donc ignores jusqu'a leur
+  // reconciliation, plutot que de masquer des creneaux encore disponibles.
+  if (!intervenantId || !estDateIsoValide(date)) {
     return null;
   }
 
@@ -284,141 +287,10 @@ function transformerPlageIndisponible(plage) {
 
 function plageBloqueIntervenant(plage, intervenantId, debutCreneau, finCreneau) {
   return (
-    (!plage.intervenantId || plage.intervenantId === intervenantId) &&
+    plage.intervenantId === intervenantId &&
     plage.debut < finCreneau &&
     plage.fin > debutCreneau
   );
-}
-
-function obtenirJourSemaineLundiZero(dateIso) {
-  const date = new Date(`${dateIso}T12:00:00Z`);
-
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return (date.getUTCDay() + 6) % 7;
-}
-
-function extraireIntervalleHoraire(plage) {
-  const debut = convertirHeureEnMinutes(plage?.heure_debut);
-  const fin = convertirHeureCalendrierEnMinutes(plage?.heure_fin, {
-    fin: true,
-    accepterMinuit24: true,
-  });
-
-  if (!Number.isFinite(debut) || !Number.isFinite(fin)) {
-    return !normaliserTexte(plage?.heure_debut) && !normaliserTexte(plage?.heure_fin)
-      ? { debut: 0, fin: 24 * 60 }
-      : null;
-  }
-
-  return fin > debut ? { debut, fin } : null;
-}
-
-function intervallesCouvrentCreneau(intervalles, debutCreneau, finCreneau) {
-  let borneCouverte = debutCreneau;
-  const tri = [...intervalles]
-    .filter(Boolean)
-    .sort((intervalleA, intervalleB) => intervalleA.debut - intervalleB.debut);
-
-  for (const intervalle of tri) {
-    if (intervalle.fin <= borneCouverte || intervalle.debut > borneCouverte) {
-      continue;
-    }
-
-    borneCouverte = Math.max(borneCouverte, intervalle.fin);
-
-    if (borneCouverte >= finCreneau) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function plageHoraireChevaucheCreneau(plage, debutCreneau, finCreneau) {
-  const intervalle = extraireIntervalleHoraire(plage);
-  return Boolean(intervalle && intervalle.debut < finCreneau && intervalle.fin > debutCreneau);
-}
-
-function regleDisponibiliteSApplique(regle, date) {
-  const type = normaliserTexte(regle?.type).toLowerCase();
-  return (
-    (type === "recurrente" &&
-      Number(regle?.jour_semaine) === obtenirJourSemaineLundiZero(date)) ||
-    (type === "ponctuelle" && String(regle?.date || "") === date)
-  );
-}
-
-function exceptionCouvreDate(exception, date) {
-  return String(exception?.date || "") === date;
-}
-
-function intervenantEstDisponiblePourCreneau({
-  disponibiliteIntervenant,
-  date,
-  debutCreneau,
-  finCreneau,
-}) {
-  const regles = disponibiliteIntervenant?.regles || [];
-  const exceptions = disponibiliteIntervenant?.exceptions || [];
-  const intervallesPositifs = [
-    ...regles
-      .filter((regle) => regleDisponibiliteSApplique(regle, date))
-      .map(extraireIntervalleHoraire),
-    ...exceptions
-      .filter(
-        (exception) =>
-          exceptionCouvreDate(exception, date) &&
-          normaliserTexte(exception?.type).toLowerCase() === "disponible"
-      )
-      .map(extraireIntervalleHoraire),
-  ];
-  const couvertParDisponibilitePositive = intervallesCouvrentCreneau(
-    intervallesPositifs,
-    debutCreneau,
-    finCreneau
-  );
-
-  if (!couvertParDisponibilitePositive) {
-    // Politique publique explicite : sans regle positive (ou exception
-    // positive), le creneau ne peut pas etre annonce comme disponible.
-    return false;
-  }
-
-  return !exceptions.some(
-    (exception) =>
-      exceptionCouvreDate(exception, date) &&
-      normaliserTexte(exception?.type).toLowerCase() === "indisponible" &&
-      plageHoraireChevaucheCreneau(exception, debutCreneau, finCreneau)
-  );
-}
-
-async function listerDisponibilitesIntervenantsPublics({
-  handlerId,
-  intervenantIds,
-  dateDebut,
-  dateFin,
-}) {
-  const entrees = await Promise.all(
-    (intervenantIds || []).map(async (intervenantId) => {
-      const [regles, exceptions] = await Promise.all([
-        listerReglesDisponibiliteActivesIntervenant(handlerId, intervenantId, {
-          dateDebut,
-          dateFin,
-        }),
-        listerExceptionsDisponibiliteIntervenant(handlerId, intervenantId, {
-          dateDebut,
-          dateFin,
-        }),
-      ]);
-
-      return [intervenantId, { regles, exceptions }];
-    })
-  );
-
-  return new Map(entrees);
 }
 
 function fusionnerCreneauxPublics(creneaux) {
@@ -482,10 +354,51 @@ function decouperCreneauProjete(projection, etat) {
   ];
 }
 
+function creneauIntersecteFenetrePubliqueVisible(creneau, contexteSemaine, fenetre) {
+  const debutCreneau = convertirHeureHorlogeEnMinutes(creneau?.heure_debut);
+  const finCreneau = convertirHeureHorlogeEnMinutes(creneau?.heure_fin);
+  const debutFenetre = Number.isFinite(fenetre?.slot_min_minutes)
+    ? Number(fenetre.slot_min_minutes)
+    : convertirDureeCalendrierEnMinutes(fenetre?.slot_min_time);
+  const finFenetre = Number.isFinite(fenetre?.slot_max_minutes)
+    ? Number(fenetre.slot_max_minutes)
+    : convertirDureeCalendrierEnMinutes(fenetre?.slot_max_time);
+
+  if (
+    !estDateIsoValide(creneau?.date) ||
+    !Number.isFinite(debutCreneau) ||
+    !Number.isFinite(finCreneau) ||
+    finCreneau <= debutCreneau ||
+    !Number.isFinite(debutFenetre) ||
+    !Number.isFinite(finFenetre)
+  ) {
+    return false;
+  }
+
+  const debut = dateHeureLocaleVersValeur(creneau.date, debutCreneau);
+  const fin = dateHeureLocaleVersValeur(creneau.date, finCreneau);
+  const borneDebut = dateHeureLocaleVersValeur(
+    contexteSemaine.week_start,
+    debutFenetre
+  );
+  const borneFin = dateHeureLocaleVersValeur(contexteSemaine.week_end, finFenetre);
+
+  // FullCalendar crée une plage par colonne de `date + slotMinTime` à
+  // `date + slotMaxTime`. Avec une fin à 25:30, le début du lundi appartient
+  // donc encore à la colonne dimanche et doit rester dans la réponse API.
+  return (
+    Number.isFinite(debut) &&
+    Number.isFinite(fin) &&
+    Number.isFinite(borneDebut) &&
+    Number.isFinite(borneFin) &&
+    debut < borneFin &&
+    fin > borneDebut
+  );
+}
+
 function construireCreneauxPublics({
   contexteSemaine,
   intervenantIds,
-  disponibilitesParIntervenant,
   plagesIndisponibles,
   fenetreHoraire,
   publicCalendarTimezone,
@@ -527,14 +440,12 @@ function construireCreneauxPublics({
         continue;
       }
 
+      // Un Realisateur rattache actif est disponible par defaut. Le calendrier
+      // public suit le calendrier central : un creneau est indisponible quand
+      // tous les professeurs actifs sont bloques par une seance ou une
+      // indisponibilite. Le Handler ne participe pas a ce calcul.
       const disponible = intervenantsActifs.some(
         (intervenantId) =>
-          intervenantEstDisponiblePourCreneau({
-            disponibiliteIntervenant: disponibilitesParIntervenant?.get(intervenantId),
-            date,
-            debutCreneau: minutes,
-            finCreneau: minutes + PUBLIC_CALENDAR_SLOT_DURATION_MINUTES,
-          }) &&
           !plages.some((plage) => plageBloqueIntervenant(plage, intervenantId, debut, fin))
       );
 
@@ -554,9 +465,7 @@ function construireCreneauxPublics({
 
       creneaux.push(
         ...creneauxProjetes.filter(
-          (creneau) =>
-            creneau.date >= contexteSemaine.week_start &&
-            creneau.date <= contexteSemaine.week_end
+          (creneau) => creneauIntersecteFenetrePubliqueVisible(creneau, contexteSemaine, fenetre)
         )
       );
     }
@@ -638,12 +547,6 @@ async function recupererPlanningReservationPublique(req, res) {
       dateFin: ajouterJoursIso(contexteSemaine.week_end, 2),
     }),
   ]);
-  const disponibilitesParIntervenant = await listerDisponibilitesIntervenantsPublics({
-    handlerId: handler.id,
-    intervenantIds,
-    dateDebut: ajouterJoursIso(contexteSemaine.week_start, -2),
-    dateFin: ajouterJoursIso(contexteSemaine.week_end, 2),
-  });
   const fenetre = obtenirFenetreHorairePublique(
     handler.calendrier,
     handler.fuseauPublic.identifiant,
@@ -652,7 +555,6 @@ async function recupererPlanningReservationPublique(req, res) {
   const creneaux = construireCreneauxPublics({
     contexteSemaine,
     intervenantIds,
-    disponibilitesParIntervenant,
     plagesIndisponibles,
     fenetreHoraire: fenetre,
     publicCalendarTimezone: handler.fuseauPublic.identifiant,

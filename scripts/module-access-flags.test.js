@@ -4,7 +4,12 @@ const {
   verifierAccesMonetisation,
   verifierAccesIndisponibilites,
 } = require("../middleware/auth.middleware");
+const {
+  verifierDeclarationDisponibiliteProfesseur,
+  verifierMutationPropositionIndisponibiliteHandler,
+} = require("../middleware/scope.middleware");
 const routesMonetisation = require("../routes/monetisation.routes");
+const routesDashboard = require("../routes/dashboard.routes");
 const routesIndisponibilites = require("../routes/indisponibilites.routes");
 const routesDisponibilites = require("../routes/disponibilites.routes");
 
@@ -64,10 +69,9 @@ function assertRouteProtégée(routeur, label) {
 }
 
 function main() {
-  assertRefuse(
+  assertAutorise(
     executerMiddleware(verifierAccesMonetisation, requete({ roles: { professeur: true } })),
-    "MONETISATION_ACCESS_DISABLED",
-    "Professeur sans monétisation"
+    "Professeur avec accès personnel à la monétisation"
   );
   assertAutorise(
     executerMiddleware(
@@ -85,12 +89,11 @@ function main() {
     "Super Admin"
   );
 
-  assertRefuse(
+  assertAutorise(
     executerMiddleware(
       verifierAccesIndisponibilites,
       requete({ roles: { professeur: true } })
     ),
-    "UNAVAILABILITY_ACCESS_DISABLED",
     "Professeur sans disponibilités"
   );
   assertAutorise(
@@ -103,12 +106,21 @@ function main() {
     ),
     "Professeur avec disponibilités"
   );
-  assertAutorise(
+  assertRefuse(
     executerMiddleware(
       verifierAccesIndisponibilites,
       requete({ roles: { handler: true } })
     ),
-    "Handler disponibilités"
+    "HANDLER_UNAVAILABILITY_FORBIDDEN",
+    "Handler indisponibilités"
+  );
+  assertRefuse(
+    executerMiddleware(
+      verifierAccesIndisponibilites,
+      requete({ roles: { handler: true, professeur: true } })
+    ),
+    "HANDLER_UNAVAILABILITY_FORBIDDEN",
+    "Compte double rôle Handler/Professeur"
   );
   assertAutorise(
     executerMiddleware(
@@ -124,6 +136,43 @@ function main() {
   );
   assertRouteProtégée(routesIndisponibilites, "Les routes indisponibilités");
   assertRouteProtégée(routesDisponibilites, "Les routes disponibilités");
+  assert.ok(
+    routesDashboard.stack.some((couche) => couche.name === "verifierRoleHandler"),
+    "Le flux du calendrier central doit être réservé au Handler."
+  );
+
+  assertAutorise(
+    executerMiddleware(
+      verifierDeclarationDisponibiliteProfesseur,
+      requete({ roles: { professeur: true } })
+    ),
+    "Professor may declare own unavailability"
+  );
+  assertRefuse(
+    executerMiddleware(
+      verifierDeclarationDisponibiliteProfesseur,
+      requete({ roles: { handler: true } })
+    ),
+    "HANDLER_UNAVAILABILITY_FORBIDDEN",
+    "Handler cannot declare own unavailability"
+  );
+  assertRefuse(
+    executerMiddleware(
+      verifierMutationPropositionIndisponibiliteHandler,
+      requete({ roles: { handler: true } })
+    ),
+    "HANDLER_UNAVAILABILITY_FORBIDDEN",
+    "Handler cannot mutate an unavailability proposal"
+  );
+  assert.ok(
+    routesIndisponibilites.stack.some((couche) =>
+      couche.route?.stack?.some(
+        (gestionnaire) =>
+          gestionnaire.handle.name === "verifierDeclarationDisponibiliteProfesseur"
+      )
+    ),
+    "Unavailability writes must be protected by the personal-role guard."
+  );
 
   console.log("module-access-flags test: PASS");
 }

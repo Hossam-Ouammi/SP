@@ -125,7 +125,7 @@ function convertirInstantVersHorlogePubliqueUtc(dateObjet = new Date()) {
 function convertirHeureOptionEnMinutes(heure) {
   const correspondance = String(heure || "")
     .trim()
-    .match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+    .match(/^(\d{2,}):([0-5]\d)(?::[0-5]\d)?$/);
 
   if (!correspondance) {
     return null;
@@ -134,7 +134,12 @@ function convertirHeureOptionEnMinutes(heure) {
   const heures = Number(correspondance[1]);
   const minutes = Number(correspondance[2]);
 
-  if (!Number.isFinite(heures) || !Number.isFinite(minutes)) {
+  if (
+    !Number.isFinite(heures) ||
+    !Number.isFinite(minutes) ||
+    heures < 0 ||
+    heures > 48
+  ) {
     return null;
   }
 
@@ -142,7 +147,10 @@ function convertirHeureOptionEnMinutes(heure) {
 }
 
 function convertirMinutesEnHeureOption(totalMinutes) {
-  const minutesNormalisees = Math.max(0, Math.min(24 * 60, Number(totalMinutes) || 0));
+  // FullCalendar accepte une durée de grille supérieure à vingt-quatre
+  // heures. Cela permet d'afficher la partie 00:00–01:30 du lendemain sous
+  // la colonne de la journée publique qui a commencé à 10:00.
+  const minutesNormalisees = Math.max(0, Math.min(48 * 60, Number(totalMinutes) || 0));
   const heures = String(Math.floor(minutesNormalisees / 60)).padStart(2, "0");
   const minutes = String(minutesNormalisees % 60).padStart(2, "0");
   return `${heures}:${minutes}:00`;
@@ -259,26 +267,35 @@ function genererContenuEnteteJour(info) {
 }
 
 function evenementCreneau(creneau, index) {
-  const estDisponible = creneau.etat === "disponible";
+  // Les créneaux disponibles restent volontairement vierges. Le calendrier
+  // public ne rend que les indisponibilités, tout en conservant les données
+  // complètes reçues de l'API.
+  if (creneau?.etat !== "indisponible") {
+    return null;
+  }
 
   return {
     // Cet identifiant est local au rendu FullCalendar : il ne provient jamais
     // de la base de donnees et ne revele aucun objet metier.
     id: `public-slot-${index}`,
-    title: estDisponible ? "Disponible" : "Indisponible",
+    title: "Indisponible",
     start: `${creneau.date}T${creneau.heure_debut}:00Z`,
     end:
       creneau.heure_fin === "24:00"
         ? `${ajouterJoursIso(creneau.date, 1)}T00:00:00Z`
         : `${creneau.date}T${creneau.heure_fin}:00Z`,
     display: "block",
-    classNames: estDisponible
-      ? ["reservation-public-available-event"]
-      : ["reservation-public-blocked-event", "calendar-mobile-week-indisponibilite"],
+    classNames: ["reservation-public-blocked-event", "calendar-mobile-week-indisponibilite"],
     extendedProps: {
-      etat: estDisponible ? "disponible" : "indisponible",
+      etat: "indisponible",
     },
   };
+}
+
+function construireEvenementsIndisponibles(creneaux) {
+  return (Array.isArray(creneaux) ? creneaux : [])
+    .map(evenementCreneau)
+    .filter(Boolean);
 }
 
 function mettreAJourCalendrier() {
@@ -289,7 +306,7 @@ function mettreAJourCalendrier() {
   const creneaux = Array.isArray(etat.planning?.creneaux) ? etat.planning.creneaux : [];
   etat.calendrier.batchRendering(() => {
     etat.calendrier.removeAllEvents();
-    etat.calendrier.addEventSource(creneaux.map(evenementCreneau));
+    etat.calendrier.addEventSource(construireEvenementsIndisponibles(creneaux));
   });
 }
 
@@ -594,8 +611,7 @@ function initialiserCalendrier(initialWeekStart) {
       synchroniserEtatVisuelCalendrier(elements.calendar, etat.calendrier?.view?.type);
     },
     eventDidMount(info) {
-      info.el.title =
-        info.event.extendedProps?.etat === "disponible" ? "Disponible" : "Indisponible";
+      info.el.title = "Indisponible";
     },
     eventClick(info) {
       info.jsEvent?.preventDefault();

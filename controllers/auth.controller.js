@@ -24,7 +24,10 @@ const {
   compteEstActif,
 } = require("../middleware/auth.middleware");
 const { construireScopeAcces } = require("../models/access-scope.model");
-const { motDePasseRespectePolitique } = require("../utils/security");
+const {
+  motDePasseEstCompatibleBcrypt,
+  motDePasseRespectePolitique,
+} = require("../utils/security");
 const {
   analyserCookieAppareil,
   creerAppareilAutoLogin,
@@ -273,7 +276,10 @@ async function authentifierConnexion(req, res, options = {}) {
     throw creerErreurConnexion(400, "Identifiant et mot de passe obligatoires.");
   }
 
-  if (identifiant.length > 120 || String(motDePasse).length > 200) {
+  // bcrypt ignores bytes after its 72-byte boundary.  New passwords already
+  // enforce this limit; enforce it on authentication too so a valid password
+  // cannot silently be accepted with an arbitrary appended suffix.
+  if (identifiant.length > 120 || !motDePasseEstCompatibleBcrypt(motDePasse)) {
     throw creerErreurConnexion(400, "Les identifiants fournis sont invalides.");
   }
 
@@ -444,10 +450,16 @@ async function modifierMotDePasse(req, res) {
     });
   }
 
+  if (!motDePasseEstCompatibleBcrypt(motDePasseActuel)) {
+    return res.status(400).json({
+      message: "Le mot de passe actuel est incorrect.",
+    });
+  }
+
   if (!motDePasseRespectePolitique(nouveauMotDePasse)) {
     return res.status(400).json({
       message:
-        "Le nouveau mot de passe doit contenir au moins 12 caracteres, avec une minuscule, une majuscule, un chiffre et un caractere special.",
+        "Le nouveau mot de passe doit contenir entre 12 caracteres et 72 octets UTF-8, avec une minuscule, une majuscule, un chiffre et un caractere special.",
     });
   }
 

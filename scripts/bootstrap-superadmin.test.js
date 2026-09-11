@@ -18,6 +18,7 @@ const {
   fermerBaseDeDonnees,
   all,
   get,
+  run,
 } = require("../models/db");
 
 async function main() {
@@ -62,6 +63,39 @@ async function main() {
     professeur_id: utilisateur.id,
     actif: 1,
   });
+
+  // Bootstrap variables are only allowed to provision this brand-new
+  // account. A deliberate role or membership revocation must survive a later
+  // database initialization/restart while those variables are still present.
+  await run(
+    "DELETE FROM utilisateur_roles WHERE utilisateur_id = ? AND role = 'super_admin'",
+    [utilisateur.id]
+  );
+  await run(
+    "UPDATE rattachements_professeurs SET actif = 0 WHERE handler_id = ? AND professeur_id = ?",
+    [utilisateur.id, utilisateur.id]
+  );
+
+  await initialiserBaseDeDonnees();
+
+  const rolesApresReinitialisation = await all(
+    "SELECT role FROM utilisateur_roles WHERE utilisateur_id = ? ORDER BY role ASC",
+    [utilisateur.id]
+  );
+  assert.deepEqual(
+    rolesApresReinitialisation.map((ligne) => ligne.role),
+    ["handler", "professeur"],
+    "Un redemarrage ne doit jamais restaurer le role SuperAdmin revoque."
+  );
+  const rattachementApresReinitialisation = await get(
+    "SELECT actif FROM rattachements_professeurs WHERE handler_id = ? AND professeur_id = ? LIMIT 1",
+    [utilisateur.id, utilisateur.id]
+  );
+  assert.equal(
+    Number(rattachementApresReinitialisation?.actif),
+    0,
+    "Un redemarrage ne doit jamais reactiver un rattachement bootstrap desactive."
+  );
 
   console.log("bootstrap-superadmin test: PASS");
 }

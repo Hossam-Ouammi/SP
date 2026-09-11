@@ -489,6 +489,49 @@ async function revoquerJetonsActifs({ utilisateurId = null, demandeId = null, ty
   );
 }
 
+async function trouverJetonReinitialisationActif(utilisateurId) {
+  const utilisateur = normaliserIdentifiant(utilisateurId);
+
+  if (!utilisateur) {
+    return null;
+  }
+
+  return get(
+    `
+      SELECT id, expires_at
+      FROM tokens_compte
+      WHERE utilisateur_id = ?
+        AND type = ?
+        AND used_at IS NULL
+        AND revoked_at IS NULL
+        AND julianday(expires_at) > julianday('now')
+      ORDER BY id DESC
+      LIMIT 1
+    `,
+    [utilisateur, TYPES_TOKEN.RESET_PASSWORD]
+  );
+}
+
+async function invaliderJetonReinitialisationMotDePasse({ token }) {
+  const tokenNormalise = String(token || "").trim();
+
+  if (!tokenNormalise) {
+    return { changes: 0 };
+  }
+
+  return run(
+    `
+      UPDATE tokens_compte
+      SET revoked_at = CURRENT_TIMESTAMP
+      WHERE type = ?
+        AND token_hash = ?
+        AND used_at IS NULL
+        AND revoked_at IS NULL
+    `,
+    [TYPES_TOKEN.RESET_PASSWORD, hacherTokenCompte(tokenNormalise)]
+  );
+}
+
 async function handlerEstActif(handlerId) {
   const handler = normaliserIdentifiant(handlerId);
 
@@ -725,8 +768,16 @@ async function creerNouveauJetonActivationPourDemande({
   });
 }
 
-async function creerJetonReinitialisationMotDePasse({ identifiant, expiresInMinutes }) {
+async function creerJetonReinitialisationMotDePasse({
+  identifiant,
+  expiresInMinutes,
+  forcerNouveauLien = false,
+}) {
   const valeur = normaliserTexte(identifiant);
+  // The model is the final authority for this security property.  Even an
+  // internal caller cannot accidentally create a password-reset URL valid for
+  // longer than the public fifteen-minute promise.
+  const dureeMinutes = Math.min(Math.max(Number(expiresInMinutes) || 15, 1), 15);
 
   if (!valeur || valeur.length > 160) {
     return null;
@@ -749,6 +800,21 @@ async function creerJetonReinitialisationMotDePasse({ identifiant, expiresInMinu
       return null;
     }
 
+    const jetonActif = await trouverJetonReinitialisationActif(utilisateur.id);
+
+    // The public recovery form is deliberately idempotent while a valid link
+    // exists.  We store only a hash of the raw token, so it cannot be mailed a
+    // second time without minting a different URL.  Returning no raw token
+    // tells the controller not to send a duplicate email on repeated clicks.
+    if (jetonActif && !forcerNouveauLien) {
+      return {
+        utilisateur: serialiserUtilisateurCycleCompte(utilisateur),
+        resetToken: null,
+        resetExpiresAt: jetonActif.expires_at,
+        dejaActif: true,
+      };
+    }
+
     await revoquerJetonsActifs({
       utilisateurId: utilisateur.id,
       type: TYPES_TOKEN.RESET_PASSWORD,
@@ -756,13 +822,14 @@ async function creerJetonReinitialisationMotDePasse({ identifiant, expiresInMinu
     const reset = await creerTokenCompte({
       utilisateurId: utilisateur.id,
       type: TYPES_TOKEN.RESET_PASSWORD,
-      expiresInMinutes,
+      expiresInMinutes: dureeMinutes,
     });
 
     return {
       utilisateur: serialiserUtilisateurCycleCompte(utilisateur),
       resetToken: reset.token,
       resetExpiresAt: reset.expiresAt,
+      dejaActif: false,
     };
   });
 }
@@ -790,6 +857,17 @@ async function trouverJetonActif(type, tokenHash) {
     `,
     [type, tokenHash]
   );
+}
+
+async function verifierJetonCompte({ type, token }) {
+  const typeInterne = type === "activation" ? TYPES_TOKEN.ACTIVATION :
+    type === "reset-password" ? TYPES_TOKEN.RESET_PASSWORD : null;
+  if (!typeInterne || !token) return false;
+  const jeton = await trouverJetonActif(typeInterne, hacherTokenCompte(token));
+  if (!jeton) return false;
+  return typeInterne === TYPES_TOKEN.ACTIVATION
+    ? jeton.statut_compte === STATUTS_COMPTE.EN_ATTENTE_ACTIVATION && Number(jeton.acces_active) === 0
+    : jeton.statut_compte === STATUTS_COMPTE.ACTIF && Number(jeton.acces_active) === 1;
 }
 
 async function activerCompteAvecJeton({ token, motDePasseHash }) {
@@ -965,6 +1043,8 @@ module.exports = {
   refuserDemandeInscription,
   creerNouveauJetonActivationPourDemande,
   creerJetonReinitialisationMotDePasse,
+  invaliderJetonReinitialisationMotDePasse,
+  verifierJetonCompte,
   activerCompteAvecJeton,
   reinitialiserMotDePasseAvecJeton,
 };

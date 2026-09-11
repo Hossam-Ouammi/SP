@@ -164,25 +164,6 @@ async function main() {
     "CALENDAR_RANGE_VIOLATION"
   );
 
-  await run(
-    "UPDATE utilisateurs SET calendar_start_time = '08:00', calendar_end_time = '00:00' WHERE id = ?",
-    [handler.id]
-  );
-  const regleFinMinuit = await creerRegleDisponibilite({
-    handlerId: handler.id,
-    intervenantId: handler.id,
-    creePar: handler.id,
-    type: TYPES_DISPONIBILITE.PONCTUELLE,
-    date: "2031-01-16",
-    heureDebut: "23:30",
-    heureFin: "00:00",
-  });
-  assert.equal(
-    regleFinMinuit.heure_fin,
-    "24:00",
-    "Le modele stocke et restitue minuit comme borne finale 24:00."
-  );
-
   const ponctuelle = await creerRegleDisponibilite({
     handlerId: handler.id,
     intervenantId: handler.id,

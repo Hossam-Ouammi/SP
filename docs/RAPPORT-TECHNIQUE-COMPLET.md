@@ -1,5 +1,10 @@
 # Rapport technique complet — calendrier Handler et évolution multi-utilisateur
 
+> **Archive historique — non normative.** Ce rapport décrit un état intermédiaire
+> du 7 septembre 2026 et peut mentionner des écrans ou workflows retirés depuis.
+> Pour l'état actuel, suivre le code, [l'audit actuel](AUDIT-ACTUEL-2026-09-10.md)
+> et le [guide de déploiement](DEPLOIEMENT-MULTI-UTILISATEUR.md).
+
 Audit réalisé le 7 septembre 2026 sur le code présent dans le dépôt. Ce rapport
 fait la différence entre ce qui a été vérifié dans le code et les limites qui
 restent réellement ouvertes. Le dépôt était déjà très modifié avant cet audit ;

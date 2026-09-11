@@ -16,6 +16,9 @@ const {
   chargerScopeAcces,
   verifierScopeHandlerCourant,
   verifierRoleHandler,
+  verifierCreationPropositionProfesseur,
+  verifierLecturePropositionIndisponibiliteHandler,
+  verifierMutationPropositionIndisponibiliteHandler,
 } = require("../middleware/scope.middleware");
 const { notifierMiseAJourApplication } = require("../utils/realtime-route");
 
@@ -28,27 +31,31 @@ router.use(
   verifierScopeHandlerCourant
 );
 
-router.get("/", recupererPropositionsSeances);
+router.get("/", verifierLecturePropositionIndisponibiliteHandler, recupererPropositionsSeances);
 router.post(
   "/",
   verifierModeEcritureAutorise,
+  verifierCreationPropositionProfesseur,
   notifierMiseAJourApplication(ajouterPropositionSeance, "propositions")
 );
 router.put(
   "/:id",
   verifierModeEcritureAutorise,
+  verifierMutationPropositionIndisponibiliteHandler,
   verifierRoleHandler,
   notifierMiseAJourApplication(modifierPropositionSeance, "propositions")
 );
 router.post(
   "/:id/accepter",
   verifierModeEcritureAutorise,
+  verifierMutationPropositionIndisponibiliteHandler,
   verifierRoleHandler,
   notifierMiseAJourApplication(accepterPropositionSeance, "propositions")
 );
 router.post(
   "/:id/refuser",
   verifierModeEcritureAutorise,
+  verifierMutationPropositionIndisponibiliteHandler,
   verifierRoleHandler,
   notifierMiseAJourApplication(refuserPropositionSeance, "propositions")
 );

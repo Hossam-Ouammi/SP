@@ -25,10 +25,26 @@ function normaliserListeIdentifiants(valeurs = []) {
  */
 function construireFiltreSeancesScopees(scope = {}) {
   const handlerIds = normaliserListeIdentifiants(scope.handlerIds);
+  const handlerOwnIds = normaliserListeIdentifiants(scope.handlerOwnIds);
+  const handlerProfesseurIds = normaliserListeIdentifiants(scope.handlerProfesseurIds)
+    .filter((handlerId) => !handlerOwnIds.includes(handlerId));
   const intervenantId = normaliserIdentifiant(scope.intervenantId);
 
   if (handlerIds.length === 0) {
     return { clause: "1 = 0", parametres: [] };
+  }
+
+  if (handlerOwnIds.length > 0 && handlerProfesseurIds.length > 0 && intervenantId) {
+    return {
+      clause: `(
+        seances.handler_id IN (${handlerOwnIds.map(() => "?").join(", ")})
+        OR (
+          seances.handler_id IN (${handlerProfesseurIds.map(() => "?").join(", ")})
+          AND seances.intervenant_id = ?
+        )
+      )`,
+      parametres: [...handlerOwnIds, ...handlerProfesseurIds, intervenantId],
+    };
   }
 
   const clauses = [
@@ -92,30 +108,6 @@ async function listerSeancesScopees(scope = {}) {
       ORDER BY seances.date ASC, seances.heure_debut ASC, seances.id ASC
     `,
     filtre.parametres
-  );
-}
-
-async function listerSeancesPourMonetisation(utilisateurId = null) {
-  const clauseWhere = utilisateurId ? "WHERE utilisateur_id = ?" : "";
-  const parametres = utilisateurId ? [utilisateurId] : [];
-
-  return all(
-    `
-      SELECT
-        id,
-        etudiant,
-        matiere,
-        compte,
-        est_essai,
-        date,
-        heure_debut,
-        heure_fin,
-        duree_minutes,
-        statut_seance
-      FROM seances
-      ${clauseWhere}
-    `,
-    parametres
   );
 }
 
@@ -304,6 +296,12 @@ async function trouverSeanceIntervenantChevauchante({
 }
 
 async function creerSeance(donneesSeance) {
+  const tarifSnapshotBrut = donneesSeance.tarif_horaire_applique;
+  const tarifSnapshot =
+    tarifSnapshotBrut === null || tarifSnapshotBrut === undefined
+      ? null
+      : Number(tarifSnapshotBrut);
+
   const resultat = await run(
     `
       INSERT INTO seances (
@@ -350,9 +348,7 @@ async function creerSeance(donneesSeance) {
       donneesSeance.utilisateur_id,
       normaliserIdentifiant(donneesSeance.handler_id),
       normaliserIdentifiant(donneesSeance.intervenant_id),
-      Number.isFinite(Number(donneesSeance.tarif_horaire_applique))
-        ? Number(donneesSeance.tarif_horaire_applique)
-        : null,
+      Number.isFinite(tarifSnapshot) ? tarifSnapshot : null,
     ]
   );
 
@@ -360,6 +356,12 @@ async function creerSeance(donneesSeance) {
 }
 
 async function mettreAJourSeance(id, donneesSeance, utilisateurId = null) {
+  const tarifSnapshotBrut = donneesSeance.tarif_horaire_applique;
+  const tarifSnapshot =
+    tarifSnapshotBrut === null || tarifSnapshotBrut === undefined
+      ? null
+      : Number(tarifSnapshotBrut);
+
   await run(
     `
       UPDATE seances
@@ -403,9 +405,7 @@ async function mettreAJourSeance(id, donneesSeance, utilisateurId = null) {
       donneesSeance.modifie_par,
       normaliserIdentifiant(donneesSeance.handler_id),
       normaliserIdentifiant(donneesSeance.intervenant_id),
-      Number.isFinite(Number(donneesSeance.tarif_horaire_applique))
-        ? Number(donneesSeance.tarif_horaire_applique)
-        : null,
+      Number.isFinite(tarifSnapshot) ? tarifSnapshot : null,
       id,
       ...(utilisateurId ? [utilisateurId] : []),
     ]
@@ -444,7 +444,6 @@ module.exports = {
   construireFiltreSeancesScopees,
   listerToutesLesSeances,
   listerSeancesScopees,
-  listerSeancesPourMonetisation,
   listerToutesLesSeancesPourMonetisation,
   listerSeancesPourMonetisationScopees,
   trouverSeanceParId,

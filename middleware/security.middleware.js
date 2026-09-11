@@ -55,6 +55,44 @@ function origineCorrespond(origine, origineAttendue) {
   }
 }
 
+function estClientApiExpliciteSansProvenance(req) {
+  const chemin = String(req.path || req.originalUrl || "").split("?", 1)[0];
+  const requestedWith = String(req.get("x-requested-with") || "")
+    .trim()
+    .toLowerCase();
+
+  // A browser on another origin cannot add this non-simple header without a
+  // CORS preflight, and this application does not grant cross-origin CORS.
+  // It keeps the documented JSON API usable for server-side/direct clients
+  // that do not emit Origin or Referer, while HTML form posts stay subject to
+  // provenance verification.
+  return chemin.startsWith("/api/") && requestedWith === "xmlhttprequest";
+}
+
+function estNavigationFormulaireMemeSiteSansProvenance(req) {
+  const chemin = String(req.path || req.originalUrl || "").split("?", 1)[0];
+  const fetchSite = String(req.get("sec-fetch-site") || "")
+    .trim()
+    .toLowerCase();
+  const fetchMode = String(req.get("sec-fetch-mode") || "")
+    .trim()
+    .toLowerCase();
+  const fetchDest = String(req.get("sec-fetch-dest") || "")
+    .trim()
+    .toLowerCase();
+
+  // A real same-site browser navigation can be identified even where a
+  // privacy setting omits Origin/Referer. Unlike an API header, Fetch
+  // Metadata is set by the browser and cannot be forged by a cross-site HTML
+  // form. The only server-rendered mutation is the root login form.
+  return (
+    chemin === "/" &&
+    fetchSite === "same-origin" &&
+    fetchMode === "navigate" &&
+    fetchDest === "document"
+  );
+}
+
 function appliquerEnTetesSecurite(req, res, next) {
   const directivesCsp = [
     "default-src 'self'",
@@ -119,6 +157,18 @@ function verifierOrigineRequete(req, res, next) {
   if (!origin && referer && !origineCorrespond(referer, origineAttendue)) {
     return res.status(403).json({
       message: "Référent de requête non autorisé.",
+    });
+  }
+
+  if (
+    !origin &&
+    !referer &&
+    !estClientApiExpliciteSansProvenance(req) &&
+    !estNavigationFormulaireMemeSiteSansProvenance(req)
+  ) {
+    return res.status(403).json({
+      code: "REQUEST_PROVENANCE_REQUIRED",
+      message: "L'origine de la requete doit etre fournie.",
     });
   }
 
@@ -205,4 +255,6 @@ module.exports = {
   genererTokenCsrf,
   normaliserIpClient,
   requeteEstSecurisee,
+  estClientApiExpliciteSansProvenance,
+  estNavigationFormulaireMemeSiteSansProvenance,
 };

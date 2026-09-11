@@ -1,16 +1,10 @@
-const fs = require("fs/promises");
-const path = require("path");
 const nodemailer = require("nodemailer");
 
 const {
   BACKUP_SEANCES_ENABLED,
-  BACKUP_SEANCES_EMAIL_TO,
   BACKUP_SEANCES_EMAIL_FROM,
   BACKUP_SEANCES_TIMEZONE,
-  BACKUP_SEANCES_DAILY_HOUR,
-  BACKUP_SEANCES_DAILY_MINUTE,
-  BACKUP_SEANCES_OUTPUT_DIR,
-  BACKUP_SEANCES_RETENTION_DAYS,
+  BACKUP_SEANCES_DELIVERY_RETENTION_DAYS,
   BACKUP_SEANCES_EMAIL_DRY_RUN,
   SMTP_HOST,
   SMTP_PORT,
@@ -18,47 +12,59 @@ const {
   SMTP_USER,
   SMTP_PASS,
 } = require("../config/backup.config");
+const { ACCOUNT_EMAIL_FROM } = require("../config/account-lifecycle.config");
+const {
+  listerHandlersActifsPourBackup,
+  listerSuperAdminsActifsPourBackup,
+  listerSeancesBackupHandler,
+  listerSeancesBackupGlobal,
+  reserverLivraisonBackup,
+  terminerLivraisonBackup,
+  echouerLivraisonBackup,
+  nettoyerLivraisonsBackup,
+} = require("../models/backup-email.model");
 const { executerAvecVerrou } = require("./job-lock");
-const { listerToutesLesSeances } = require("../models/seance.model");
 const {
   convertirDateHeureZonneeEnInstant,
   convertirInstantEnDateHeureZonnee,
 } = require("./timezone");
 
-let backupTimer = null;
-let backupEnCours = false;
-const backupLockStaleMs = 60 * 60 * 1000;
-const nomFichierBackupRegex = /^seances-backup-\d{4}-\d{2}-\d{2}\.csv$/;
+const BACKUP_LOCK_STALE_MS = 60 * 60 * 1000;
+const BACKUP_SCHEDULE = Object.freeze(["00:00", "12:00"]);
 
-const colonnesBackupSeances = [
-  ["id", "id"],
-  ["date", "date"],
-  ["heure_debut", "heure_debut"],
-  ["heure_fin", "heure_fin"],
-  ["duree_minutes", "duree_minutes"],
-  ["statut_seance", "statut_seance"],
-  ["etudiant", "etudiant"],
-  ["parent", "parent"],
-  ["matiere", "matiere"],
-  ["compte", "compte"],
-  ["est_essai", "est_essai"],
-  ["prix", "prix"],
-  ["statut_paiement", "statut_paiement"],
-  ["description", "description"],
-  ["cree_par", "cree_par"],
-  ["cree_par_nom", "cree_par_nom"],
-  ["modifie_par", "modifie_par"],
-  ["modifie_par_nom", "modifie_par_nom"],
-  ["utilisateur_id", "utilisateur_id"],
-  ["public_reservation_device_id", "public_reservation_device_id"],
-  ["nombre_photos", "nombre_photos"],
-  ["created_at", "created_at"],
-  ["updated_at", "updated_at"],
-];
+let backupTimer = null;
+
+const colonnesBackupHandler = Object.freeze([
+  ["date", (seance) => seance.date],
+  ["heure_debut", (seance) => seance.heure_debut],
+  ["heure_fin", (seance) => seance.heure_fin],
+  ["duree_minutes", (seance) => seance.duree_minutes],
+  ["statut", (seance) => seance.statut_seance],
+  ["eleve", (seance) => seance.etudiant],
+  ["parent", (seance) => seance.parent],
+  ["matiere", (seance) => seance.matiere],
+  ["titre", (seance) => seance.titre],
+  ["realisateur", (seance) => seance.intervenant_nom || "Non attribué"],
+  ["realisateur_public", (seance) => seance.intervenant_public_id],
+  ["essai", (seance) => (Number(seance.est_essai) === 1 ? "oui" : "non")],
+  ["prix", (seance) => seance.prix],
+  ["statut_paiement", (seance) => seance.statut_paiement],
+  ["tarif_horaire_snapshot", (seance) => seance.tarif_horaire_applique],
+]);
+
+const colonnesBackupAdmin = Object.freeze([
+  ["handler", (seance) => seance.handler_nom || "Non attribué"],
+  ["handler_public", (seance) => seance.handler_public_id],
+  ...colonnesBackupHandler,
+]);
 
 function echapperCsv(valeur) {
   const texteBrut = String(valeur ?? "");
-  const texte = /^[=+\-@]/.test(texteBrut) ? `'${texteBrut}` : texteBrut;
+  // Excel and LibreOffice may accept a formula after leading whitespace or a
+  // tab. Prefix it with an apostrophe before the usual CSV escaping.
+  const texte = /^[\u0000-\u0020]*[=+\-@]/.test(texteBrut)
+    ? `'${texteBrut}`
+    : texteBrut;
 
   if (!/[",\n\r]/.test(texte)) {
     return texte;
@@ -67,106 +73,88 @@ function echapperCsv(valeur) {
   return `"${texte.replace(/"/g, '""')}"`;
 }
 
-function convertirSeancesEnCsv(seances) {
-  const lignes = [
-    colonnesBackupSeances.map(([entete]) => echapperCsv(entete)).join(","),
-  ];
+/**
+ * Serialises a deliberately whitelisted business projection. It never accepts
+ * `seances.*`, so authentication, device, internal-id and audit fields cannot
+ * accidentally travel in an email attachment.
+ */
+function convertirSeancesEnCsv(seances, { inclureHandler = false } = {}) {
+  const colonnes = inclureHandler ? colonnesBackupAdmin : colonnesBackupHandler;
+  const lignes = [colonnes.map(([entete]) => echapperCsv(entete)).join(",")];
 
-  seances.forEach((seance) => {
-    lignes.push(
-      colonnesBackupSeances
-        .map(([, champ]) => echapperCsv(seance?.[champ]))
-        .join(",")
-    );
-  });
+  for (const seance of Array.isArray(seances) ? seances : []) {
+    lignes.push(colonnes.map(([, valeur]) => echapperCsv(valeur(seance || {}))).join(","));
+  }
 
-  return `${lignes.join("\n")}\n`;
+  // UTF-8 BOM makes the accented French content open correctly in common
+  // spreadsheet software without keeping a file on the server filesystem.
+  return `\uFEFF${lignes.join("\n")}\n`;
+}
+
+function obtenirLocaleBackup(date = new Date()) {
+  return (
+    convertirInstantEnDateHeureZonnee(date, BACKUP_SEANCES_TIMEZONE) || {
+      date: date.toISOString().slice(0, 10),
+      heure: date.toISOString().slice(11, 16),
+    }
+  );
 }
 
 function obtenirDateLocaleBackup(date = new Date()) {
-  return convertirInstantEnDateHeureZonnee(date, BACKUP_SEANCES_TIMEZONE)?.date ||
-    date.toISOString().slice(0, 10);
+  return obtenirLocaleBackup(date).date;
 }
 
-function obtenirNomFichierBackup(date = new Date()) {
-  return `seances-backup-${obtenirDateLocaleBackup(date)}.csv`;
+function obtenirHeureLocaleBackup(date = new Date()) {
+  return obtenirLocaleBackup(date).heure;
 }
 
-async function genererFichierBackupSeances(options = {}) {
-  const maintenant = options.date || new Date();
-  const seances = await listerToutesLesSeances();
-  const csv = convertirSeancesEnCsv(seances);
-  const dossier = options.outputDir || BACKUP_SEANCES_OUTPUT_DIR;
-  const nomFichier = obtenirNomFichierBackup(maintenant);
-  const chemin = path.join(dossier, nomFichier);
+function formaterDateFrancais(date = new Date()) {
+  const locale = obtenirLocaleBackup(date);
+  const [annee, mois, jour] = String(locale.date).split("-");
+  return `${jour}/${mois}/${annee}`;
+}
 
-  await fs.mkdir(dossier, { recursive: true, mode: 0o700 });
-  await fs.writeFile(chemin, csv, { encoding: "utf8", mode: 0o600 });
+function normaliserIdentifiantFichier(valeur, valeurParDefaut) {
+  const normalise = String(valeur || "")
+    .trim()
+    .replace(/[^A-Za-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return normalise || valeurParDefaut;
+}
+
+function creerExportBackupHandler(handler, seances, date = new Date()) {
+  const dateLocale = obtenirDateLocaleBackup(date);
+  const identifiantHandler = normaliserIdentifiantFichier(handler?.public_id, "HD-inconnu");
+  const nombreSeances = Array.isArray(seances) ? seances.length : 0;
 
   return {
-    chemin,
-    nomFichier,
-    nombreSeances: seances.length,
-    date: obtenirDateLocaleBackup(maintenant),
+    type: "handler",
+    date: dateLocale,
+    heure: obtenirHeureLocaleBackup(date),
+    nombreSeances,
+    periode: "Toutes les séances enregistrées dans cet espace",
+    nomFichier: `backup-seances-${identifiantHandler}-${dateLocale}.csv`,
+    sujet: `Sauvegarde quotidienne des séances — ${formaterDateFrancais(date)}`,
+    csv: convertirSeancesEnCsv(seances),
   };
 }
 
-async function nettoyerAnciensBackupsSeances(options = {}) {
-  const dossier = options.outputDir || BACKUP_SEANCES_OUTPUT_DIR;
-  const retentionDays = Number(
-    options.retentionDays ?? BACKUP_SEANCES_RETENTION_DAYS
-  );
-
-  if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
-    return {
-      fichiersSupprimes: 0,
-      retentionDays: 0,
-    };
-  }
-
-  const seuilMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
-  let entrees = [];
-
-  try {
-    entrees = await fs.readdir(dossier, { withFileTypes: true });
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return {
-        fichiersSupprimes: 0,
-        retentionDays,
-      };
-    }
-
-    throw error;
-  }
-
-  let fichiersSupprimes = 0;
-
-  for (const entree of entrees) {
-    if (!entree.isFile() || !nomFichierBackupRegex.test(entree.name)) {
-      continue;
-    }
-
-    const chemin = path.join(dossier, entree.name);
-    const statistiques = await fs.stat(chemin).catch((error) => {
-      if (error.code === "ENOENT") {
-        return null;
-      }
-
-      throw error;
-    });
-
-    if (!statistiques || statistiques.mtimeMs >= seuilMs) {
-      continue;
-    }
-
-    await fs.unlink(chemin);
-    fichiersSupprimes += 1;
-  }
+function creerExportBackupAdmin(seances, date = new Date()) {
+  const dateLocale = obtenirDateLocaleBackup(date);
+  const heure = obtenirHeureLocaleBackup(date);
+  const heureFichier = heure.replace(":", "");
+  const nombreSeances = Array.isArray(seances) ? seances.length : 0;
 
   return {
-    fichiersSupprimes,
-    retentionDays,
+    type: "admin",
+    date: dateLocale,
+    heure,
+    nombreSeances,
+    periode: "Toutes les séances enregistrées dans tous les espaces",
+    nomFichier: `backup-seances-global-${dateLocale}-${heureFichier}.csv`,
+    sujet: `Sauvegarde globale des séances — ${formaterDateFrancais(date)} ${heure}`,
+    csv: convertirSeancesEnCsv(seances, { inclureHandler: true }),
   };
 }
 
@@ -183,6 +171,9 @@ function creerTransportSmtp() {
     host: SMTP_HOST,
     port: SMTP_PORT,
     secure: SMTP_SECURE,
+    // Port 587 must use STARTTLS in production. A backup attachment contains
+    // business data and must never silently downgrade to clear-text SMTP.
+    requireTLS: process.env.NODE_ENV === "production" && !SMTP_SECURE,
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS,
@@ -190,152 +181,378 @@ function creerTransportSmtp() {
   });
 }
 
-async function envoyerBackupSeancesParEmail(backup) {
-  const transport = creerTransportSmtp();
+function obtenirAdresseExpediteur() {
+  return BACKUP_SEANCES_EMAIL_FROM || ACCOUNT_EMAIL_FROM || SMTP_USER;
+}
 
-  if (!BACKUP_SEANCES_EMAIL_TO) {
-    return {
-      envoye: false,
-      raison: "destinataire-non-configure",
-    };
+function masquerEmail(email) {
+  const valeur = String(email || "").trim();
+  const index = valeur.indexOf("@");
+
+  if (index <= 0) {
+    return "destinataire-invalide";
   }
 
-  if (!transport || BACKUP_SEANCES_EMAIL_DRY_RUN) {
-    return {
-      envoye: false,
-      raison: BACKUP_SEANCES_EMAIL_DRY_RUN ? "dry-run" : "smtp-non-configure",
-    };
+  return `${valeur.slice(0, 1)}***${valeur.slice(index)}`;
+}
+
+function journaliserBackup(niveau, evenement, details = {}) {
+  const ligne = JSON.stringify({
+    event: "backup_email",
+    level: niveau,
+    evenement,
+    ...details,
+  });
+
+  if (niveau === "error") {
+    console.error(ligne);
+    return;
   }
 
-  const from = BACKUP_SEANCES_EMAIL_FROM || SMTP_USER;
-  const info = await transport.sendMail({
-    from,
-    to: BACKUP_SEANCES_EMAIL_TO,
-    subject: `Backup séances - ${backup.date}`,
-    text:
-      `Backup automatique des séances du ${backup.date}.\n` +
-      `Nombre de séances exportées : ${backup.nombreSeances}.\n`,
+  console.log(ligne);
+}
+
+function formaterDateFrancaisDepuisExport(exportBackup) {
+  const [annee, mois, jour] = String(exportBackup?.date || "").split("-");
+  return annee && mois && jour ? `${jour}/${mois}/${annee}` : "date inconnue";
+}
+
+function construireTexteEmail(exportBackup) {
+  return (
+    "Bonjour,\n\n" +
+    "Veuillez trouver en pièce jointe votre sauvegarde automatique des séances.\n\n" +
+    `Date de génération : ${formaterDateFrancaisDepuisExport(exportBackup)} ${exportBackup.heure}.\n` +
+    `Nombre de séances : ${exportBackup.nombreSeances}.\n\n` +
+    `Période couverte : ${exportBackup.periode || "toutes les séances enregistrées"}.\n\n` +
+    "Cette sauvegarde contient uniquement les données métier utiles et ne contient aucun mot de passe ni secret de sécurité.\n"
+  );
+}
+
+async function envoyerExportBackupParEmail(
+  { destinataire, exportBackup },
+  { sendMail = null } = {}
+) {
+  const envoyerInjecte = typeof sendMail === "function";
+
+  if (BACKUP_SEANCES_EMAIL_DRY_RUN && !envoyerInjecte) {
+    return { envoye: false, raison: "dry-run" };
+  }
+
+  const transport = envoyerInjecte ? null : creerTransportSmtp();
+
+  if (!envoyerInjecte && !transport) {
+    return { envoye: false, raison: "smtp-non-configure" };
+  }
+
+  const message = {
+    from: obtenirAdresseExpediteur(),
+    to: destinataire,
+    subject: exportBackup.sujet,
+    text: construireTexteEmail(exportBackup),
     attachments: [
       {
-        filename: backup.nomFichier,
-        path: backup.chemin,
+        filename: exportBackup.nomFichier,
+        content: Buffer.from(exportBackup.csv, "utf8"),
         contentType: "text/csv; charset=utf-8",
       },
     ],
+  };
+
+  try {
+    const info = envoyerInjecte
+      ? await sendMail(message)
+      : await transport.sendMail(message);
+    return {
+      envoye: true,
+      messageId: String(info?.messageId || "").slice(0, 300) || null,
+    };
+  } catch (error) {
+    // Never log an SMTP object: it can include authentication configuration.
+    return { envoye: false, raison: "envoi-echoue" };
+  }
+}
+
+function normaliserOccurrence(options, type, date = new Date()) {
+  const fournie = String(options?.occurrenceKey || "").trim();
+  if (fournie) {
+    return fournie.slice(0, 200);
+  }
+
+  const locale = obtenirLocaleBackup(date);
+  return `manual:${type}:${locale.date}-${locale.heure.replace(":", "")}`;
+}
+
+async function executerLivraisonBackup({
+  backupType,
+  scopeKey,
+  handler = null,
+  destinataire,
+  exportBackup,
+  occurrenceKey,
+  sendMail,
+}) {
+  if (BACKUP_SEANCES_EMAIL_DRY_RUN && typeof sendMail !== "function") {
+    journaliserBackup("info", "ignored-dry-run", {
+      type: backupType,
+      occurrence: occurrenceKey,
+      destinataire: masquerEmail(destinataire),
+      nombre_seances: exportBackup.nombreSeances,
+    });
+    return { envoye: false, skipped: true, raison: "dry-run" };
+  }
+
+  const reservation = await reserverLivraisonBackup({
+    backupType,
+    scopeKey,
+    handlerId: handler?.id ?? null,
+    recipientEmail: destinataire,
+    occurrenceKey,
+    sessionCount: exportBackup.nombreSeances,
+    staleMs: BACKUP_LOCK_STALE_MS,
+  });
+
+  if (!reservation.reservee) {
+    journaliserBackup("info", "ignored-duplicate", {
+      type: backupType,
+      occurrence: occurrenceKey,
+      destinataire: masquerEmail(destinataire),
+      raison: reservation.raison,
+    });
+    return { envoye: false, skipped: true, raison: reservation.raison };
+  }
+
+  const debut = Date.now();
+  const email = await envoyerExportBackupParEmail(
+    { destinataire, exportBackup },
+    { sendMail }
+  );
+  const detailsLog = {
+    type: backupType,
+    occurrence: occurrenceKey,
+    destinataire: masquerEmail(destinataire),
+    nombre_seances: exportBackup.nombreSeances,
+    duree_ms: Date.now() - debut,
+  };
+
+  if (email.envoye) {
+    const resultat = await terminerLivraisonBackup({
+      livraisonId: reservation.livraisonId,
+      attemptToken: reservation.attemptToken,
+      messageId: email.messageId,
+    });
+
+    if (Number(resultat?.changes) === 1) {
+      journaliserBackup("info", "sent", detailsLog);
+      return { envoye: true, skipped: false, messageId: email.messageId };
+    }
+
+    journaliserBackup("error", "delivery-state-lost", detailsLog);
+    return { envoye: false, skipped: false, raison: "delivery-state-lost" };
+  }
+
+  await echouerLivraisonBackup({
+    livraisonId: reservation.livraisonId,
+    attemptToken: reservation.attemptToken,
+    errorCode: email.raison,
+  }).catch(() => {});
+  journaliserBackup("error", "failed", { ...detailsLog, raison: email.raison });
+  return { envoye: false, skipped: false, raison: email.raison };
+}
+
+async function executerBackupsHandlersSansVerrou(options = {}) {
+  const date = options.date instanceof Date ? options.date : new Date();
+  const occurrenceKey = normaliserOccurrence(options, "handlers", date);
+  const handlers = await (options.listerHandlers || listerHandlersActifsPourBackup)();
+  const livraisons = [];
+
+  for (const handler of handlers) {
+    const seances = await (options.listerSeancesHandler || listerSeancesBackupHandler)(handler.id);
+    const exportBackup = creerExportBackupHandler(handler, seances, date);
+    const livraison = await executerLivraisonBackup({
+      backupType: "handler",
+      scopeKey: `handler:${handler.id}`,
+      handler,
+      destinataire: handler.email,
+      exportBackup,
+      occurrenceKey,
+      sendMail: options.sendMail,
+    });
+    livraisons.push({
+      handler_public_id: handler.public_id || null,
+      nombre_seances: exportBackup.nombreSeances,
+      ...livraison,
+    });
+  }
+
+  const nettoyage = await nettoyerLivraisonsBackup({
+    retentionDays: BACKUP_SEANCES_DELIVERY_RETENTION_DAYS,
+    now: date,
   });
 
   return {
-    envoye: true,
-    messageId: info.messageId,
-  };
-}
-
-async function executerBackupSeancesEmailSansVerrou(options = {}) {
-  const backup = await genererFichierBackupSeances(options);
-  const email = await envoyerBackupSeancesParEmail(backup);
-  const nettoyage = await nettoyerAnciensBackupsSeances(options);
-
-  if (!email.envoye) {
-    console.warn(
-      `Backup séances cree sans envoi email (${email.raison}) : ${backup.chemin}`
-    );
-  } else {
-    console.log(
-      `Backup séances envoye a ${BACKUP_SEANCES_EMAIL_TO} : ${backup.nomFichier}`
-    );
-  }
-
-  if (nettoyage.fichiersSupprimes > 0) {
-    console.log(
-      `${nettoyage.fichiersSupprimes} ancien(s) backup(s) séances supprimé(s).`
-    );
-  }
-
-  return {
-    backup,
-    email,
+    type: "handlers",
+    occurrenceKey,
+    destinataires: handlers.length,
+    livraisons,
     nettoyage,
   };
 }
 
-async function executerBackupSeancesEmail(options = {}) {
-  const execution = await executerAvecVerrou(
-    "backup-seances",
-    () => executerBackupSeancesEmailSansVerrou(options),
-    { staleMs: backupLockStaleMs }
-  );
-
-  if (execution.skipped) {
-    console.warn("Backup séances déjà en cours, execution ignoree.");
-    return {
-      skipped: true,
-      backup: null,
-      email: {
-        envoye: false,
-        raison: "execution-deja-en-cours",
-      },
-      nettoyage: {
-        fichiersSupprimes: 0,
-        retentionDays: BACKUP_SEANCES_RETENTION_DAYS,
-      },
-    };
+async function executerBackupsHandlersEmail(options = {}) {
+  if (options.sansVerrou) {
+    return executerBackupsHandlersSansVerrou(options);
   }
 
+  const execution = await executerAvecVerrou(
+    "backup-seances-handlers",
+    () => executerBackupsHandlersSansVerrou(options),
+    { staleMs: BACKUP_LOCK_STALE_MS }
+  );
+
+  return execution.skipped
+    ? { skipped: true, raison: "execution-deja-en-cours", livraisons: [] }
+    : { ...execution.result, skipped: false };
+}
+
+async function executerBackupAdminSansVerrou(options = {}) {
+  const date = options.date instanceof Date ? options.date : new Date();
+  const occurrenceKey = normaliserOccurrence(options, "admin", date);
+  const [administrateurs, seances] = await Promise.all([
+    (options.listerAdministrateurs || listerSuperAdminsActifsPourBackup)(),
+    (options.listerSeancesGlobal || listerSeancesBackupGlobal)(),
+  ]);
+  const exportBackup = creerExportBackupAdmin(seances, date);
+  const livraisons = [];
+
+  for (const administrateur of administrateurs) {
+    const livraison = await executerLivraisonBackup({
+      backupType: "admin",
+      scopeKey: "global",
+      destinataire: administrateur.email,
+      exportBackup,
+      occurrenceKey,
+      sendMail: options.sendMail,
+    });
+    livraisons.push({
+      super_admin_public_id: administrateur.public_id || null,
+      nombre_seances: exportBackup.nombreSeances,
+      ...livraison,
+    });
+  }
+
+  const nettoyage = await nettoyerLivraisonsBackup({
+    retentionDays: BACKUP_SEANCES_DELIVERY_RETENTION_DAYS,
+    now: date,
+  });
+
   return {
-    ...execution.result,
-    skipped: false,
+    type: "admin",
+    occurrenceKey,
+    destinataires: administrateurs.length,
+    nombreSeances: exportBackup.nombreSeances,
+    nomFichier: exportBackup.nomFichier,
+    livraisons,
+    nettoyage,
   };
 }
 
-function calculerProchaineExecution(dateReference = new Date()) {
-  const locale = convertirInstantEnDateHeureZonnee(
-    dateReference,
-    BACKUP_SEANCES_TIMEZONE
-  );
-  const heureCible = `${String(BACKUP_SEANCES_DAILY_HOUR).padStart(2, "0")}:${String(
-    BACKUP_SEANCES_DAILY_MINUTE
-  ).padStart(2, "0")}`;
-  let dateCible = locale?.date || dateReference.toISOString().slice(0, 10);
-  let instantCible = convertirDateHeureZonneeEnInstant(
-    dateCible,
-    heureCible,
-    BACKUP_SEANCES_TIMEZONE
-  );
-
-  if (!instantCible || instantCible.getTime() <= dateReference.getTime()) {
-    const dateMilieuJour = new Date(`${dateCible}T12:00:00Z`);
-    dateMilieuJour.setUTCDate(dateMilieuJour.getUTCDate() + 1);
-    dateCible = dateMilieuJour.toISOString().slice(0, 10);
-    instantCible = convertirDateHeureZonneeEnInstant(
-      dateCible,
-      heureCible,
-      BACKUP_SEANCES_TIMEZONE
-    );
+async function executerBackupAdminEmail(options = {}) {
+  if (options.sansVerrou) {
+    return executerBackupAdminSansVerrou(options);
   }
 
-  return instantCible || new Date(dateReference.getTime() + 24 * 60 * 60 * 1000);
+  const execution = await executerAvecVerrou(
+    "backup-seances-admin",
+    () => executerBackupAdminSansVerrou(options),
+    { staleMs: BACKUP_LOCK_STALE_MS }
+  );
+
+  return execution.skipped
+    ? { skipped: true, raison: "execution-deja-en-cours", livraisons: [] }
+    : { ...execution.result, skipped: false };
+}
+
+function ajouterJoursDateIso(dateIso, nombreJours) {
+  const date = new Date(`${dateIso}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + nombreJours);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Returns the next 00:00 or 12:00 occurrence in the operations timezone.
+ * The calendar-public GMT offset is intentionally never read here.
+ */
+function calculerProchaineExecutionBackup(dateReference = new Date()) {
+  const locale = obtenirLocaleBackup(dateReference);
+  const dates = [locale.date, ajouterJoursDateIso(locale.date, 1)];
+  const candidates = [];
+
+  for (const date of dates) {
+    for (const heure of BACKUP_SCHEDULE) {
+      const instant = convertirDateHeureZonneeEnInstant(
+        date,
+        heure,
+        BACKUP_SEANCES_TIMEZONE
+      );
+      if (instant && instant.getTime() > dateReference.getTime()) {
+        candidates.push(instant);
+      }
+    }
+  }
+
+  candidates.sort((a, b) => a.getTime() - b.getTime());
+  return candidates[0] || new Date(dateReference.getTime() + 12 * 60 * 60 * 1000);
+}
+
+function construireCleOccurrencePlanifiee(date = new Date()) {
+  const locale = obtenirLocaleBackup(date);
+  return `scheduled:${locale.date}-${locale.heure.replace(":", "")}`;
+}
+
+async function executerBackupsPlanifies(options = {}) {
+  const date = options.date instanceof Date ? options.date : new Date();
+  const locale = obtenirLocaleBackup(date);
+  const occurrence = construireCleOccurrencePlanifiee(date);
+  const resultat = { occurrenceKey: occurrence, handlers: null, admin: null };
+
+  if (locale.heure === "00:00") {
+    resultat.handlers = await executerBackupsHandlersEmail({
+      ...options,
+      date,
+      occurrenceKey: `handlers:${occurrence}`,
+    });
+  }
+
+  if (["00:00", "12:00"].includes(locale.heure)) {
+    resultat.admin = await executerBackupAdminEmail({
+      ...options,
+      date,
+      occurrenceKey: `admin:${occurrence}`,
+    });
+  }
+
+  return resultat;
 }
 
 function planifierProchainBackupSeances() {
-  const prochaineExecution = calculerProchaineExecution();
+  const prochaineExecution = calculerProchaineExecutionBackup();
   const delai = Math.max(prochaineExecution.getTime() - Date.now(), 1000);
 
   backupTimer = setTimeout(async () => {
     backupTimer = null;
 
-    if (backupEnCours) {
-      planifierProchainBackupSeances();
-      return;
-    }
-
-    backupEnCours = true;
     try {
-      await executerBackupSeancesEmail();
+      await executerBackupsPlanifies({ date: prochaineExecution });
     } catch (error) {
-      console.error("Backup automatique des séances impossible :", error);
+      // The job is best-effort. The application remains available and the
+      // next scheduled occurrence can retry with current business data.
+      journaliserBackup("error", "scheduler-failed", {
+        raison: "execution-impossible",
+      });
     } finally {
-      backupEnCours = false;
-      planifierProchainBackupSeances();
+      if (BACKUP_SEANCES_ENABLED) {
+        planifierProchainBackupSeances();
+      }
     }
   }, delai);
 
@@ -343,9 +560,10 @@ function planifierProchainBackupSeances() {
     backupTimer.unref();
   }
 
-  console.log(
-    `Backup séances planifie pour ${prochaineExecution.toISOString()} (${BACKUP_SEANCES_TIMEZONE}).`
-  );
+  journaliserBackup("info", "scheduled", {
+    prochain: prochaineExecution.toISOString(),
+    timezone: BACKUP_SEANCES_TIMEZONE,
+  });
 }
 
 function demarrerPlanificateurBackupSeances() {
@@ -356,12 +574,29 @@ function demarrerPlanificateurBackupSeances() {
   planifierProchainBackupSeances();
 }
 
+function arreterPlanificateurBackupSeances() {
+  if (backupTimer) {
+    clearTimeout(backupTimer);
+    backupTimer = null;
+  }
+}
+
 module.exports = {
+  BACKUP_SCHEDULE,
+  colonnesBackupHandler,
+  colonnesBackupAdmin,
+  echapperCsv,
   convertirSeancesEnCsv,
-  genererFichierBackupSeances,
-  nettoyerAnciensBackupsSeances,
-  envoyerBackupSeancesParEmail,
-  executerBackupSeancesEmail,
-  calculerProchaineExecution,
+  creerExportBackupHandler,
+  creerExportBackupAdmin,
+  smtpEstConfigure,
+  creerTransportSmtp,
+  envoyerExportBackupParEmail,
+  executerBackupsHandlersEmail,
+  executerBackupAdminEmail,
+  executerBackupsPlanifies,
+  calculerProchaineExecutionBackup,
+  construireCleOccurrencePlanifiee,
   demarrerPlanificateurBackupSeances,
+  arreterPlanificateurBackupSeances,
 };

@@ -1,3 +1,7 @@
+const { chargerEnvironnementRuntime } = require("./load-runtime-env");
+
+chargerEnvironnementRuntime();
+
 const { initialiserBaseDeDonnees, fermerBaseDeDonnees } = require("../models/db");
 const { executerRappelsPushDus } = require("../utils/push-notifications");
 const { executerAvecVerrou } = require("../utils/job-lock");

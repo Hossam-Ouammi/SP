@@ -13,6 +13,10 @@ const {
 } = require("../config/push.config");
 const { recupererClesPushVapid } = require("../models/push-secret.model");
 const {
+  normaliserEndpointPush,
+  creerAgentPushSecurise,
+} = require("./push-endpoint-security");
+const {
   listerAbonnementsPushActifs,
   construireAbonnementNavigateur,
   desactiverAbonnementPushParId,
@@ -30,10 +34,24 @@ const { executerAvecVerrou } = require("./job-lock");
 
 let webPushConfigure = false;
 let rappelInterval = null;
+const agentPushSecurise = creerAgentPushSecurise();
 const PUSH_SEND_CONCURRENCY = Math.min(
   lireNombreEntierEnv("PUSH_SEND_CONCURRENCY", 8),
   25
 );
+
+function livraisonPushSimuleeEstActive(environnement = process.env) {
+  return (
+    String(environnement?.NODE_ENV || "").trim().toLowerCase() === "test" &&
+    String(environnement?.PUSH_TEST_DELIVERY_MODE || "").trim().toLowerCase() === "mock"
+  );
+}
+
+// L'audit navigateur utilise ce transport simulé explicitement : un endpoint
+// Chromium pointe vers un fournisseur Push externe et ne doit jamais rendre
+// les tests dépendants du réseau. La garde NODE_ENV=test empêche toute
+// désactivation silencieuse des livraisons en production.
+const PUSH_TEST_DELIVERY_MOCK = livraisonPushSimuleeEstActive();
 
 function lireNombreEntierEnv(nom, valeurParDefaut) {
   const valeur = Number(process.env[nom]);
@@ -304,6 +322,22 @@ async function envoyerNotificationAbonnement(abonnementLigne, notification, opti
   }
 
   try {
+    // Les anciennes lignes persistent parfois apres un changement de code. La
+    // validation est donc refaite juste avant toute sortie reseau, pas
+    // uniquement a l'inscription. L'agent HTTPS impose ensuite le meme
+    // controle a la resolution DNS utilisee pour la connexion.
+    abonnementNavigateur.endpoint = normaliserEndpointPush(abonnementNavigateur.endpoint);
+  } catch {
+    await desactiverAbonnementPushParId(abonnementLigne.id).catch(() => {});
+    return false;
+  }
+
+  try {
+    if (PUSH_TEST_DELIVERY_MOCK) {
+      await marquerAbonnementPushCommeUtilise(abonnementLigne.id).catch(() => {});
+      return true;
+    }
+
     await webpush.sendNotification(
       abonnementNavigateur,
       JSON.stringify(notification),
@@ -311,6 +345,8 @@ async function envoyerNotificationAbonnement(abonnementLigne, notification, opti
         TTL: options.TTL ?? 300,
         urgency: options.urgency || "normal",
         topic: options.topic,
+        agent: agentPushSecurise,
+        timeout: 10_000,
       }
     );
 
@@ -805,4 +841,5 @@ module.exports = {
   entitePlanningEstDansScope,
   filtrerDonneesRappelParScope,
   indisponibiliteChevaucheSeance,
+  livraisonPushSimuleeEstActive,
 };

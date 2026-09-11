@@ -12,6 +12,7 @@ const {
 } = require("./security.middleware");
 const {
   analyserCookieAppareil,
+  appareilAutoLoginEstExpire,
   hacherValidator,
   trouverAppareilAutoLoginParSelector,
   renouvelerAppareilAutoLogin,
@@ -184,6 +185,14 @@ async function restaurerConnexionAutomatique(req, res, next) {
       return next();
     }
 
+    // Browser Max-Age is client-controlled. Enforce the same absolute expiry
+    // on the server so a copied or replayed cookie cannot outlive 90 days.
+    if (appareilAutoLoginEstExpire(appareil)) {
+      await supprimerAppareilAutoLoginParSelector(donneesCookie.selector);
+      effacerCookieConnexionAutomatique(req, res);
+      return next();
+    }
+
     if (appareil.validator_hash !== hacherValidator(donneesCookie.validator)) {
       await supprimerAppareilAutoLoginParSelector(donneesCookie.selector);
       effacerCookieConnexionAutomatique(req, res);
@@ -202,21 +211,32 @@ async function restaurerConnexionAutomatique(req, res, next) {
       return next();
     }
 
-    await initialiserSessionAuthentifiee(req, utilisateur);
-
+    // Rotate the device credential before creating a session.  The renewal
+    // is a compare-and-swap on the validator received in this request: if a
+    // copied cookie is replayed concurrently, only the winner can proceed to
+    // session creation.  Never delete by selector here on failure because a
+    // legitimate concurrent winner may already hold the newly rotated token.
+    const userAgent = String(req.headers["user-agent"] || appareil.user_agent || "").slice(0, 400);
     const rotation = await renouvelerAppareilAutoLogin(appareil.id, {
       sessionVersion: utilisateur.session_version,
+      sessionVersionAttendue: appareil.session_version,
+      selector: appareil.selector,
+      validatorHashAttendu: hacherValidator(donneesCookie.validator),
       adresseIp: normaliserIpClient(req),
-      userAgent: String(req.headers["user-agent"] || "").slice(0, 400),
+      userAgent,
     });
 
-    if (rotation?.cookieValue) {
-      res.cookie(
-        AUTO_LOGIN_COOKIE_NAME,
-        rotation.cookieValue,
-        obtenirOptionsCookieConnexionAutomatique(req)
-      );
+    if (!rotation?.cookieValue) {
+      effacerCookieConnexionAutomatique(req, res);
+      return next();
     }
+
+    await initialiserSessionAuthentifiee(req, utilisateur);
+    res.cookie(
+      AUTO_LOGIN_COOKIE_NAME,
+      rotation.cookieValue,
+      obtenirOptionsCookieConnexionAutomatique(req)
+    );
 
     return next();
   } catch (error) {
@@ -310,8 +330,9 @@ function verifierAccesMonetisation(req, res, next) {
   const estAutorise =
     req.scope?.estSuperAdmin === true ||
     req.scope?.estHandler === true ||
-    (req.scope?.estProfesseur === true &&
-      Number(req.utilisateur?.peut_voir_monetisation) === 1);
+    // La monétisation personnelle ne peut pas être désactivée par le
+    // Handler : le scope de lecture limite déjà le Professeur à ses séances.
+    req.scope?.estProfesseur === true;
 
   if (!estAutorise) {
     return res.status(403).json({
@@ -324,11 +345,20 @@ function verifierAccesMonetisation(req, res, next) {
 }
 
 function verifierAccesIndisponibilites(req, res, next) {
+  // Le Handler visualise les indisponibilités de son équipe uniquement par
+  // l'endpoint Dashboard dédié. Il ne possède pas le module de déclaration
+  // et ne doit donc pas pouvoir appeler les routes d'indisponibilités (ni les
+  // anciennes règles/exceptions de disponibilités) directement.
+  if (req.scope?.estHandler === true) {
+    return res.status(403).json({
+      code: "HANDLER_UNAVAILABILITY_FORBIDDEN",
+      message:
+        "Le Handler ne peut pas gérer les indisponibilités. Seuls les professeurs déclarent leurs propres créneaux.",
+    });
+  }
+
   const estAutorise =
-    req.scope?.estSuperAdmin === true ||
-    req.scope?.estHandler === true ||
-    (req.scope?.estProfesseur === true &&
-      Number(req.utilisateur?.peut_voir_indisponibilites) === 1);
+    req.scope?.estSuperAdmin === true || req.scope?.estProfesseur === true;
 
   if (!estAutorise) {
     return res.status(403).json({

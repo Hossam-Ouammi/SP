@@ -5,13 +5,20 @@ const session = require("express-session");
 const path = require("path");
 const fs = require("fs");
 
+// Load local deployment settings before any configuration module reads
+// process.env. Hosting platforms can still provide environment variables
+// directly; dotenv never overwrites those values.
+require("dotenv").config({ path: path.join(__dirname, ".env"), quiet: true });
+
 const authRoutes = require("./routes/auth.routes");
 const accountLifecycleRoutes = require("./routes/account-lifecycle.routes");
 const adminRoutes = require("./routes/admin.routes");
 const adminAnalyticsRoutes = require("./routes/admin-analytics.routes");
+const dashboardRoutes = require("./routes/dashboard.routes");
 const historiqueRoutes = require("./routes/historique.routes");
 const disponibilitesRoutes = require("./routes/disponibilites.routes");
 const equipeRoutes = require("./routes/equipe.routes");
+const teamMembershipRoutes = require("./routes/team-membership.routes");
 const indisponibilitesRoutes = require("./routes/indisponibilites.routes");
 const monetisationRoutes = require("./routes/monetisation.routes");
 const realtimeRoutes = require("./routes/realtime.routes");
@@ -26,7 +33,7 @@ const {
   apiRouter: publicReservationApiRoutes,
 } = require("./routes/public-reservation.routes");
 const { connecterUtilisateurDepuisFormulaire } = require("./controllers/auth.controller");
-const { fermerBaseDeDonnees, initialiserBaseDeDonnees } = require("./models/db");
+const { fermerBaseDeDonnees, initialiserBaseDeDonnees, get } = require("./models/db");
 const { recupererSecretSession } = require("./models/session-secret");
 const { SQLiteSessionStore } = require("./models/session.store");
 const {
@@ -191,9 +198,11 @@ app.use("/api/auth", authRoutes);
 app.use("/api/account-lifecycle", accountLifecycleRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin-analytics", adminAnalyticsRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/historique", historiqueRoutes);
 app.use("/api/disponibilites", disponibilitesRoutes);
 app.use("/api/equipe", equipeRoutes);
+app.use("/api/team-memberships", teamMembershipRoutes);
 app.use("/api/indisponibilites", indisponibilitesRoutes);
 app.use("/api/monetisation", monetisationRoutes);
 app.use("/api/push", pushRoutes);
@@ -206,8 +215,16 @@ app.use("/api/seances", seancesRoutes);
 app.use("/api/photos", photosRoutes);
 app.use("/reservation", publicReservationPageRoutes);
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
+app.get("/health", async (req, res) => {
+  try {
+    await get("SELECT 1 AS database_ok");
+    return res.json({ status: "ok" });
+  } catch (error) {
+    // Health endpoints must not leak SQLite paths or driver details. Logging
+    // keeps the operational signal while the proxy receives a clear 503.
+    console.error("Verification de sante SQLite impossible :", error.message);
+    return res.status(503).json({ status: "unavailable" });
+  }
 });
 
 app.set("view engine", "ejs");
@@ -270,8 +287,11 @@ app.use((error, req, res, next) => {
       ? "Une erreur serveur est survenue."
       : error.message || "Une erreur serveur est survenue.";
 
+  const code = String(error.code || "").trim();
+
   return res.status(status).json({
     message,
+    ...(code ? { code } : {}),
   });
 });
 

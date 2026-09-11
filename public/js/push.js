@@ -98,7 +98,16 @@ function installerEcouteurControllerChangeServiceWorker() {
   }
 
   ecouteurControllerChangeInstalle = true;
+  const avaitControleurAuChargement = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.addEventListener("controllerchange", () => {
+    // The first installation claims this page as part of a normal push
+    // activation. Reloading at that instant can interrupt subscribe() before
+    // it reaches the API. Only a replacement of an already active worker
+    // needs a fresh page.
+    if (!avaitControleurAuChargement) {
+      return;
+    }
+
     planifierRechargementApresMiseAJourServiceWorker();
   });
 }

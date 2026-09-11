@@ -17,7 +17,6 @@ const {
 } = require("../models/seance.model");
 const {
   construireFiltreLectureSeances,
-  scopePeutGererIntervenant,
 } = require("../models/access-scope.model");
 const { trouverReglagesEspace } = require("../models/workspace-settings.model");
 const {
@@ -46,6 +45,18 @@ function normaliserIdentifiant(valeur) {
 }
 
 function construireScopeLectureIndisponibilites(req) {
+  if (req.scope?.estHandler) {
+    return {
+      // Cette fonction alimente exclusivement l'API de gestion
+      // `/api/indisponibilites`, explicitement fermée aux Handlers. Le flux
+      // Dashboard est traité par `recupererIndisponibilitesCalendrierCentral`
+      // ci-dessous, afin qu'une future route ne réintroduise pas par erreur
+      // les indisponibilités personnelles du Handler.
+      handlerIds: [],
+      intervenantIds: [],
+    };
+  }
+
   return construireFiltreLectureSeances(req.scope);
 }
 
@@ -70,22 +81,11 @@ async function resoudreAffectationIndisponibilite({
   }
 
   if (scope.estHandler) {
-    const handlerId = utilisateurId;
-
-    if (handlerDemande && handlerDemande !== handlerId) {
-      throw creerErreurRessourceInaccessible();
-    }
-
-    const intervenantId =
-      intervenantDemande ||
-      normaliserIdentifiant(indisponibiliteExistante?.intervenant_id) ||
-      utilisateurId;
-
-    if (!(await scopePeutGererIntervenant(scope, { handlerId, intervenantId }))) {
-      throw creerErreurRessourceInaccessible();
-    }
-
-    return { handlerId, intervenantId };
+    throw creerErreurHttp(
+      403,
+      "Le Handler ne peut pas déclarer, modifier ou supprimer une indisponibilité.",
+      "HANDLER_UNAVAILABILITY_FORBIDDEN"
+    );
   }
 
   const handlerIds = Array.isArray(scope.handlerProfesseurIds)
@@ -113,9 +113,12 @@ async function resoudreAffectationIndisponibilite({
   return { handlerId, intervenantId };
 }
 
-function creerErreurHttp(status, message) {
+function creerErreurHttp(status, message, code = null) {
   const erreur = new Error(message);
   erreur.status = status;
+  if (code) {
+    erreur.code = code;
+  }
   return erreur;
 }
 
@@ -656,6 +659,52 @@ async function recupererIndisponibilites(req, res) {
   });
 }
 
+/**
+ * Flux minimal, lecture seule, destiné au calendrier central du Handler.
+ * Il ne passe volontairement pas par `/api/indisponibilites` : ce dernier
+ * reste le module personnel des Professeurs. Les blocs historiques du Handler
+ * sont exclus, tout comme ceux de Professeurs détachés ou désactivés.
+ */
+async function recupererIndisponibilitesCalendrierCentral(req, res) {
+  const handlerId = normaliserIdentifiant(req.scope?.utilisateurId);
+  if (!req.scope?.estHandler || !handlerId) {
+    throw creerErreurHttp(
+      403,
+      "Cette ressource est réservée au Handler de l'équipe.",
+      "HANDLER_REQUIRED"
+    );
+  }
+
+  const professeurIds = Array.from(
+    new Set(
+      (Array.isArray(req.scope?.professeurIdsHandlerOwn)
+        ? req.scope.professeurIdsHandlerOwn
+        : [])
+        .map(normaliserIdentifiant)
+        .filter(Boolean)
+    )
+  );
+  const indisponibilites = await listerIndisponibilitesScopees({
+    handlerIds: [handlerId],
+    intervenantIds: professeurIds,
+  });
+
+  return res.json({
+    indisponibilites: indisponibilites.map((indisponibilite) => ({
+      id: Number(indisponibilite.id),
+      date: indisponibilite.date,
+      heure_debut: indisponibilite.heure_debut,
+      heure_fin:
+        indisponibilite.heure_fin === HEURE_FIN_MINUIT
+          ? HEURE_DEBUT_JOUR_COMPLET
+          : indisponibilite.heure_fin,
+      jour_complet: estIndisponibiliteJourComplet(indisponibilite) ? 1 : 0,
+      handler_id: Number(indisponibilite.handler_id),
+      intervenant_id: Number(indisponibilite.intervenant_id),
+    })),
+  });
+}
+
 async function ajouterIndisponibilite(req, res) {
   const { date, heureDebut, heureFin, jourComplet, raison } =
     normaliserDonneesIndisponibilite(req.body);
@@ -894,6 +943,16 @@ async function supprimerUneIndisponibilite(req, res) {
     });
   }
 
+  // Defence in depth: route middleware already rejects a Handler, and this
+  // second scope resolution keeps a future direct controller reuse from
+  // deleting a Professor's personal block.
+  await resoudreAffectationIndisponibilite({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donnees: req.body,
+    indisponibiliteExistante: indisponibilite,
+  });
+
   res.locals.realtimeScope = {
     handlerId: indisponibilite.handler_id,
     intervenantId: indisponibilite.intervenant_id,
@@ -926,6 +985,7 @@ async function supprimerUneIndisponibilite(req, res) {
 
 module.exports = {
   recupererIndisponibilites,
+  recupererIndisponibilitesCalendrierCentral,
   ajouterIndisponibilite,
   modifierUneIndisponibilite,
   supprimerUneIndisponibilite,

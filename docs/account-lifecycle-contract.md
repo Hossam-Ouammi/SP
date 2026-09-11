@@ -135,8 +135,11 @@ Administration explicite.
 
 - Le jeton brut est généré avec `crypto.randomBytes(32)` puis stocké seulement
   sous forme de SHA-256 dans `tokens_compte`.
-- Les jetons expirent, sont consommés une fois et les liens précédents du même
-  type sont révoqués à chaque renvoi/réinitialisation.
+- Un lien de réinitialisation expire au plus tard après 15 minutes et est
+  consommé une seule fois. Pendant cette fenêtre, les clics répétés sur la
+  page publique ne créent ni nouveau jeton ni nouvel e-mail : un seul lien
+  actif est conservé. Un renvoi explicitement demandé par un Handler révoque
+  en revanche le lien précédent.
 - Les liens e-mail placent le jeton dans le fragment (`#activation?token=...`),
   jamais dans le chemin ou les paramètres envoyés par le navigateur au serveur.
 - L'activation et le reset appliquent la politique de mot de passe existante,
@@ -152,10 +155,18 @@ ACCOUNT_LIFECYCLE_APP_URL=https://app.example.test/
 ACCOUNT_EMAIL_FROM=no-reply@example.test
 ACCOUNT_EMAIL_DRY_RUN=false
 ACCOUNT_ACTIVATION_TOKEN_TTL_MINUTES=1440
-ACCOUNT_RESET_PASSWORD_TOKEN_TTL_MINUTES=60
+ACCOUNT_RESET_PASSWORD_TOKEN_TTL_MINUTES=15
+# utilisé seulement avec ACCOUNT_EMAIL_DRY_RUN=true hors production
+ACCOUNT_EMAIL_DEV_OUTBOX_DIR=storage/dev-emails
 ```
 
 Le transport réutilise `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER` et
 `SMTP_PASS` existants. En production, `ACCOUNT_LIFECYCLE_APP_URL` doit être une
 origine HTTPS explicitement configurée : il n'est jamais déduit de l'en-tête
 `Host` d'une requête.
+
+Sans SMTP, une livraison est explicitement signalée comme échouée et aucun
+lien actif inaccessible n'est conservé. Pour tester localement sans SMTP,
+définissez explicitement `ACCOUNT_EMAIL_DRY_RUN=true` : les messages sont alors
+déposés dans `storage/dev-emails/` (non servi par Express). En production,
+l'absence d'URL valide ou de SMTP empêche toute livraison.

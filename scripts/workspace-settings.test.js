@@ -234,9 +234,9 @@ async function preparerBase() {
       VALUES (?, ?, ?, ?, ?, ?, 'planifiee', ?, ?)
     `,
     [
-      "SÃ©ance future hors nouvelle plage",
-      "Ã‰tudiant calendrier",
-      "MathÃ©matiques",
+      "Séance future hors nouvelle plage",
+      "Étudiant calendrier",
+      "Mathématiques",
       "2099-01-05",
       "22:00",
       "22:30",
@@ -412,7 +412,7 @@ async function run() {
     });
     assert.equal(reponse.json?.reglages?.calendrier_public?.jeton_configure, false);
     assert.equal(reponse.json?.reglages?.calendrier_public?.lien_public, null);
-    assert.equal(reponse.json?.reglages?.calendrier_public?.public_calendar_timezone, "GMT");
+    assert.equal(reponse.json?.reglages?.calendrier_public?.public_calendar_timezone, "GMT+1");
     assert.equal(reponse.json?.reglages?.timezone, undefined);
 
     reponse = await professeur.request("GET", "/api/settings");
@@ -551,7 +551,7 @@ async function run() {
       "La seance doit signaler une heure civile inexistante."
     );
 
-    reponse = await handler.request("POST", "/api/indisponibilites", {
+    reponse = await professeur.request("POST", "/api/indisponibilites", {
       date: "2026-03-29",
       heure_debut: "02:00",
       heure_fin: "02:30",
@@ -603,41 +603,37 @@ async function run() {
       calendar_start_time: "08:00",
       calendar_end_time: "00:00",
     });
-    assertStatus(reponse, 200, "00:00 accepte comme fin de journee civile");
-    assert.equal(reponse.json?.reglages?.calendrier?.calendar_end_time, "00:00");
-    assert.equal(
-      reponse.json?.reglages?.calendrier?.slot_max_time,
-      "24:00:00",
-      "La convention minuit doit etre explicite pour FullCalendar."
-    );
+    assertStatus(reponse, 400, "00:00 est refuse comme fin de calendrier centrale");
 
-    reponse = await handler.request("POST", "/api/indisponibilites", {
+    reponse = await professeur.request("POST", "/api/indisponibilites", {
       date: "2026-09-10",
-      heure_debut: "23:30",
-      heure_fin: "00:00",
+      heure_debut: "20:30",
+      heure_fin: "21:00",
       jour_complet: false,
     });
-    assertStatus(reponse, 201, "indisponibilite jusqu'a minuit");
+    assertStatus(reponse, 201, "indisponibilite dans la plage centrale");
     assert.equal(
       reponse.json?.indisponibilite?.heure_fin,
-      "00:00",
-      "L'API des indisponibilites conserve la convention client de fin a minuit."
+      "21:00"
     );
 
-    reponse = await handler.request("PATCH", "/api/settings/public-calendar", { actif: true });
-    assertStatus(reponse, 409, "activation sans jeton refusee");
-
-    reponse = await handler.request("POST", "/api/settings/public-calendar/regenerate");
-    assertStatus(reponse, 201, "generation premier lien public");
+    reponse = await handler.request("PATCH", "/api/settings/public-calendar", {
+      actif: true,
+      public_calendar_timezone: "GMT+2",
+    });
+    assertStatus(reponse, 200, "enregistrement du premier lien public");
     const lienInitial = String(reponse.json?.reglages?.calendrier_public?.lien_public || "");
     tokenActuel = lienInitial.split("/").filter(Boolean).at(-1) || "";
     assert.match(tokenActuel, /^[A-Za-z0-9_-]{32,160}$/);
     assert.equal(reponse.json?.reglages?.calendrier_public?.actif, true);
 
     reponse = await handler.request("GET", "/api/settings");
-    assertStatus(reponse, 200, "relecture reglages sans fuite de jeton");
-    assert.equal(reponse.json?.reglages?.calendrier_public?.lien_public, null);
-    assert.ok(!reponse.text.includes(tokenActuel), "Le jeton brut ne doit pas etre relu depuis l'API.");
+    assertStatus(reponse, 200, "relecture du même lien public");
+    assert.equal(
+      reponse.json?.reglages?.calendrier_public?.lien_public,
+      lienInitial,
+      "Le Handler peut copier son lien stable après rechargement."
+    );
 
     reponse = await fetch(`${baseUrl}/api/reservation-public/${tokenActuel}?week_start=2026-09-07`);
     assert.equal(reponse.status, 200, "le nouveau lien public doit fonctionner");
@@ -646,21 +642,24 @@ async function run() {
 
     reponse = await handler.request("PATCH", "/api/settings/public-calendar", { actif: false });
     assertStatus(reponse, 200, "desactivation calendrier public");
+    assert.equal(
+      reponse.json?.reglages?.calendrier_public?.lien_public,
+      lienInitial,
+      "Désactiver conserve le lien unique."
+    );
     reponse = await fetch(`${baseUrl}/api/reservation-public/${tokenActuel}?week_start=2026-09-07`);
     assert.equal(reponse.status, 404, "lien public desactive introuvable");
 
     reponse = await handler.request("POST", "/api/settings/public-calendar/regenerate");
-    assertStatus(reponse, 201, "regeneration lien public");
+    assertStatus(reponse, 200, "route historique réutilise le lien stable");
     const nouveauToken = String(reponse.json?.reglages?.calendrier_public?.lien_public || "")
       .split("/")
       .filter(Boolean)
       .at(-1) || "";
     assert.match(nouveauToken, /^[A-Za-z0-9_-]{32,160}$/);
-    assert.notEqual(nouveauToken, tokenActuel, "La regeneration doit remplacer le jeton.");
-    reponse = await fetch(`${baseUrl}/api/reservation-public/${tokenActuel}?week_start=2026-09-07`);
-    assert.equal(reponse.status, 404, "ancien lien revoque");
+    assert.equal(nouveauToken, tokenActuel, "Aucune action ne fait tourner le lien unique.");
     reponse = await fetch(`${baseUrl}/api/reservation-public/${nouveauToken}?week_start=2026-09-07`);
-    assert.equal(reponse.status, 200, "nouveau lien fonctionnel");
+    assert.equal(reponse.status, 200, "lien réactivé fonctionnel");
     tokenActuel = nouveauToken;
 
     // Référence métier intégrée : une même disponibilité centrale 08:00–09:00
@@ -679,7 +678,8 @@ async function run() {
       heure_debut: "08:00",
       heure_fin: "09:00",
     });
-    assertStatus(reponse, 201, "disponibilité centrale de référence");
+    assertStatus(reponse, 403, "Handler cannot create retired availability rule");
+    assert.equal(reponse.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
 
     reponse = await handler.request("GET", "/api/settings");
     assertStatus(reponse, 200, "relecture Handler de la référence centrale");
@@ -719,6 +719,11 @@ async function run() {
       public_calendar_timezone: "GMT+2",
     });
     assertStatus(reponse, 200, "offset public GMT+2 de référence");
+    assert.equal(
+      reponse.json?.reglages?.calendrier_public?.lien_public,
+      lienInitial,
+      "Modifier le décalage ne doit pas créer un autre lien."
+    );
     await verifierProjectionPubliqueReference({ offset: "GMT+2", debut: "10:00", fin: "11:00" });
 
     reponse = await handler.request("PATCH", "/api/settings/public-calendar", {
@@ -728,10 +733,16 @@ async function run() {
     await verifierProjectionPubliqueReference({ offset: "GMT+1", debut: "09:00", fin: "10:00" });
 
     reponse = await handler.request("PATCH", "/api/settings/public-calendar", {
-      public_calendar_timezone: "GMT",
+      public_calendar_timezone: "GMT+3",
     });
-    assertStatus(reponse, 200, "offset public GMT de référence");
-    await verifierProjectionPubliqueReference({ offset: "GMT", debut: "08:00", fin: "09:00" });
+    assertStatus(reponse, 200, "offset public GMT+3 de référence");
+    await verifierProjectionPubliqueReference({ offset: "GMT+3", debut: "11:00", fin: "12:00" });
+
+    reponse = await handler.request("PATCH", "/api/settings/public-calendar", {
+      public_calendar_timezone: "GMT+4",
+    });
+    assertStatus(reponse, 200, "offset public GMT+4 de référence");
+    await verifierProjectionPubliqueReference({ offset: "GMT+4", debut: "12:00", fin: "13:00" });
 
     reponse = await handler.request("GET", "/api/historique?limit=100");
     assertStatus(reponse, 200, "historique des reglages");
@@ -757,7 +768,7 @@ async function run() {
       "Africa/Casablanca",
       "Le réglage public ne doit jamais réécrire la préférence timezone legacy."
     );
-    assert.equal(ligne?.public_calendar_timezone, "GMT");
+    assert.equal(ligne?.public_calendar_timezone, "GMT+4");
     assert.equal(ligne?.calendar_start_time, "08:00");
     assert.equal(ligne?.calendar_end_time, "09:00");
     assert.match(String(ligne?.token_calendrier_public_hash || ""), /^[a-f0-9]{64}$/);

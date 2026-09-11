@@ -5,22 +5,6 @@ export async function recupererVueAdministration() {
   return resultat.administration;
 }
 
-export async function creerUtilisateurAdmin(donneesUtilisateur) {
-  return envoyerRequete("/api/admin/users", {
-    method: "POST",
-    body: JSON.stringify(donneesUtilisateur),
-  });
-}
-
-export async function supprimerUtilisateurAdmin(utilisateurId, motDePasseActuel) {
-  return envoyerRequete(`/api/admin/users/${Number(utilisateurId)}`, {
-    method: "DELETE",
-    body: JSON.stringify({
-      mot_de_passe_actuel: motDePasseActuel,
-    }),
-  });
-}
-
 export async function ajouterElementCatalogueAdmin(type, valeur, motDePasseActuel) {
   return envoyerRequete("/api/admin/catalogue-items", {
     method: "POST",
@@ -45,16 +29,6 @@ export async function restaurerElementCatalogueAdmin(elementId, motDePasseActuel
   return envoyerRequete(`/api/admin/catalogue-items/${Number(elementId)}/restore`, {
     method: "POST",
     body: JSON.stringify({
-      mot_de_passe_actuel: motDePasseActuel,
-    }),
-  });
-}
-
-export async function reinitialiserMotDePasseCompte(utilisateurId, motDePasseActuel) {
-  return envoyerRequete("/api/admin/reset-password", {
-    method: "POST",
-    body: JSON.stringify({
-      utilisateur_id: Number(utilisateurId),
       mot_de_passe_actuel: motDePasseActuel,
     }),
   });
@@ -166,24 +140,6 @@ export async function revoquerSessionAdmin(sessionId, motDePasseActuel) {
   });
 }
 
-export async function supprimerToutesLesSeancesAdmin(motDePasseActuel) {
-  return envoyerRequete("/api/admin/clear-seances", {
-    method: "POST",
-    body: JSON.stringify({
-      mot_de_passe_actuel: motDePasseActuel,
-    }),
-  });
-}
-
-export async function supprimerToutHistoriqueAdmin(motDePasseActuel) {
-  return envoyerRequete("/api/admin/clear-history", {
-    method: "POST",
-    body: JSON.stringify({
-      mot_de_passe_actuel: motDePasseActuel,
-    }),
-  });
-}
-
 export async function executerMaintenanceSqliteAdmin(motDePasseActuel) {
   return envoyerRequete("/api/admin/maintenance/sqlite", {
     method: "POST",
@@ -243,5 +199,12 @@ export async function revoquerAppareilAutoLoginAdmin(appareilId, motDePasseActue
     body: JSON.stringify({
       mot_de_passe_actuel: motDePasseActuel,
     }),
+  });
+}
+
+export async function supprimerCompteAdmin(utilisateurId, motDePasseActuel) {
+  return envoyerRequete(`/api/admin/users/${Number(utilisateurId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ mot_de_passe_actuel: motDePasseActuel }),
   });
 }

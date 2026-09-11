@@ -50,6 +50,13 @@ export async function recupererIndisponibilites() {
   return resultat.indisponibilites;
 }
 
+// The Handler calendar deliberately uses a separate read-only projection.
+// `/api/indisponibilites` stays reserved for Professors' personal module.
+export async function recupererIndisponibilitesCalendrierCentral() {
+  const resultat = await envoyerRequete("/api/dashboard/indisponibilites");
+  return resultat.indisponibilites;
+}
+
 export async function creerIndisponibilite(donneesIndisponibilite) {
   return envoyerRequete("/api/indisponibilites", {
     method: "POST",
@@ -70,44 +77,33 @@ export async function supprimerIndisponibilite(indisponibiliteId) {
   });
 }
 
-export async function recupererPropositionsSeances() {
-  const resultat = await envoyerRequete("/api/propositions-seances");
-  return resultat.propositions;
-}
-
-export async function creerPropositionSeance(donneesSeance) {
-  const resultat = await envoyerRequete("/api/propositions-seances", {
-    method: "POST",
-    body: JSON.stringify(donneesSeance),
-  });
-
-  return resultat.proposition;
-}
-
-export async function modifierPropositionSeance(propositionId, donneesSeance) {
-  const resultat = await envoyerRequete(`/api/propositions-seances/${propositionId}`, {
-    method: "PUT",
-    body: JSON.stringify(donneesSeance),
-  });
-
-  return resultat.proposition;
-}
-
-export async function accepterPropositionSeance(propositionId) {
-  return envoyerRequete(`/api/propositions-seances/${propositionId}/accepter`, {
-    method: "POST",
-  });
-}
-
-export async function refuserPropositionSeance(propositionId) {
-  return envoyerRequete(`/api/propositions-seances/${propositionId}/refuser`, {
-    method: "POST",
-  });
-}
-
 export async function recupererHistoriqueActions() {
   const resultat = await envoyerRequete("/api/historique");
   return resultat.historique;
+}
+
+export async function recupererStatistiques(options = {}) {
+  const parametres = new URLSearchParams();
+
+  if (options?.globale === true) {
+    // La vue globale reste toujours limitée au scope opérationnel de la
+    // session. Le serveur rejette volontairement les dates dans ce mode.
+    parametres.set("globale", "1");
+  } else {
+    const du = String(options?.du || "").trim();
+    const au = String(options?.au || "").trim();
+
+    if (du) {
+      parametres.set("du", du);
+    }
+
+    if (au) {
+      parametres.set("au", au);
+    }
+  }
+
+  const suffixe = parametres.toString() ? `?${parametres.toString()}` : "";
+  return envoyerRequete(`/api/statistiques${suffixe}`);
 }
 
 export async function recupererDetailHistorique(entreeId) {
@@ -135,6 +131,13 @@ export async function recupererMonetisation(options = {}) {
     const mode = String(options?.mode || "").trim();
     const annee = String(options?.annee || "").trim();
     const mois = String(options?.mois || "").trim();
+    const du = String(options?.du || "").trim();
+    const au = String(options?.au || "").trim();
+    const intervenants = Array.isArray(options?.intervenant_ids)
+      ? options.intervenant_ids
+      : options?.intervenant_id === undefined || options?.intervenant_id === null
+        ? []
+        : [options.intervenant_id];
 
     if (mois && mois !== "all") {
       parametres.set("mois", mois);
@@ -147,6 +150,20 @@ export async function recupererMonetisation(options = {}) {
         parametres.set("annee", annee);
       }
     }
+
+    if (du) {
+      parametres.set("du", du);
+    }
+
+    if (au) {
+      parametres.set("au", au);
+    }
+
+    intervenants.forEach((intervenantId) => {
+      if (String(intervenantId || "").trim()) {
+        parametres.append("intervenant_id", String(intervenantId));
+      }
+    });
   }
 
   const suffixe = parametres.toString() ? `?${parametres.toString()}` : "";
@@ -167,6 +184,13 @@ export async function telechargerReleveMonetisation(options = {}, comptes = []) 
     const mode = String(options?.mode || "").trim();
     const annee = String(options?.annee || "").trim();
     const mois = String(options?.mois || "").trim();
+    const du = String(options?.du || "").trim();
+    const au = String(options?.au || "").trim();
+    const intervenants = Array.isArray(options?.intervenant_ids)
+      ? options.intervenant_ids
+      : options?.intervenant_id === undefined || options?.intervenant_id === null
+        ? []
+        : [options.intervenant_id];
 
     if (mois && mois !== "all") {
       parametres.set("mois", mois);
@@ -179,6 +203,20 @@ export async function telechargerReleveMonetisation(options = {}, comptes = []) 
         parametres.set("annee", annee);
       }
     }
+
+    if (du) {
+      parametres.set("du", du);
+    }
+
+    if (au) {
+      parametres.set("au", au);
+    }
+
+    intervenants.forEach((intervenantId) => {
+      if (String(intervenantId || "").trim()) {
+        parametres.append("intervenant_id", String(intervenantId));
+      }
+    });
   }
 
   parametres.set("format", format === "html" ? "html" : "pdf");
