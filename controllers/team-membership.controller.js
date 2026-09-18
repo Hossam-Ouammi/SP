@@ -19,6 +19,10 @@ async function envoyerDemande(req, res, next) {
       handlerId: req.body?.handler_id,
       description: req.body?.description,
     });
+    res.locals.realtimeScope = {
+      handlerId: Number(demande.handler_id),
+      intervenantId: Number(req.utilisateur.id),
+    };
     return res.status(201).json({ message: "Demande envoyee.", demande });
   } catch (error) { return next(error); }
 }
@@ -37,6 +41,10 @@ async function traiter(req, res, next, accepter) {
       accepter,
     });
     if (!demande) return res.status(404).json({ message: "Demande introuvable ou deja traitee." });
+    res.locals.realtimeScope = {
+      handlerId: Number(req.utilisateur.id),
+      intervenantId: Number(demande.professeur_id),
+    };
     if (accepter) {
       const handler = await get("SELECT nom, public_id FROM utilisateurs WHERE id = ?", [req.utilisateur.id]);
       await envoyerEmailRattachementEquipeAccepte({

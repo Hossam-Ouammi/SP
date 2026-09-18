@@ -18,6 +18,8 @@ const {
   obtenirDefinitionFuseauCalendrierPublic,
 } = require("../utils/public-calendar-timezone");
 const {
+  trouverMembreCalendrierPublicParPublicId,
+  listerPlagesIndisponiblesMembre,
   trouverHandlerCalendrierPublicParToken,
   listerIntervenantsActifsHandler,
   listerPlagesIndisponiblesCalendrierPublic,
@@ -491,7 +493,8 @@ function repondreCalendrierPublicPageIntrouvable(req, res) {
 }
 
 async function resoudreHandlerCalendrierPublic(req) {
-  const handler = await trouverHandlerCalendrierPublicParToken(req.params?.token);
+  const membre = await trouverMembreCalendrierPublicParPublicId(req.params?.token);
+  const handler = membre || await trouverHandlerCalendrierPublicParToken(req.params?.token);
 
   if (!handler?.id) {
     return null;
@@ -499,6 +502,7 @@ async function resoudreHandlerCalendrierPublic(req) {
 
   return {
     ...handler,
+    modePersonnel: Boolean(membre),
     fuseauPublic: obtenirDefinitionFuseauCalendrierPublic(
       handler.public_calendar_timezone
     ),
@@ -514,7 +518,13 @@ async function afficherPageReservationPublique(req, res) {
     return repondreCalendrierPublicPageIntrouvable(req, res);
   }
 
-  const tokenEncode = encodeURIComponent(String(req.params.token));
+  if (handler.calendrier_public_actif !== 1) {
+    return res.status(200).render("reservation-disabled", {
+      nom: String(handler.nom || "").trim(),
+    });
+  }
+
+  const tokenEncode = encodeURIComponent(String(handler.public_id || req.params.token));
 
   return res.render("reservation", {
     // Le client affiche une horloge publique civile : centrale + offset fixe.
@@ -531,7 +541,7 @@ async function recupererPlanningReservationPublique(req, res) {
   appliquerNoCache(res);
   const handler = await resoudreHandlerCalendrierPublic(req);
 
-  if (!handler) {
+  if (!handler || handler.calendrier_public_actif !== 1) {
     return repondreCalendrierPublicApiIntrouvable(req, res);
   }
 
@@ -539,14 +549,20 @@ async function recupererPlanningReservationPublique(req, res) {
     normaliserTexte(req.query.week_start) || normaliserTexte(req.query.date),
     handler.fuseauPublic.identifiant
   );
-  const [intervenantIds, plagesIndisponibles] = await Promise.all([
-    listerIntervenantsActifsHandler(handler.id),
-    listerPlagesIndisponiblesCalendrierPublic({
-      handlerId: handler.id,
-      dateDebut: ajouterJoursIso(contexteSemaine.week_start, -2),
-      dateFin: ajouterJoursIso(contexteSemaine.week_end, 2),
-    }),
-  ]);
+  const intervenantIds = handler.modePersonnel
+    ? [handler.id]
+    : await listerIntervenantsActifsHandler(handler.id);
+  const plagesIndisponibles = handler.modePersonnel
+    ? await listerPlagesIndisponiblesMembre({
+        intervenantId: handler.id,
+        dateDebut: ajouterJoursIso(contexteSemaine.week_start, -2),
+        dateFin: ajouterJoursIso(contexteSemaine.week_end, 2),
+      })
+    : await listerPlagesIndisponiblesCalendrierPublic({
+        handlerId: handler.id,
+        dateDebut: ajouterJoursIso(contexteSemaine.week_start, -2),
+        dateFin: ajouterJoursIso(contexteSemaine.week_end, 2),
+      });
   const fenetre = obtenirFenetreHorairePublique(
     handler.calendrier,
     handler.fuseauPublic.identifiant,
@@ -585,7 +601,7 @@ async function ouvrirFluxPlanningPublic(req, res) {
   appliquerNoCache(res);
   const handler = await resoudreHandlerCalendrierPublic(req);
 
-  if (!handler) {
+  if (!handler || handler.calendrier_public_actif !== 1) {
     return repondreCalendrierPublicApiIntrouvable(req, res);
   }
 
@@ -615,7 +631,8 @@ async function ouvrirFluxPlanningPublic(req, res) {
     utilisateurId: null,
     public: true,
     scopes: ["seances", "indisponibilites", "disponibilites", "settings"],
-    handlerIds: [handler.id],
+    handlerIds: handler.modePersonnel ? [] : [handler.id],
+    intervenantIds: handler.modePersonnel ? [handler.id] : [],
     clientKey,
   });
 

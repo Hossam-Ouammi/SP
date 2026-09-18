@@ -21,16 +21,15 @@ function construireFiltreIndisponibilitesScopees(scope = {}) {
   const possedeListeIntervenants = Array.isArray(scope.intervenantIds);
   const intervenantIds = normaliserListeIdentifiants(scope.intervenantIds);
 
-  if (handlerIds.length === 0) {
+  if (handlerIds.length === 0 && !intervenantId && intervenantIds.length === 0) {
     return { clause: "1 = 0", parametres: [] };
   }
 
-  const clauses = [
-    `indisponibilites.handler_id IN (${handlerIds.map(() => "?").join(", ")})`,
-  ];
-  const parametres = [...handlerIds];
+  const clauses = [];
+  const parametres = [];
 
   if (intervenantId) {
+    // Une indisponibilite est personnelle et vaut dans toutes les equipes.
     clauses.push("indisponibilites.intervenant_id = ?");
     parametres.push(intervenantId);
   } else if (possedeListeIntervenants) {
@@ -44,6 +43,11 @@ function construireFiltreIndisponibilitesScopees(scope = {}) {
       `indisponibilites.intervenant_id IN (${intervenantIds.map(() => "?").join(", ")})`
     );
     parametres.push(...intervenantIds);
+  } else {
+    clauses.push(
+      `indisponibilites.handler_id IN (${handlerIds.map(() => "?").join(", ")})`
+    );
+    parametres.push(...handlerIds);
   }
 
   return { clause: clauses.join(" AND "), parametres };
@@ -230,21 +234,19 @@ async function trouverIndisponibiliteIntervenantChevauchante({
   heureFin,
   exclureId = null,
 }) {
-  const handler = normaliserIdentifiant(handlerId);
   const intervenant = normaliserIdentifiant(intervenantId);
 
-  if (!handler || !intervenant) {
+  if (!intervenant) {
     return null;
   }
 
   const clauses = [
-    "indisponibilites.handler_id = ?",
     "indisponibilites.intervenant_id = ?",
     "indisponibilites.date = ?",
     "indisponibilites.heure_debut < ?",
     "indisponibilites.heure_fin > ?",
   ];
-  const parametres = [handler, intervenant, date, heureFin, heureDebut];
+  const parametres = [intervenant, date, heureFin, heureDebut];
 
   if (Number.isInteger(Number(exclureId)) && Number(exclureId) > 0) {
     clauses.push("indisponibilites.id <> ?");
@@ -285,9 +287,9 @@ async function listerIndisponibilitesChevauchantes({
   const handler = normaliserIdentifiant(handlerId);
   const intervenant = normaliserIdentifiant(intervenantId);
 
-  if (handler && intervenant) {
-    clauses.push("indisponibilites.handler_id = ?", "indisponibilites.intervenant_id = ?");
-    params.push(handler, intervenant);
+  if (intervenant) {
+    clauses.push("indisponibilites.intervenant_id = ?");
+    params.push(intervenant);
   }
 
   return all(
@@ -316,9 +318,9 @@ async function listerIndisponibilitesTouchantPlage({
   const handler = normaliserIdentifiant(handlerId);
   const intervenant = normaliserIdentifiant(intervenantId);
 
-  if (handler && intervenant) {
-    clauses.push("indisponibilites.handler_id = ?", "indisponibilites.intervenant_id = ?");
-    params.push(handler, intervenant);
+  if (intervenant) {
+    clauses.push("indisponibilites.intervenant_id = ?");
+    params.push(intervenant);
   }
 
   return all(
@@ -347,9 +349,9 @@ async function listerIndisponibilitesInclusesDansPlage({
   const handler = normaliserIdentifiant(handlerId);
   const intervenant = normaliserIdentifiant(intervenantId);
 
-  if (handler && intervenant) {
-    clauses.push("indisponibilites.handler_id = ?", "indisponibilites.intervenant_id = ?");
-    params.push(handler, intervenant);
+  if (intervenant) {
+    clauses.push("indisponibilites.intervenant_id = ?");
+    params.push(intervenant);
   }
 
   return all(

@@ -263,7 +263,7 @@ const indisponibilitesAvecSeanceHandler = calendrierTestable.creerEvenementsIndi
   calendrierSemaine,
   {
     handlerId: 70,
-    professeurs: professeursDisponibilite,
+    intervenants: [{ id: 70, nom: "Handler" }, ...professeursDisponibilite],
     indisponibilites: [
       {
         intervenant_id: 71,
@@ -294,7 +294,7 @@ const indisponibilitesAvecSeanceHandler = calendrierTestable.creerEvenementsIndi
 );
 assert.deepEqual(
   indisponibilitesAvecSeanceHandler.map((evenement) => [evenement.start, evenement.end]),
-  [["2034-06-03T08:30", "2034-06-03T09:00"]],
+  [["2034-06-03T08:00", "2034-06-03T08:30"]],
   "Une séance personnelle du Handler doit remplacer le fond indisponible seulement sur sa propre durée."
 );
 assert.deepEqual(
@@ -313,6 +313,11 @@ const finSectionDashboard = vueSource.indexOf('<section id="indisponibilites-sec
 assert.notEqual(debutSectionDashboard, -1, "La section Dashboard est introuvable.");
 assert.notEqual(finSectionDashboard, -1, "La fin de la section Dashboard est introuvable.");
 const sectionDashboard = vueSource.slice(debutSectionDashboard, finSectionDashboard);
+assert.match(
+  sectionDashboard,
+  /id="dashboard-person-filter"/,
+  "Le Dashboard Handler doit proposer le filtre dynamique par personne."
+);
 assert.match(sectionDashboard, /id="calendar"/, "Le Dashboard doit contenir son calendrier central unique.");
 assert.doesNotMatch(
   sectionDashboard,
@@ -351,12 +356,12 @@ assert.match(
 );
 assert.match(
   calendrierSource,
-  /seanceHandlerCouvreCreneau[\s\S]*?tousProfesseursIndisponibles && !seanceHandlerCouvreCreneau/,
-  "Une séance du Handler doit remplacer le fond collectif indisponible sur le créneau concerné."
+  /tousProfesseursIndisponibles = professeurs\.every\([\s\S]*?seanceIntervenantChevaucheCreneau/,
+  "Une séance de chaque membre, Handler compris, doit participer au calcul collectif du créneau indisponible."
 );
 assert.match(
   source,
-  /function construireDonneesDisponibiliteCalendrierCentral\(\)[\s\S]*?professeurs: obtenirProfesseursCalendrierCentral\(\)[\s\S]*?handlerId: Number\(etat\.utilisateur\?\.id \|\| 0\) \|\| null/,
+  /function construireDonneesDisponibiliteCalendrierCentral\(\)[\s\S]*?intervenants: obtenirIntervenantsCalendrierCentral\(\)[\s\S]*?handlerId: Number\(etat\.utilisateur\?\.id \|\| 0\) \|\| null/,
   "Le rendu central doit transmettre les Professeurs, les indisponibilités et le Handler au calcul de fond."
 );
 assert.match(
@@ -376,7 +381,7 @@ assert.match(
 );
 assert.match(
   source,
-  /vue: "central",[\s\S]*?disponibilites: construireDonneesDisponibiliteCalendrierCentral\(\)/,
+  /vue: personneId \? "complete" : "central",[\s\S]*?disponibilites: construireDonneesDisponibiliteCalendrierCentral\(\)/,
   "Le rafraîchissement Handler doit employer la vue centrale unifiée."
 );
 assert.match(
@@ -386,8 +391,18 @@ assert.match(
 );
 assert.match(
   source,
-  /function appliquerCouleursEquipeAuxSeancesCalendrier\(seances = \[\]\)[\s\S]*?intervenant_couleur_calendrier: couleur/,
-  "Les séances du Handler doivent reprendre la couleur attribuée à leur Réalisateur."
+  /function appliquerCouleursEquipeAuxSeancesCalendrier\(seances = \[\]\)[\s\S]*?intervenant_palette_calendrier: palette/,
+  "Les séances du Handler doivent reprendre la palette douce attribuée à leur Réalisateur."
+);
+assert.match(
+  source,
+  /function obtenirSeancesPersonneCalendrierCentral\(personneId\)[\s\S]*?intervenant_id[\s\S]*?personneId/,
+  "Le filtre personnel doit inclure les séances réalisées par cette personne, y compris dans une autre équipe."
+);
+assert.match(
+  calendrierSource,
+  /function creerPaletteDouceIntervenant\(couleur\)[\s\S]*?backgroundColor[\s\S]*?borderColor[\s\S]*?textColor/,
+  "Chaque Réalisateur doit disposer d'un fond doux, d'une bordure et d'un texte lisible."
 );
 assert.match(
   stylesSource,
@@ -446,8 +461,13 @@ assert.match(
 );
 assert.match(
   source,
-  /function intervenantEstDisponiblePourCreneau\([\s\S]*?const conflitSeance = trouverSeanceChevauchanteLocale[\s\S]*?if \(id === idHandler\) \{\s*return true;/,
-  "Le Handler doit pouvoir se choisir sur un créneau collectif indisponible, sans contourner un conflit avec sa propre séance."
+  /function validerDonneesIndisponibiliteClient\([\s\S]*?intervenantIdCourant[\s\S]*?Number\(indisponibilite\.intervenant_id\) !== intervenantIdCourant[\s\S]*?intervenantId: intervenantIdCourant/,
+  "La validation d'une indisponibilité doit ignorer les créneaux personnels des autres membres."
+);
+assert.match(
+  source,
+  /function intervenantEstDisponiblePourCreneau\([\s\S]*?const conflitSeance = trouverSeanceChevauchanteLocale[\s\S]*?if \(conflitSeance\) \{\s*return false;[\s\S]*?trouverIndisponibiliteChevauchanteLocale/,
+  "Chaque Réalisateur, Handler compris, doit être exclu lorsqu'il possède déjà une séance ou une indisponibilité."
 );
 assert.match(
   source,
@@ -470,8 +490,8 @@ const accesIndisponibilites = source.slice(
 );
 assert.match(
   accesIndisponibilites,
-  /utilisateurEstProfesseur\(\)\s*&&\s*!utilisateurEstHandler\(\)\s*&&\s*!utilisateurDoitChangerMotDePasse\(\)/,
-  "Only a Professor without the Handler role may open or manage personal unavailability."
+  /utilisateurEstProfesseur\(\)[\s\S]*?utilisateurEstHandler\(\)[\s\S]*?!utilisateurDoitChangerMotDePasse\(\)/,
+  "Handlers and Professors must both manage their personal unavailability."
 );
 assert.match(
   source,

@@ -79,6 +79,7 @@ import {
   supprimerMatiereEquipe,
   modifierTarificationEquipe,
   modifierProfesseurEquipe,
+  retirerProfesseurEquipe,
   envoyerLienResetProfesseur,
 } from "./equipe.js";
 import {
@@ -147,6 +148,8 @@ const retoursFocusDesModales = new WeakMap();
 
 function creerCatalogueVide() {
   return {
+    equipes: [],
+    handler_id: null,
     matieres: [],
     comptes: [],
     intervenants: [],
@@ -210,6 +213,7 @@ const etat = {
     lastAt: 0,
   },
   calendrier: null,
+  filtreCalendrierPersonne: "global",
   calendrierIndisponibilites: null,
   vueIndisponibilitesActive: "declaration",
   sectionActive: "aujourdhui",
@@ -261,6 +265,7 @@ const connexionTempsReel = {
 const horlogeCalendriers = {
   timer: null,
 };
+let navigationSecondaireOuverte = false;
 
 
 
@@ -296,8 +301,11 @@ const elements = {
   logoutButton: document.getElementById("logout-button"),
   addSeanceButton: document.getElementById("add-seance-button"),
   navTabs: Array.from(document.querySelectorAll(".nav-tab")),
+  navMoreToggle: document.getElementById("nav-more-toggle"),
   todaySection: document.getElementById("aujourdhui-section"),
   dashboardSection: document.getElementById("dashboard-section"),
+  dashboardPersonFilterField: document.getElementById("dashboard-person-filter-field"),
+  dashboardPersonFilter: document.getElementById("dashboard-person-filter"),
   calendrierSection: document.getElementById("calendrier-section"),
   calendarSettingsPanel: document.getElementById("calendar-settings-panel"),
   indisponibilitesSection: document.getElementById("indisponibilites-section"),
@@ -333,6 +341,19 @@ const elements = {
   publicCalendarLink: document.getElementById("public-calendar-link"),
   publicCalendarToggleButton: document.getElementById("public-calendar-toggle-button"),
   publicCalendarCopyButton: document.getElementById("public-calendar-copy-button"),
+  publicCalendarTeamLinks: document.getElementById("public-calendar-team-links"),
+  publicCalendarMemberships: document.getElementById("public-calendar-memberships"),
+  professorPublicCalendarCard: document.getElementById("professor-public-calendar-card"),
+  professorPublicCalendarStatus: document.getElementById("professor-public-calendar-status"),
+  professorPublicCalendarLink: document.getElementById("professor-public-calendar-link"),
+  professorPublicCalendarCopyButton: document.getElementById(
+    "professor-public-calendar-copy-button"
+  ),
+  professorPublicCalendarToggleButton: document.getElementById(
+    "professor-public-calendar-toggle-button"
+  ),
+  professorTeamsCard: document.getElementById("professor-teams-card"),
+  professorTeamsList: document.getElementById("professor-teams-list"),
   currentUserName: document.getElementById("current-user-name"),
   currentUserPublicId: document.getElementById("current-user-public-id"),
   userNavLabel: document.getElementById("user-nav-label"),
@@ -432,6 +453,8 @@ const elements = {
   unavailabilityFormTitle: document.getElementById("unavailability-form-title"),
   unavailabilityModalForm: document.getElementById("unavailability-modal-form"),
   unavailabilityModalDate: document.getElementById("unavailability-modal-date"),
+  unavailabilityModalHandlerField: document.getElementById("unavailability-modal-handler-field"),
+  unavailabilityModalHandler: document.getElementById("unavailability-modal-handler"),
   unavailabilityModalFullDay: document.getElementById("unavailability-modal-full-day"),
   unavailabilityModalFullDayNote: document.getElementById(
     "unavailability-modal-full-day-note"
@@ -550,6 +573,9 @@ const elements = {
   adminMaintenanceSqliteResult: document.getElementById("admin-maintenance-sqlite-result"),
   adminMaintenanceSqliteButton: document.getElementById("admin-maintenance-sqlite-button"),
   calendar: document.getElementById("calendar"),
+  dashboardPublicLink: document.getElementById("dashboard-public-link"),
+  dashboardPublicLinkValue: document.getElementById("dashboard-public-link-value"),
+  dashboardPublicLinkCopy: document.getElementById("dashboard-public-link-copy"),
   statsFilterForm: document.getElementById("stats-filter-form"),
   statsDateStart: document.getElementById("stats-date-start"),
   statsDateEnd: document.getElementById("stats-date-end"),
@@ -674,6 +700,8 @@ const elements = {
   compteCheckboxes: [],
   seanceIntervenantField: document.getElementById("seance-intervenant-field"),
   seanceIntervenant: document.getElementById("seance-intervenant"),
+  seanceHandlerField: document.getElementById("seance-handler-field"),
+  seanceHandler: document.getElementById("seance-handler"),
   statusOptions: Array.from(document.querySelectorAll(".status-option")),
   date: document.getElementById("date"),
   heureDebut: document.getElementById("heure_debut"),
@@ -873,14 +901,82 @@ function obtenirProfesseursCalendrierCentral() {
 
 function construireDonneesDisponibiliteCalendrierCentral() {
   return {
-    // Le fond collectif ne dépend que des Professeurs rattachés : le Handler
-    // reste réservable même si tous les Professeurs sont indisponibles.
-    professeurs: obtenirProfesseursCalendrierCentral(),
+    // La vue globale est indisponible seulement si tous les membres actifs de
+    // l'équipe, Handler compris, le sont. `etat.seances` conserve aussi les
+    // séances personnelles du Handler dans une autre équipe : elles servent
+    // uniquement à ce calcul et ne sont jamais dessinées dans la vue globale.
+    intervenants: obtenirIntervenantsCalendrierCentral(),
     seances: etat.seances,
     indisponibilites: etat.indisponibilites,
     handlerId: Number(etat.utilisateur?.id || 0) || null,
     plageHoraire: obtenirPlageCalendrierEffective(),
   };
+}
+
+function obtenirIntervenantsCalendrierCentral() {
+  const handlerId = Number(etat.utilisateur?.id || 0);
+  return [
+    { ...etat.utilisateur, id: handlerId, acces_active: 1, statut_compte: "active" },
+    ...obtenirProfesseursCalendrierCentral(),
+  ].filter((personne) => Number(personne?.id) > 0);
+}
+
+function normaliserFiltreCalendrierCentral(valeur = etat.filtreCalendrierPersonne) {
+  const filtre = String(valeur || "global");
+  if (filtre === "global") {
+    return "global";
+  }
+
+  const idPersonne = Number(filtre);
+  const estMembreActif = obtenirIntervenantsCalendrierCentral().some(
+    (personne) => Number(personne?.id) === idPersonne
+  );
+
+  return estMembreActif ? String(idPersonne) : "global";
+}
+
+function obtenirSeancesEquipeCouranteCalendrierCentral() {
+  const handlerId = Number(etat.utilisateur?.id || 0);
+  if (!handlerId) {
+    return [];
+  }
+
+  return (Array.isArray(etat.seances) ? etat.seances : []).filter(
+    (seance) => Number(seance?.handler_id) === handlerId
+  );
+}
+
+function obtenirSeancesPersonneCalendrierCentral(personneId) {
+  return (Array.isArray(etat.seances) ? etat.seances : []).filter(
+    (seance) => Number(seance?.intervenant_id) === Number(personneId)
+  );
+}
+
+function obtenirIndisponibilitesPersonneCalendrierCentral(personneId) {
+  return (Array.isArray(etat.indisponibilites) ? etat.indisponibilites : []).filter(
+    (indisponibilite) => Number(indisponibilite?.intervenant_id) === Number(personneId)
+  );
+}
+
+function rendreFiltreCalendrierCentral() {
+  const select = elements.dashboardPersonFilter;
+  const visible = utilisateurEstHandler();
+  elements.dashboardPersonFilterField?.classList.toggle("hidden", !visible);
+  if (!select || !visible) return;
+
+  const valeurPrecedente = normaliserFiltreCalendrierCentral();
+  select.replaceChildren(new Option("Vue globale", "global"));
+  obtenirIntervenantsCalendrierCentral().forEach((personne) => {
+    const estHandler = Number(personne.id) === Number(etat.utilisateur?.id);
+    select.appendChild(
+      new Option(`${estHandler ? "Moi — " : ""}${personne.nom || personne.public_id}`, String(personne.id))
+    );
+  });
+  const valeurs = Array.from(select.options).map((option) => option.value);
+  etat.filtreCalendrierPersonne = valeurs.includes(valeurPrecedente)
+    ? valeurPrecedente
+    : "global";
+  select.value = etat.filtreCalendrierPersonne;
 }
 
 function obtenirPasCreneauCalendrierCentral() {
@@ -901,22 +997,28 @@ function appliquerCouleursEquipeAuxSeancesCalendrier(seances = []) {
     },
     ...obtenirProfesseursCalendrierCentral(),
   ].filter((intervenant) => Number(intervenant?.id || 0) > 0);
-  const couleursParIntervenant = new Map(
+  const palettesParIntervenant = new Map(
     Array.from(creerPalettesDisponibiliteProfesseurs(realisateurs).entries()).map(
       ([intervenantId, palette]) => [
-      Number(intervenantId),
-      String(palette?.backgroundColor || "").trim(),
+        Number(intervenantId),
+        palette,
       ]
     )
   );
 
-  if (couleursParIntervenant.size === 0) {
+  if (palettesParIntervenant.size === 0) {
     return seances;
   }
 
   return (Array.isArray(seances) ? seances : []).map((seance) => {
-    const couleur = couleursParIntervenant.get(Number(seance?.intervenant_id));
-    return couleur ? { ...seance, intervenant_couleur_calendrier: couleur } : seance;
+    const palette = palettesParIntervenant.get(Number(seance?.intervenant_id));
+    return palette
+      ? {
+          ...seance,
+          intervenant_couleur_calendrier: palette.backgroundColor,
+          intervenant_palette_calendrier: palette,
+        }
+      : seance;
   });
 }
 
@@ -931,24 +1033,45 @@ function obtenirDonneesCalendrierIndisponibilitesPersonnelles() {
   const estPropre = (element) => Number(element?.intervenant_id) === realisateurId;
 
   return {
-    seances: (Array.isArray(etat.seances) ? etat.seances : []).filter(estPropre),
+    // Ce calendrier sert exclusivement à déclarer et gérer les
+    // indisponibilités. Les séances restent visibles dans le Dashboard.
+    seances: [],
     indisponibilites: (Array.isArray(etat.indisponibilites)
       ? etat.indisponibilites
       : []
-    ).filter(estPropre),
+    ).filter(
+      (indisponibilite) =>
+        estPropre(indisponibilite) &&
+        !indisponibilite?.est_seance_confidentielle
+    ),
   };
 }
 
 function rafraichirEvenementsCalendrier() {
   if (etat.calendrier) {
-    const seancesCalendrier = appliquerCouleursEquipeAuxSeancesCalendrier(etat.seances);
+    const filtre = normaliserFiltreCalendrierCentral();
+    etat.filtreCalendrierPersonne = filtre;
+    const personneId = filtre === "global" ? null : Number(filtre);
+    // La vue globale est l'équipe du Handler, pas l'agenda personnel global
+    // du Handler. Ses propres séances dans une autre équipe restent visibles
+    // seulement avec le filtre « Moi » et servent, sans détail rendu, au
+    // calcul de disponibilité collective.
+    const seancesFiltrees = personneId
+      ? obtenirSeancesPersonneCalendrierCentral(personneId)
+      : utilisateurEstHandler()
+        ? obtenirSeancesEquipeCouranteCalendrierCentral()
+        : etat.seances;
+    const indisponibilitesFiltrees = personneId
+      ? obtenirIndisponibilitesPersonneCalendrierCentral(personneId)
+      : etat.indisponibilites;
+    const seancesCalendrier = appliquerCouleursEquipeAuxSeancesCalendrier(seancesFiltrees);
     mettreAJourEvenements(
       etat.calendrier,
       seancesCalendrier,
-      etat.indisponibilites,
+      indisponibilitesFiltrees,
       utilisateurEstHandler()
         ? {
-            vue: "central",
+            vue: personneId ? "complete" : "central",
             disponibilites: construireDonneesDisponibiliteCalendrierCentral(),
           }
         : undefined
@@ -965,6 +1088,7 @@ function rafraichirEvenementsCalendrier() {
   }
 
   mettreAJourFiltreCalendrierCentral();
+  rendreFiltreCalendrierCentral();
 }
 
 function viderDonneesApplication() {
@@ -972,6 +1096,7 @@ function viderDonneesApplication() {
   etat.seances = [];
   etat.indisponibilites = [];
   etat.equipe = [];
+  etat.filtreCalendrierPersonne = "global";
   etat.tarificationEquipe = { matieres: [], realisateurs: [] };
   etat.demandesEquipe = [];
   etat.demandesAdministration = [];
@@ -1299,6 +1424,7 @@ function initialiserFormulaireIndisponibilite() {
   controles.form.dataset.fullDay = "0";
   controles.dateInput.value = obtenirDateLocaleIso();
   controles.fullDayInput.checked = false;
+  controles.dateInput.readOnly = false;
   controles.startInput.value = recupererHeureDebutParDefaut();
   controles.endInput.value = formaterHeureFinIndisponibilitePourSaisie(
     calculerHeureFin(controles.startInput.value, 60)
@@ -1384,6 +1510,7 @@ function obtenirControlesIndisponibiliteModal() {
   return {
     form: elements.unavailabilityModalForm,
     dateInput: elements.unavailabilityModalDate,
+    handlerInput: elements.unavailabilityModalHandler,
     fullDayInput: elements.unavailabilityModalFullDay,
     fullDayNote: elements.unavailabilityModalFullDayNote,
     timeFields: elements.unavailabilityModalTimeFields,
@@ -1444,8 +1571,16 @@ function lireDonneesIndisponibiliteDepuisControles(controles) {
     Boolean(controles.fullDayInput?.checked) ||
     Boolean(controles.timeFields?.classList.contains("hidden"));
 
+  let dates = [];
+  try {
+    dates = JSON.parse(controles.form?.dataset.datesSelectionnees || "[]");
+  } catch {
+    dates = [];
+  }
+
   return {
     date: controles.dateInput.value,
+    dates: Array.isArray(dates) && dates.length > 1 ? dates : undefined,
     heure_debut: jourComplet ? "00:00" : lireHeureIndisponibilite(controles, "start"),
     heure_fin: jourComplet ? "23:59" : lireHeureIndisponibilite(controles, "end"),
     jour_complet: jourComplet,
@@ -1462,6 +1597,7 @@ function validerDonneesIndisponibiliteClient(
   errorElement,
   options = {}
 ) {
+  const intervenantIdCourant = Number(etat.utilisateur?.id || 0) || null;
   const { date, heure_debut: heureDebut, heure_fin: heureFin, jour_complet: jourComplet } =
     donneesIndisponibilite;
 
@@ -1506,7 +1642,12 @@ function validerDonneesIndisponibiliteClient(
 
   if (jourComplet) {
     const jourDejaBloque = etat.indisponibilites.find((indisponibilite) => {
-      if (indisponibilite.date !== date || !estIndisponibiliteJourCompletClient(indisponibilite)) {
+      if (
+        indisponibilite.date !== date ||
+        !estIndisponibiliteJourCompletClient(indisponibilite) ||
+        (intervenantIdCourant &&
+          Number(indisponibilite.intervenant_id) !== intervenantIdCourant)
+      ) {
         return false;
       }
 
@@ -1529,6 +1670,7 @@ function validerDonneesIndisponibiliteClient(
     heure_debut: heureDebut,
     heure_fin: heureFin,
     ignorerIndisponibiliteId: options.ignorerIndisponibiliteId || null,
+    intervenantId: intervenantIdCourant,
   });
 
   if (conflit) {
@@ -1690,6 +1832,34 @@ function rendreOptionsCatalogueSeance() {
   rendreOptionsIntervenantsSeance();
 }
 
+function rendreOptionsEquipesSeance(handlerId = null) {
+  const select = elements.seanceHandler;
+  const champ = elements.seanceHandlerField;
+  const equipes = Array.isArray(etat.catalogue?.equipes) ? etat.catalogue.equipes : [];
+  if (!select || !champ) return;
+  champ.classList.toggle("hidden", equipes.length <= 1);
+  select.replaceChildren();
+  equipes.forEach((equipe) => {
+    select.appendChild(new Option(
+      `${equipe.public_id ? `${equipe.public_id} - ` : ""}${equipe.nom}`,
+      String(equipe.id)
+    ));
+  });
+  const cible = Number(handlerId || etat.catalogue.handler_id || equipes[0]?.id || 0);
+  if (equipes.some((equipe) => Number(equipe.id) === cible)) select.value = String(cible);
+  appliquerEquipeSeanceSelectionnee();
+}
+
+function appliquerEquipeSeanceSelectionnee() {
+  const handlerId = Number(elements.seanceHandler?.value || 0);
+  const equipe = (etat.catalogue?.equipes || []).find((item) => Number(item.id) === handlerId);
+  if (!equipe) return;
+  etat.catalogue.handler_id = handlerId;
+  etat.catalogue.matieres = normaliserListeCatalogue(equipe.matieres);
+  etat.catalogue.intervenants = normaliserIntervenantsSeance(equipe.intervenants);
+  rendreOptionsCatalogueSeance();
+}
+
 function initialiserCatalogueSeanceParDefaut() {
   etat.catalogue = creerCatalogueVide();
   rendreOptionsCatalogueSeance();
@@ -1726,7 +1896,6 @@ function obtenirCreneauSelectionnePourIntervenants() {
 
 function intervenantEstDisponiblePourCreneau(intervenantId, creneau, options = {}) {
   const id = Number(intervenantId || 0);
-  const idHandler = Number(etat.utilisateur?.id || 0);
   const ignorerSeanceId = options.ignorerSeanceId || null;
 
   if (!id || !creneau) {
@@ -1741,13 +1910,6 @@ function intervenantEstDisponiblePourCreneau(intervenantId, creneau, options = {
 
   if (conflitSeance) {
     return false;
-  }
-
-  // Le Handler peut placer sa propre séance sur n'importe quel créneau de sa
-  // journée. Ses indisponibilités historiques ne doivent pas l'empêcher de
-  // remplir le créneau collectif grisé.
-  if (id === idHandler) {
-    return true;
   }
 
   return !(
@@ -2127,6 +2289,10 @@ async function gererCycleCompteAvecJeton(event) {
 
 function attacherEcouteurs() {
   elements.loginForm?.addEventListener("submit", gererConnexion);
+  elements.dashboardPersonFilter?.addEventListener("change", () => {
+    etat.filtreCalendrierPersonne = elements.dashboardPersonFilter.value || "global";
+    rafraichirEvenementsCalendrier();
+  });
   // The public lifecycle has its own small, failure-isolated script loaded
   // before this module. Keeping a single event owner avoids duplicate reset
   // emails/submissions once the main application has initialised.
@@ -2174,6 +2340,20 @@ function attacherEcouteurs() {
     gererBasculeCalendrierPublic
   );
   elements.publicCalendarCopyButton?.addEventListener("click", copierLienCalendrierPublic);
+  elements.dashboardPublicLinkCopy?.addEventListener("click", async () => {
+    const lien = String(elements.dashboardPublicLinkValue?.href || "").trim();
+    if (await copierLienPublic(lien, elements.dashboardPublicLinkValue)) {
+      afficherToast("Lien public copié.", "success");
+    }
+  });
+  elements.professorPublicCalendarToggleButton?.addEventListener(
+    "click",
+    gererBasculeCalendrierPublic
+  );
+  elements.professorPublicCalendarCopyButton?.addEventListener(
+    "click",
+    copierLienCalendrierPublicProfesseur
+  );
   elements.teamSubjectForm?.addEventListener("submit", gererAjoutMatiereEquipe);
   elements.teamTarificationForm?.addEventListener(
     "submit",
@@ -2289,6 +2469,10 @@ function attacherEcouteurs() {
       afficherSectionApplication(bouton.dataset.sectionTarget);
     });
   });
+  elements.navMoreToggle?.addEventListener("click", () => {
+    navigationSecondaireOuverte = !navigationSecondaireOuverte;
+    synchroniserNavigationSecondaire();
+  });
   elements.addSeanceButton?.addEventListener("click", () => {
     ouvrirFormulaireCreation();
   });
@@ -2296,6 +2480,7 @@ function attacherEcouteurs() {
   elements.etudiant?.addEventListener("input", mettreAJourEtapesFormulaireSeance);
   elements.date?.addEventListener("change", marquerDateSeanceCommeChoisie);
   elements.seanceIntervenant?.addEventListener("change", mettreAJourEtapesFormulaireSeance);
+  elements.seanceHandler?.addEventListener("change", appliquerEquipeSeanceSelectionnee);
   elements.heureDebutHourSelect?.addEventListener("change", () => {
     marquerHoraireSeanceCommeChoisi();
     mettreAJourHeureDebutSelectionnee();
@@ -2594,6 +2779,33 @@ function rafraichirCalendrierSiVisible(sectionDemandee = etat.sectionActive) {
   mettreAJourTailleCalendrier(etat.calendrierIndisponibilites);
 }
 
+function synchroniserNavigationSecondaire() {
+  const ongletsSecondaires = elements.navTabs.filter((bouton) =>
+    bouton.classList.contains("nav-secondary")
+  );
+  const possedeDestinationVisible = ongletsSecondaires.some(
+    (bouton) => !bouton.classList.contains("hidden")
+  );
+
+  ongletsSecondaires.forEach((bouton) => {
+    bouton.classList.toggle("nav-secondary-collapsed", !navigationSecondaireOuverte);
+  });
+
+  if (elements.navMoreToggle) {
+    elements.navMoreToggle.classList.toggle("hidden", !possedeDestinationVisible);
+    elements.navMoreToggle.classList.toggle("is-expanded", navigationSecondaireOuverte);
+    elements.navMoreToggle.setAttribute(
+      "aria-expanded",
+      navigationSecondaireOuverte ? "true" : "false"
+    );
+    const libelle = navigationSecondaireOuverte
+      ? "Masquer les autres menus"
+      : "Afficher les autres menus";
+    elements.navMoreToggle.setAttribute("aria-label", libelle);
+    elements.navMoreToggle.title = libelle;
+  }
+}
+
 function afficherSectionApplication(section) {
   let sectionDemandee = section;
 
@@ -2612,6 +2824,14 @@ function afficherSectionApplication(section) {
   }
 
   etat.sectionActive = sectionDemandee;
+
+  const ongletActif = elements.navTabs.find(
+    (bouton) => bouton.dataset.sectionTarget === sectionDemandee
+  );
+  if (ongletActif?.classList.contains("nav-secondary")) {
+    navigationSecondaireOuverte = true;
+    synchroniserNavigationSecondaire();
+  }
 
   const cartes = {
     aujourdhui: elements.todaySection,
@@ -2783,11 +3003,8 @@ function utilisateurPeutVoirAujourdhui() {
 }
 
 function utilisateurPeutVoirIndisponibilites() {
-  // Indisponibilites are personal declarations of Professors. A Handler
-  // consults them only through the central Dashboard, not a separate panel.
   return (
-    utilisateurEstProfesseur() &&
-    !utilisateurEstHandler() &&
+    (utilisateurEstProfesseur() || utilisateurEstHandler()) &&
     !utilisateurDoitChangerMotDePasse()
   );
 }
@@ -2810,7 +3027,7 @@ function utilisateurPeutVoirEquipe() {
 }
 
 function utilisateurPeutConfigurerReglagesEspace() {
-  return utilisateurEstHandler() && !utilisateurDoitChangerMotDePasse();
+  return (utilisateurEstHandler() || utilisateurEstProfesseur()) && !utilisateurDoitChangerMotDePasse();
 }
 
 function utilisateurPeutLireReglagesCalendrier() {
@@ -2870,7 +3087,73 @@ function memoriserReglagesEspace(reglages) {
   appliquerConfigurationCalendrier();
 }
 
+function rendreCartesCalendrierPersonnel(reglages = {}, lien = "") {
+  const estProfesseur = utilisateurEstProfesseur();
+  const calendrierPublic = reglages?.calendrier_public || {};
+  const actif = calendrierPublic.actif === true;
+
+  elements.professorPublicCalendarCard?.classList.toggle("hidden", !estProfesseur);
+  elements.professorTeamsCard?.classList.toggle("hidden", !estProfesseur);
+
+  if (!estProfesseur) {
+    return;
+  }
+
+  if (elements.professorPublicCalendarStatus) {
+    elements.professorPublicCalendarStatus.textContent = actif ? "Actif" : "Désactivé";
+  }
+  if (elements.professorPublicCalendarLink) {
+    elements.professorPublicCalendarLink.value = lien;
+  }
+  if (elements.professorPublicCalendarCopyButton) {
+    elements.professorPublicCalendarCopyButton.disabled = !lien;
+  }
+  if (elements.professorPublicCalendarToggleButton) {
+    elements.professorPublicCalendarToggleButton.disabled = !utilisateurPeutModifierDonnees();
+    elements.professorPublicCalendarToggleButton.textContent = actif
+      ? "Désactiver le lien"
+      : "Activer le lien";
+  }
+
+  if (!elements.professorTeamsList) {
+    return;
+  }
+
+  const equipes = Array.isArray(reglages?.equipes) ? reglages.equipes : [];
+  elements.professorTeamsList.replaceChildren();
+  if (equipes.length === 0) {
+    elements.professorTeamsList.appendChild(
+      creerEmptyState("Aucune équipe active.", "admin-user-empty")
+    );
+    return;
+  }
+
+  equipes.forEach((equipe) => {
+    const ligne = document.createElement("div");
+    ligne.className = "admin-identity-stat";
+    const nom = document.createElement("strong");
+    nom.textContent = equipe.nom || "Handler";
+    const identifiant = document.createElement("span");
+    identifiant.textContent = `ID : ${equipe.public_id || "-"}`;
+    ligne.append(nom, identifiant);
+    elements.professorTeamsList.appendChild(ligne);
+  });
+}
+
+function afficherLienPublicDashboard(reglages = etat.reglagesEspace) {
+  const lien = lienPublicAbsolu(reglages?.calendrier_public?.lien_public);
+  elements.dashboardPublicLink?.classList.toggle("hidden", !lien);
+  if (elements.dashboardPublicLinkValue) {
+    elements.dashboardPublicLinkValue.textContent = lien;
+    elements.dashboardPublicLinkValue.href = lien || "#";
+  }
+  if (elements.dashboardPublicLinkCopy) {
+    elements.dashboardPublicLinkCopy.disabled = !lien;
+  }
+}
+
 function afficherReglagesEspace() {
+  afficherLienPublicDashboard();
   if (!elements.workspaceSettingsCard) {
     return;
   }
@@ -2887,6 +3170,8 @@ function afficherReglagesEspace() {
   const modifiable = utilisateurPeutModifierDonnees() && reglages.calendrier?.modifiable === true;
   const lien = lienPublicAbsolu(calendrierPublic.lien_public);
 
+  rendreCartesCalendrierPersonnel(reglages, lien);
+
   if (elements.calendarStartTime) {
     elements.calendarStartTime.value = reglages.calendrier?.calendar_start_time || "08:00";
     elements.calendarStartTime.disabled = !modifiable;
@@ -2899,20 +3184,17 @@ function afficherReglagesEspace() {
     elements.workspaceSettingsButton.disabled = !modifiable;
   }
 
-  elements.publicCalendarSettings?.classList.toggle("hidden", !estHandler);
-  if (!estHandler) {
-    return;
-  }
+  elements.publicCalendarSettings?.classList.remove("hidden");
 
   if (elements.publicCalendarTimezone) {
     synchroniserOptionFuseauCalendrierPublic(
       elements.publicCalendarTimezone,
       obtenirFuseauHoraireCalendrierPublic(reglages)
     );
-    elements.publicCalendarTimezone.disabled = !modifiable;
+    elements.publicCalendarTimezone.disabled = !utilisateurPeutModifierDonnees();
   }
   if (elements.publicCalendarTimezoneButton) {
-    elements.publicCalendarTimezoneButton.disabled = !modifiable;
+    elements.publicCalendarTimezoneButton.disabled = !utilisateurPeutModifierDonnees();
   }
 
   const possedeJeton = calendrierPublic.jeton_configure === true;
@@ -2925,11 +3207,82 @@ function afficherReglagesEspace() {
     elements.publicCalendarLink.classList.toggle("hidden", !lien);
   }
   if (elements.publicCalendarToggleButton) {
-    elements.publicCalendarToggleButton.disabled = !modifiable || !possedeJeton || !actif;
-    elements.publicCalendarToggleButton.textContent = "Désactiver le lien";
+    elements.publicCalendarToggleButton.disabled = !utilisateurPeutModifierDonnees() || !possedeJeton;
+    elements.publicCalendarToggleButton.textContent = actif ? "Désactiver le lien" : "Activer le lien";
   }
   if (elements.publicCalendarCopyButton) {
     elements.publicCalendarCopyButton.disabled = !lien;
+  }
+
+  if (elements.publicCalendarTeamLinks) {
+    const membres = Array.isArray(reglages.liens_publics_equipe)
+      ? reglages.liens_publics_equipe
+      : [];
+    const personnes = [
+      {
+        id: etat.utilisateur?.id,
+        nom: etat.utilisateur?.nom,
+        public_id: etat.utilisateur?.public_id,
+        actif,
+        lien_public: calendrierPublic.lien_public,
+        personnel: true,
+      },
+      ...(estHandler ? membres : []),
+    ].filter((membre) => membre.id && membre.lien_public);
+    elements.publicCalendarTeamLinks.replaceChildren();
+    if (personnes.length > 0) {
+      personnes.forEach((membre) => {
+        const ligne = document.createElement("div");
+        ligne.className = "admin-identity-stat public-calendar-member-row";
+        const texte = document.createElement("span");
+        texte.textContent = `${membre.nom || membre.public_id} :`;
+        const lienMembre = lienPublicAbsolu(membre.lien_public);
+        const champLien = document.createElement("input");
+        champLien.type = "url";
+        champLien.readOnly = true;
+        champLien.value = lienMembre;
+        champLien.setAttribute("aria-label", `Lien public de ${membre.nom || membre.public_id || "ce membre"}`);
+        const copier = document.createElement("button");
+        copier.type = "button";
+        copier.className = "button secondary";
+        copier.textContent = "Copier";
+        copier.disabled = !lienMembre;
+        copier.addEventListener("click", async () => {
+          const copie = await copierLienPublic(lienMembre, champLien);
+          if (copie) {
+            afficherToast("Lien public copié.", "success");
+          }
+        });
+        const basculer = document.createElement("button");
+        basculer.type = "button";
+        basculer.className = "button secondary";
+        basculer.textContent = membre.actif ? "Désactiver" : "Activer";
+        basculer.addEventListener("click", async () => {
+          basculer.disabled = true;
+          try {
+            const resultat = await modifierEtatCalendrierPublic(
+              membre.personnel
+                ? !membre.actif
+                : { utilisateur_id: membre.id, actif: !membre.actif }
+            );
+            await chargerReglagesEspaceSiAutorise();
+            afficherToast(resultat.message || "Lien public mis à jour.", "success");
+          } catch (erreur) {
+            afficherToast(erreur.message || "Impossible de mettre à jour ce lien.", "error");
+          } finally {
+            basculer.disabled = false;
+          }
+        });
+        ligne.append(texte, champLien, copier, basculer);
+        elements.publicCalendarTeamLinks.appendChild(ligne);
+      });
+    }
+  }
+  if (elements.publicCalendarMemberships) {
+    const equipes = Array.isArray(reglages.equipes) ? reglages.equipes : [];
+    elements.publicCalendarMemberships.textContent = equipes.length
+      ? `Mes équipes : ${equipes.map((equipe) => `${equipe.public_id} — ${equipe.nom}`).join(", ")}`
+      : "";
   }
 }
 
@@ -3040,11 +3393,6 @@ async function gererModificationFuseauCalendrierPublic(event) {
     return;
   }
 
-  if (!utilisateurPeutConfigurerReglagesEspace()) {
-    afficherToast("Seul le Handler peut modifier le calendrier public.", "warning");
-    return;
-  }
-
   const publicCalendarTimezone = obtenirFuseauHoraireCalendrierPublic({
     calendrier_public: {
       public_calendar_timezone: elements.publicCalendarTimezone?.value,
@@ -3072,13 +3420,18 @@ async function gererModificationFuseauCalendrierPublic(event) {
 
 async function gererBasculeCalendrierPublic() {
   const calendrierPublic = etat.reglagesEspace?.calendrier_public || {};
-  if (!calendrierPublic.jeton_configure || !calendrierPublic.actif) {
+  if (!calendrierPublic.jeton_configure) {
     return;
   }
 
-  elements.publicCalendarToggleButton.disabled = true;
+  if (elements.publicCalendarToggleButton) {
+    elements.publicCalendarToggleButton.disabled = true;
+  }
+  if (elements.professorPublicCalendarToggleButton) {
+    elements.professorPublicCalendarToggleButton.disabled = true;
+  }
   try {
-    const resultat = await modifierEtatCalendrierPublic(false);
+    const resultat = await modifierEtatCalendrierPublic(!calendrierPublic.actif);
     memoriserReglagesEspace(resultat.reglages);
     afficherReglagesEspace();
     afficherToast(resultat.message, "success");
@@ -3088,23 +3441,39 @@ async function gererBasculeCalendrierPublic() {
   }
 }
 
-async function copierLienCalendrierPublic() {
-  const lien = String(elements.publicCalendarLink?.value || "").trim();
+async function copierLienPublic(lien, elementSecours = null) {
   if (!lien) {
-    return;
+    return false;
   }
 
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(lien);
-    } else {
-      elements.publicCalendarLink.focus();
-      elements.publicCalendarLink.select();
+    } else if (elementSecours) {
+      elementSecours.focus();
+      elementSecours.select();
       document.execCommand("copy");
+    } else {
+      return false;
     }
-    afficherToast("Lien public copié.", "success");
+    return true;
   } catch (erreur) {
     afficherToast("Copiez le lien affiché manuellement.", "warning");
+    return false;
+  }
+}
+
+async function copierLienCalendrierPublic() {
+  const lien = String(elements.publicCalendarLink?.value || "").trim();
+  if (await copierLienPublic(lien, elements.publicCalendarLink)) {
+    afficherToast("Lien public copié.", "success");
+  }
+}
+
+async function copierLienCalendrierPublicProfesseur() {
+  const lien = String(elements.professorPublicCalendarLink?.value || "").trim();
+  if (await copierLienPublic(lien, elements.professorPublicCalendarLink)) {
+    afficherToast("Lien public copié.", "success");
   }
 }
 
@@ -3285,6 +3654,7 @@ function mettreAJourNavigationProtegee() {
 
     bouton.classList.remove("hidden");
   });
+  synchroniserNavigationSecondaire();
 }
 
 function reinitialiserFormulaireUtilisateur() {
@@ -3423,7 +3793,7 @@ function mettreAJourResumeCompteConnecte() {
 
   if (boutonUtilisateur) {
     if (elements.userNavLabel) {
-      elements.userNavLabel.textContent = estAdministrateur ? "Panneau admin" : "Espace utilisateur";
+      elements.userNavLabel.textContent = "Paramètres";
     }
   }
 
@@ -3805,6 +4175,7 @@ function reinitialiserFormulaireIndisponibiliteModal() {
     controles.form.dataset.mode = "";
     controles.form.dataset.indisponibiliteId = "";
     controles.form.dataset.fullDay = "0";
+    controles.form.dataset.datesSelectionnees = "";
   }
 
   controles.fullDayInput.checked = false;
@@ -3820,6 +4191,15 @@ function reinitialiserFormulaireIndisponibiliteModal() {
   mettreAJourModeJourCompletIndisponibiliteModal();
 }
 
+function rendreEquipesIndisponibilite() {
+  const select = elements.unavailabilityModalHandler;
+  const champ = elements.unavailabilityModalHandlerField;
+  if (!select || !champ) return;
+  select.replaceChildren();
+  champ.classList.add("hidden");
+  select.required = false;
+}
+
 function masquerFormulaireIndisponibiliteModal() {
   elements.unavailabilityFormPanel?.classList.add("hidden");
   definirFormulaireIndisponibiliteModalOuvert(false);
@@ -3832,8 +4212,10 @@ function masquerFormulaireIndisponibiliteModal() {
 function remplirFormulaireIndisponibiliteModal(indisponibilite, options = {}) {
   const controles = obtenirControlesIndisponibiliteModal();
   const dupliquer = options.mode === "duplication";
+  rendreEquipesIndisponibilite(indisponibilite.handler_id);
 
   controles.dateInput.value = dupliquer ? "" : indisponibilite.date || "";
+  controles.dateInput.readOnly = false;
   controles.fullDayInput.checked = estIndisponibiliteJourCompletClient(indisponibilite);
   definirHeureIndisponibilite(
     controles,
@@ -3871,6 +4253,11 @@ function construireSelectionIndisponibilite(selection = {}) {
   return {
     date,
     dateFin,
+    datesSelectionnees: Array.isArray(selection.dates_selectionnees)
+      ? selection.dates_selectionnees.filter(estDateIsoValide)
+      : date
+        ? [date]
+        : [],
     heureDebut,
     heureFin,
     touteLaJournee,
@@ -3925,23 +4312,19 @@ function ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection = {})
     return;
   }
 
-  if (
-    selectionNormalisee.dateFin &&
-    selectionNormalisee.dateFin !== selectionNormalisee.date
-  ) {
-    afficherToast("Sélectionnez un seul jour à la fois.", "warning");
-    return;
-  }
-
   const controles = obtenirControlesIndisponibiliteModal();
   reinitialiserFormulaireIndisponibiliteModal();
+  rendreEquipesIndisponibilite();
   etat.indisponibiliteSelectionnee = null;
 
   elements.unavailabilityDetailTitle.textContent = "Nouvelle indisponibilité";
   elements.unavailabilityDetailBadge.textContent = selectionNormalisee.touteLaJournee
     ? "Jour complet"
     : "Indisponible";
-  elements.unavailabilityDetailDate.textContent = formatDate(selectionNormalisee.date);
+  elements.unavailabilityDetailDate.textContent =
+    selectionNormalisee.datesSelectionnees.length > 1
+      ? `${selectionNormalisee.datesSelectionnees.length} jours sélectionnés`
+      : formatDate(selectionNormalisee.date);
   elements.unavailabilityDetailTime.textContent = selectionNormalisee.touteLaJournee
     ? "Jour complet"
     : `${selectionNormalisee.heureDebut} - ${selectionNormalisee.heureFin}`;
@@ -3951,7 +4334,11 @@ function ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection = {})
 
   controles.form.dataset.mode = "creation";
   controles.form.dataset.indisponibiliteId = "";
+  controles.form.dataset.datesSelectionnees = JSON.stringify(
+    selectionNormalisee.datesSelectionnees
+  );
   controles.dateInput.value = selectionNormalisee.date;
+  controles.dateInput.readOnly = selectionNormalisee.datesSelectionnees.length > 1;
   controles.fullDayInput.checked = selectionNormalisee.touteLaJournee;
   definirHeureIndisponibilite(controles, "start", selectionNormalisee.heureDebut);
   definirHeureIndisponibilite(controles, "end", selectionNormalisee.heureFin);
@@ -3962,7 +4349,11 @@ function ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection = {})
   elements.unavailabilityFormTitle.textContent = "Déclarer une indisponibilité";
   controles.button.textContent = "Ajouter";
   mettreAJourModeJourCompletIndisponibiliteModal();
-  definirSousTitreModalIndisponibilite("");
+  definirSousTitreModalIndisponibilite(
+    selectionNormalisee.datesSelectionnees.length > 1
+      ? `${selectionNormalisee.datesSelectionnees.length} jours sélectionnés : la même plage horaire sera appliquée à chaque jour.`
+      : ""
+  );
   ouvrirModal(elements.unavailabilityDetailModal);
   controles.dateInput.focus();
 }
@@ -4079,14 +4470,19 @@ async function gererSoumissionIndisponibiliteModal(event) {
 
   masquerErreur(controles.errorElement);
 
-  const valide = validerDonneesIndisponibiliteClient(
-    donneesIndisponibilite,
-    controles.errorElement,
-    {
-      ignorerIndisponibiliteId: mode === "modification" ? indisponibiliteId : null,
-      indisponibiliteExistante:
-        mode === "modification" ? etat.indisponibiliteSelectionnee : null,
-    }
+  const datesAValider = Array.isArray(donneesIndisponibilite.dates)
+    ? donneesIndisponibilite.dates
+    : [donneesIndisponibilite.date];
+  const valide = datesAValider.every((date) =>
+    validerDonneesIndisponibiliteClient(
+      { ...donneesIndisponibilite, date },
+      controles.errorElement,
+      {
+        ignorerIndisponibiliteId: mode === "modification" ? indisponibiliteId : null,
+        indisponibiliteExistante:
+          mode === "modification" ? etat.indisponibiliteSelectionnee : null,
+      }
+    )
   );
 
   if (!valide) {
@@ -4132,7 +4528,9 @@ async function gererSoumissionIndisponibiliteModal(event) {
       donneesIndisponibilite.jour_complet && nombreFragments > 1
         ? `${nombreFragments} créneaux indisponibles créés sur les plages libres.`
         : mode === "creation"
-          ? "Indisponibilité ajoutée."
+          ? datesAValider.length > 1
+            ? `Indisponibilité ajoutée sur ${datesAValider.length} jours.`
+            : "Indisponibilité ajoutée."
           : mode === "duplication"
             ? "Indisponibilité dupliquée."
             : "Indisponibilité modifiée."
@@ -5472,7 +5870,12 @@ function creerCarteProfesseurEquipe(professeur) {
   reset.className = "button secondary";
   reset.textContent = "Reset password";
   reset.disabled = !modifiable || professeur.statut_compte !== "active";
-  actions.append(enregistrer, reset);
+  const retirer = document.createElement("button");
+  retirer.type = "button";
+  retirer.className = "button danger";
+  retirer.textContent = "Retirer de l'équipe";
+  retirer.disabled = !modifiable;
+  actions.append(enregistrer, reset, retirer);
   formulaire.appendChild(actions);
 
   formulaire.addEventListener("submit", async (event) => {
@@ -5507,6 +5910,22 @@ function creerCarteProfesseurEquipe(professeur) {
       afficherToast(erreur.message, "error");
     } finally {
       reset.disabled = !utilisateurPeutModifierDonnees() || statut.value !== "active";
+    }
+  });
+
+  retirer.addEventListener("click", async () => {
+    if (!window.confirm(`Retirer ${professeur.nom || "ce professeur"} de votre équipe ?`)) {
+      return;
+    }
+
+    retirer.disabled = true;
+    try {
+      const resultat = await retirerProfesseurEquipe(professeur.id);
+      await chargerEquipeSiAutorise();
+      afficherToast(resultat.message || "Professeur retiré de l'équipe.", "success");
+    } catch (erreur) {
+      afficherToast(erreur.message, "error");
+      retirer.disabled = !utilisateurPeutModifierDonnees();
     }
   });
 
@@ -5931,11 +6350,13 @@ async function chargerOptionsSeancesDisponibles() {
   try {
     const options = await recupererOptionsSeances();
     etat.catalogue = {
+      equipes: Array.isArray(options?.equipes) ? options.equipes : [],
+      handler_id: Number(options?.handler_id || 0) || null,
       matieres: normaliserListeCatalogue(options?.matieres),
       comptes: normaliserListeCatalogue(options?.comptes),
       intervenants: normaliserIntervenantsSeance(options?.intervenants),
     };
-    rendreOptionsCatalogueSeance();
+    rendreOptionsEquipesSeance();
   } catch (erreur) {
     if (erreur.status === 401) {
       await gererDeconnexion();
@@ -9358,7 +9779,8 @@ function mettreAJourVisibiliteDescriptionSeance(mode) {
 }
 
 function mettreAJourVisibiliteStatutSeance(mode) {
-  elements.statusSection?.classList.remove("hidden");
+  const afficherStatut = mode === "modification";
+  elements.statusSection?.classList.toggle("hidden", !afficherStatut);
 
   if (!afficherStatut) {
     definirValeurSelectionnee(elements.statutCheckboxes, "planifiee");
@@ -9572,6 +9994,7 @@ function ouvrirFormulaireReport() {
 }
 
 function remplirFormulaire(seance) {
+  rendreOptionsEquipesSeance(seance.handler_id);
   elements.seanceId.value = seance.id;
   elements.etudiant.value = seance.etudiant;
   elements.parent.value = seance.parent || "";
@@ -9623,6 +10046,7 @@ async function gererSoumissionSeance(event) {
   const dureeMinutes = recupererDureeSelectionnee();
   const intervenantId = obtenirIntervenantCibleSeance();
   const donneesSeance = {
+    handler_id: Number(elements.seanceHandler?.value || etat.catalogue?.handler_id || 0) || undefined,
     etudiant: elements.etudiant.value.trim(),
     parent: elements.parent.value.trim(),
     matiere: recupererValeurSelectionnee(elements.matiereCheckboxes),
@@ -9853,7 +10277,10 @@ function gererClicIndisponibilite(indisponibilite) {
     ? "Jour complet indisponible"
     : `Créneau indisponible : ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}`;
 
-  if (utilisateurPeutGererIndisponibilites()) {
+  if (
+    utilisateurPeutGererIndisponibilites() &&
+    indisponibiliteAppartientAuRealisateurCourant(indisponibilite)
+  ) {
     const progressionTripleClic = enregistrerClicIndisponibilite(indisponibilite);
 
     if (progressionTripleClic.complete) {
@@ -9965,7 +10392,10 @@ function ouvrirIndisponibiliteDepuisSelectionCalendrier(selection = {}) {
     return false;
   }
 
-  if (utilisateurPeutGererIndisponibilites()) {
+  if (
+    utilisateurPeutGererIndisponibilites() &&
+    indisponibiliteAppartientAuRealisateurCourant(indisponibilite)
+  ) {
     ouvrirDetailIndisponibilite(indisponibilite);
   } else {
     gererClicIndisponibilite(indisponibilite);

@@ -345,20 +345,10 @@ function verifierAccesMonetisation(req, res, next) {
 }
 
 function verifierAccesIndisponibilites(req, res, next) {
-  // Le Handler visualise les indisponibilités de son équipe uniquement par
-  // l'endpoint Dashboard dédié. Il ne possède pas le module de déclaration
-  // et ne doit donc pas pouvoir appeler les routes d'indisponibilités (ni les
-  // anciennes règles/exceptions de disponibilités) directement.
-  if (req.scope?.estHandler === true) {
-    return res.status(403).json({
-      code: "HANDLER_UNAVAILABILITY_FORBIDDEN",
-      message:
-        "Le Handler ne peut pas gérer les indisponibilités. Seuls les professeurs déclarent leurs propres créneaux.",
-    });
-  }
-
   const estAutorise =
-    req.scope?.estSuperAdmin === true || req.scope?.estProfesseur === true;
+    req.scope?.estSuperAdmin === true ||
+    req.scope?.estProfesseur === true ||
+    req.scope?.estHandler === true;
 
   if (!estAutorise) {
     return res.status(403).json({

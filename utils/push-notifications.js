@@ -353,9 +353,22 @@ async function envoyerNotificationAbonnement(abonnementLigne, notification, opti
     await marquerAbonnementPushCommeUtilise(abonnementLigne.id).catch(() => {});
     return true;
   } catch (error) {
-    if ([404, 410].includes(Number(error?.statusCode))) {
+    if ([403, 404, 410].includes(Number(error?.statusCode))) {
       await desactiverAbonnementPushParId(abonnementLigne.id).catch(() => {});
     }
+
+    console.error("Échec de livraison Push", {
+      utilisateur_id: normaliserIdentifiant(abonnementLigne?.utilisateur_id),
+      fournisseur: (() => {
+        try {
+          return new URL(abonnementNavigateur.endpoint).hostname;
+        } catch {
+          return "inconnu";
+        }
+      })(),
+      statut: Number(error?.statusCode) || null,
+      code: normaliserTexte(error?.code) || null,
+    });
 
     return false;
   }

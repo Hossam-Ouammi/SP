@@ -58,18 +58,14 @@ function verifierScopeHandlerCourant(req, res, next) {
  * seule séparé, limité aux créneaux de ses Professeurs actifs.
  */
 function verifierDeclarationDisponibiliteProfesseur(req, res, next) {
-  if (req.scope?.estHandler === true) {
-    return res.status(403).json({
-      code: "HANDLER_UNAVAILABILITY_FORBIDDEN",
-      message:
-        "Le Handler ne peut pas déclarer, modifier ou supprimer une indisponibilité.",
-    });
-  }
-
-  if (req.scope?.estProfesseur !== true && req.scope?.estSuperAdmin !== true) {
+  if (
+    req.scope?.estProfesseur !== true &&
+    req.scope?.estHandler !== true &&
+    req.scope?.estSuperAdmin !== true
+  ) {
     return res.status(403).json({
       code: "PROFESSOR_UNAVAILABILITY_DECLARATION_REQUIRED",
-      message: "Seul un Professeur peut déclarer ses indisponibilités.",
+      message: "Ce compte ne peut pas déclarer d'indisponibilité.",
     });
   }
 

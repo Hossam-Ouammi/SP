@@ -11,9 +11,10 @@ const {
 } = require("../models/indisponibilite.model");
 const {
   listerToutesLesSeances,
-  listerSeancesScopees,
+  listerOccupationsIntervenant,
   trouverSeanceChevauchante,
   trouverSeanceIntervenantChevauchante,
+  listerOccupationsIntervenantsHorsEquipe,
 } = require("../models/seance.model");
 const {
   construireFiltreLectureSeances,
@@ -45,16 +46,8 @@ function normaliserIdentifiant(valeur) {
 }
 
 function construireScopeLectureIndisponibilites(req) {
-  if (req.scope?.estHandler) {
-    return {
-      // Cette fonction alimente exclusivement l'API de gestion
-      // `/api/indisponibilites`, explicitement fermée aux Handlers. Le flux
-      // Dashboard est traité par `recupererIndisponibilitesCalendrierCentral`
-      // ci-dessous, afin qu'une future route ne réintroduise pas par erreur
-      // les indisponibilités personnelles du Handler.
-      handlerIds: [],
-      intervenantIds: [],
-    };
+  if (req.scope?.estHandler || req.scope?.estProfesseur) {
+    return { intervenantId: Number(req.scope.utilisateurId) };
   }
 
   return construireFiltreLectureSeances(req.scope);
@@ -71,7 +64,6 @@ async function resoudreAffectationIndisponibilite({
   indisponibiliteExistante = null,
 }) {
   const utilisateurId = normaliserIdentifiant(acteur?.id);
-  const handlerDemande = normaliserIdentifiant(donnees?.handler_id ?? donnees?.handlerId);
   const intervenantDemande = normaliserIdentifiant(
     donnees?.intervenant_id ?? donnees?.professeur_id ?? donnees?.intervenantId
   );
@@ -80,25 +72,16 @@ async function resoudreAffectationIndisponibilite({
     throw creerErreurHttp(403, "Aucun espace Handler ou Professeur actif n'est associ\u00e9 \u00e0 ce compte.");
   }
 
-  if (scope.estHandler) {
-    throw creerErreurHttp(
-      403,
-      "Le Handler ne peut pas déclarer, modifier ou supprimer une indisponibilité.",
-      "HANDLER_UNAVAILABILITY_FORBIDDEN"
-    );
-  }
-
   const handlerIds = Array.isArray(scope.handlerProfesseurIds)
     ? scope.handlerProfesseurIds.map(normaliserIdentifiant).filter(Boolean)
     : [];
-  const handlerId = normaliserIdentifiant(indisponibiliteExistante?.handler_id) || handlerIds[0];
+  const handlerExistant = normaliserIdentifiant(indisponibiliteExistante?.handler_id);
+  const handlerId = scope.estHandler
+    ? utilisateurId
+    : handlerExistant || handlerIds[0] || null;
 
-  if (!scope.estProfesseur || !handlerId || !handlerIds.includes(handlerId)) {
+  if (!scope.estHandler && !scope.estProfesseur) {
     throw creerErreurHttp(403, "Aucun espace Professeur actif n'est associ\u00e9 \u00e0 ce compte.");
-  }
-
-  if (handlerDemande && handlerDemande !== handlerId) {
-    throw creerErreurRessourceInaccessible();
   }
 
   const intervenantId =
@@ -434,6 +417,21 @@ function normaliserDonneesIndisponibilite(donnees = {}) {
   };
 }
 
+function normaliserDatesIndisponibilite(donnees = {}) {
+  const datesBrutes = Array.isArray(donnees.dates) ? donnees.dates : [donnees.date];
+  const dates = Array.from(new Set(datesBrutes.map(normaliserTexte).filter(Boolean)));
+
+  if (dates.length === 0 || dates.some((date) => !estDateIsoValide(date))) {
+    throw creerErreurHttp(400, "Une ou plusieurs dates sont invalides.");
+  }
+
+  if (dates.length > 31) {
+    throw creerErreurHttp(400, "Vous pouvez sélectionner au maximum 31 jours à la fois.");
+  }
+
+  return dates.sort();
+}
+
 async function validerDonneesIndisponibilite(
   { date, heureDebut, heureFin, jourComplet, handlerId = null, intervenantId = null },
   options = {}
@@ -573,23 +571,23 @@ async function creerIndisponibilitesDisponiblesPourJourComplet({
     throw creerErreurHttp(400, "La date est invalide.");
   }
 
-  const scopeIntervenant = {
-    handlerIds: normaliserIdentifiant(handlerId) ? [normaliserIdentifiant(handlerId)] : [],
-    intervenantId: normaliserIdentifiant(intervenantId),
-  };
-  const seances =
-    scopeIntervenant.handlerIds.length > 0 && scopeIntervenant.intervenantId
-      ? await listerSeancesScopees(scopeIntervenant)
-      : await listerToutesLesSeances();
+  const intervenantIdNormalise = normaliserIdentifiant(intervenantId);
+  // A full-day declaration is personal. Sessions in another team occupy the
+  // same person's day too, but this minimal projection intentionally carries
+  // no other-team private data.
+  const seances = intervenantIdNormalise
+    ? await listerOccupationsIntervenant(intervenantIdNormalise)
+    : await listerToutesLesSeances();
   const exclusions = new Set(
     exclureIndisponibiliteIds
       .map((id) => Number(id))
       .filter((id) => Number.isInteger(id) && id > 0)
   );
-  const indisponibilitesSource =
-    scopeIntervenant.handlerIds.length > 0 && scopeIntervenant.intervenantId
-      ? await listerIndisponibilitesScopees(scopeIntervenant)
-      : await listerToutesLesIndisponibilites();
+  const indisponibilitesSource = intervenantIdNormalise
+    ? await listerIndisponibilitesScopees({
+        intervenantId: intervenantIdNormalise,
+      })
+    : await listerToutesLesIndisponibilites();
   const indisponibilitesExistantes = indisponibilitesSource.filter(
     (indisponibilite) => !exclusions.has(Number(indisponibilite.id))
   );
@@ -661,9 +659,11 @@ async function recupererIndisponibilites(req, res) {
 
 /**
  * Flux minimal, lecture seule, destiné au calendrier central du Handler.
- * Il ne passe volontairement pas par `/api/indisponibilites` : ce dernier
- * reste le module personnel des Professeurs. Les blocs historiques du Handler
- * sont exclus, tout comme ceux de Professeurs détachés ou désactivés.
+ *
+ * Il fournit les indisponibilités personnelles des membres actuels, ainsi
+ * que les occupations de ces membres dans d'autres équipes sous forme de
+ * blocs opaques. Une occupation externe ne contient donc jamais de séance,
+ * d'étudiant, de matière ni d'identifiant d'équipe.
  */
 async function recupererIndisponibilitesCalendrierCentral(req, res) {
   const handlerId = normaliserIdentifiant(req.scope?.utilisateurId);
@@ -675,39 +675,60 @@ async function recupererIndisponibilitesCalendrierCentral(req, res) {
     );
   }
 
-  const professeurIds = Array.from(
+  const membresEquipeIds = Array.from(
     new Set(
-      (Array.isArray(req.scope?.professeurIdsHandlerOwn)
+      [handlerId, ...(Array.isArray(req.scope?.professeurIdsHandlerOwn)
         ? req.scope.professeurIdsHandlerOwn
-        : [])
+        : [])]
         .map(normaliserIdentifiant)
         .filter(Boolean)
     )
   );
-  const indisponibilites = await listerIndisponibilitesScopees({
-    handlerIds: [handlerId],
-    intervenantIds: professeurIds,
-  });
+
+  // Les séances personnelles du Handler dans une autre équipe sont déjà
+  // présentes dans son flux privé `/api/seances`. Les renvoyer aussi comme
+  // occupation opaque produirait deux blocs superposés dans la vue « Moi ».
+  // Les autres membres restent, eux, volontairement opaques hors équipe.
+  const membresAvecOccupationsExternes = membresEquipeIds.filter(
+    (membreId) => membreId !== handlerId
+  );
+  const [indisponibilites, occupationsExternes] = await Promise.all([
+    listerIndisponibilitesScopees({ intervenantIds: membresEquipeIds }),
+    listerOccupationsIntervenantsHorsEquipe(membresAvecOccupationsExternes, handlerId),
+  ]);
 
   return res.json({
-    indisponibilites: indisponibilites.map((indisponibilite) => ({
-      id: Number(indisponibilite.id),
-      date: indisponibilite.date,
-      heure_debut: indisponibilite.heure_debut,
-      heure_fin:
-        indisponibilite.heure_fin === HEURE_FIN_MINUIT
-          ? HEURE_DEBUT_JOUR_COMPLET
-          : indisponibilite.heure_fin,
-      jour_complet: estIndisponibiliteJourComplet(indisponibilite) ? 1 : 0,
-      handler_id: Number(indisponibilite.handler_id),
-      intervenant_id: Number(indisponibilite.intervenant_id),
-    })),
+    indisponibilites: [
+      ...indisponibilites.map((indisponibilite) => ({
+        id: Number(indisponibilite.id),
+        date: indisponibilite.date,
+        heure_debut: indisponibilite.heure_debut,
+        heure_fin:
+          indisponibilite.heure_fin === HEURE_FIN_MINUIT
+            ? HEURE_DEBUT_JOUR_COMPLET
+            : indisponibilite.heure_fin,
+        jour_complet: estIndisponibiliteJourComplet(indisponibilite) ? 1 : 0,
+        handler_id: handlerId,
+        intervenant_id: Number(indisponibilite.intervenant_id),
+      })),
+      ...occupationsExternes.map((occupation, index) => ({
+        id: `occupation-externe-${index + 1}`,
+        date: occupation.date,
+        heure_debut: occupation.heure_debut,
+        heure_fin: occupation.heure_fin,
+        jour_complet: 0,
+        handler_id: handlerId,
+        intervenant_id: Number(occupation.intervenant_id),
+        est_seance_confidentielle: true,
+      })),
+    ],
   });
 }
 
 async function ajouterIndisponibilite(req, res) {
-  const { date, heureDebut, heureFin, jourComplet, raison } =
+  const { heureDebut, heureFin, jourComplet, raison } =
     normaliserDonneesIndisponibilite(req.body);
+  const dates = normaliserDatesIndisponibilite(req.body);
   const affectation = await resoudreAffectationIndisponibilite({
     scope: req.scope,
     acteur: req.utilisateur,
@@ -715,60 +736,67 @@ async function ajouterIndisponibilite(req, res) {
   });
 
   const resultatCreation = await executerTransactionImmediate(async () => {
-    if (jourComplet) {
-      return creerIndisponibilitesDisponiblesPourJourComplet({
+    const indisponibilitesCreees = [];
+    let creationPartielle = false;
+
+    for (const date of dates) {
+      if (jourComplet) {
+        const resultatJour = await creerIndisponibilitesDisponiblesPourJourComplet({
+          date,
+          raison,
+          creePar: req.utilisateur.id,
+          acteur: req.utilisateur,
+          handlerId: affectation.handlerId,
+          intervenantId: affectation.intervenantId,
+        });
+        indisponibilitesCreees.push(...resultatJour.indisponibilites);
+        creationPartielle ||= resultatJour.creationPartielle;
+        continue;
+      }
+
+      const erreurValidation = await validerDonneesIndisponibilite({
         date,
+        heureDebut,
+        heureFin,
+        jourComplet,
         raison,
-        creePar: req.utilisateur.id,
-        acteur: req.utilisateur,
         handlerId: affectation.handlerId,
         intervenantId: affectation.intervenantId,
       });
+
+      if (erreurValidation) {
+        throw creerErreurHttp(400, `${date} : ${erreurValidation}`);
+      }
+
+      const indisponibiliteCreee = await creerIndisponibilite({
+        date,
+        heureDebut,
+        heureFin,
+        jourComplet,
+        raison,
+        creePar: req.utilisateur.id,
+        handlerId: affectation.handlerId,
+        intervenantId: affectation.intervenantId,
+      });
+      indisponibilitesCreees.push(indisponibiliteCreee);
+
+      await creerEntreeHistorique({
+        seanceId: null,
+        seanceLibelle: construireLibelleIndisponibilite(indisponibiliteCreee),
+        actionType: "indisponibilite_creee",
+        actionLabel: "Création d'un créneau indisponible",
+        acteurId: req.utilisateur?.id,
+        acteurNom: req.utilisateur?.nom,
+        handlerId: affectation.handlerId,
+        intervenantId: affectation.intervenantId,
+        details: construireDetailsCreation(indisponibiliteCreee),
+      });
     }
-
-    const erreurValidation = await validerDonneesIndisponibilite({
-      date,
-      heureDebut,
-      heureFin,
-      jourComplet,
-      raison,
-      handlerId: affectation.handlerId,
-      intervenantId: affectation.intervenantId,
-    });
-
-    if (erreurValidation) {
-      throw creerErreurHttp(400, erreurValidation);
-    }
-
-    const indisponibiliteCreee = await creerIndisponibilite({
-      date,
-      heureDebut,
-      heureFin,
-      jourComplet,
-      raison,
-      creePar: req.utilisateur.id,
-      handlerId: affectation.handlerId,
-      intervenantId: affectation.intervenantId,
-    });
-
-    await creerEntreeHistorique({
-      seanceId: null,
-      seanceLibelle: construireLibelleIndisponibilite(indisponibiliteCreee),
-      actionType: "indisponibilite_creee",
-      actionLabel: jourComplet
-        ? "Création d'une journée indisponible"
-        : "Création d'un créneau indisponible",
-      acteurId: req.utilisateur?.id,
-      acteurNom: req.utilisateur?.nom,
-      handlerId: affectation.handlerId,
-      intervenantId: affectation.intervenantId,
-      details: construireDetailsCreation(indisponibiliteCreee),
-    });
 
     return {
-      indisponibilite: indisponibiliteCreee,
-      indisponibilites: [indisponibiliteCreee],
-      creationPartielle: false,
+      indisponibilite: indisponibilitesCreees[0],
+      indisponibilites: indisponibilitesCreees,
+      creationPartielle,
     };
   });
 
@@ -782,7 +810,9 @@ async function ajouterIndisponibilite(req, res) {
       ? resultatCreation.creationPartielle
         ? "Les créneaux disponibles de la journée ont été bloqués."
         : "La journée indisponible a été ajoutée."
-      : "Le créneau indisponible a été ajouté.",
+      : dates.length > 1
+        ? `Le créneau indisponible a été ajouté sur ${dates.length} jours.`
+        : "Le créneau indisponible a été ajouté.",
     indisponibilite: transformerIndisponibilitePourClient(resultatCreation.indisponibilite),
     indisponibilites: resultatCreation.indisponibilites.map(transformerIndisponibilitePourClient),
     creation_partielle: resultatCreation.creationPartielle ? 1 : 0,

@@ -1,4 +1,14 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+const databasePath = path.join(
+  os.tmpdir(),
+  `sp-professor-multi-team-${process.pid}-${Date.now()}.db`
+);
+process.env.DATABASE_PATH = databasePath;
+
 const { initialiserBaseDeDonnees, fermerBaseDeDonnees, run, get } = require("../models/db");
 const { construireScopeAcces } = require("../models/access-scope.model");
 const {
@@ -9,6 +19,8 @@ const {
   listerEquipesDisponibles, creerDemandeRattachement,
   listerDemandesHandler, traiterDemandeRattachement,
 } = require("../models/team-membership.model");
+const { retirerProfesseurEquipe } = require("../models/equipe.model");
+const { resoudreAffectationSeance } = require("../controllers/seances.controller");
 
 async function user(nom, email, role) {
   const result = await run(`INSERT INTO utilisateurs
@@ -51,6 +63,25 @@ async function user(nom, email, role) {
     assert.deepEqual(scopeHandlerIntervenant.handlerOwnIds, [h1]);
     assert.deepEqual(scopeHandlerIntervenant.handlerProfesseurIds, [h2]);
 
+    assert.deepEqual(await resoudreAffectationSeance({
+      scope: scopeHandlerIntervenant,
+      acteur: { id: h1 },
+      donneesSeance: { handler_id: h2, intervenant_id: h1 },
+    }), { handler_id: h2, intervenant_id: h1 });
+    await assert.rejects(
+      resoudreAffectationSeance({
+        scope: scopeHandlerIntervenant,
+        acteur: { id: h1 },
+        donneesSeance: { handler_id: h2, intervenant_id: p },
+      }),
+      (error) => Number(error?.status) === 404
+    );
+    assert.deepEqual(await resoudreAffectationSeance({
+      scope,
+      acteur: { id: p },
+      donneesSeance: { handler_id: h2, intervenant_id: p },
+    }), { handler_id: h2, intervenant_id: p });
+
     for (const [handlerId, intervenantId, etudiant] of [
       [h1, h1, "Propre Handler"],
       [h1, p, "Professeur de son equipe"],
@@ -78,6 +109,19 @@ async function user(nom, email, role) {
     assert.deepEqual(monetisation.map((x) => x.etudiant).sort(), [
       "Handler intervenant externe", "Professeur de son equipe", "Propre Handler",
     ]);
+
+    const professeurRetire = await retirerProfesseurEquipe(h1, p);
+    assert.equal(Number(professeurRetire.id), p);
+    const scopeApresRetrait = await construireScopeAcces({ id: p });
+    assert.deepEqual(
+      scopeApresRetrait.handlerProfesseurIds,
+      [h2],
+      "Le retrait doit fermer uniquement le rattachement de cette équipe."
+    );
     console.log("professor multi-team test: PASS");
   } finally { await fermerBaseDeDonnees(); }
-})().catch((error) => { console.error(error); process.exitCode = 1; });
+})().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => {
+  for (const suffix of ["", "-wal", "-shm"]) {
+    fs.rmSync(`${databasePath}${suffix}`, { force: true });
+  }
+});

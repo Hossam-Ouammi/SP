@@ -1129,6 +1129,10 @@ async function run() {
       await lifecyclePage.close();
 
       const adminPage = await browser.newPage();
+      adminPage.on("console", (message) => {
+        if (message.type() === "error") console.error(`browser-console: ${message.text()}`);
+      });
+      adminPage.on("pageerror", (error) => console.error(`browser-pageerror: ${error.message}`));
       await adminPage.setViewport({ width: 1440, height: 1400, deviceScaleFactor: 1 });
       await appliquerSessionPage(adminPage, admin);
       await attendreApplicationChargee(adminPage);

@@ -145,9 +145,40 @@ async function mettreAJourProfesseurEquipe(handlerId, professeurId, donnees = {}
   });
 }
 
+async function retirerProfesseurEquipe(handlerId, professeurId) {
+  const handler = normaliserIdentifiant(handlerId);
+  const professeur = normaliserIdentifiant(professeurId);
+  if (!handler || !professeur || handler === professeur) {
+    return null;
+  }
+
+  return executerTransactionImmediate(async () => {
+    const existant = await trouverProfesseurEquipe(handler, professeur);
+    if (!existant) {
+      return null;
+    }
+
+    const resultat = await run(
+      `
+        UPDATE rattachements_professeurs
+        SET actif = 0,
+            fin_at = COALESCE(fin_at, CURRENT_TIMESTAMP),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE handler_id = ?
+          AND professeur_id = ?
+          AND actif = 1
+      `,
+      [handler, professeur]
+    );
+
+    return Number(resultat?.changes || 0) === 1 ? existant : null;
+  });
+}
+
 module.exports = {
   STATUTS_COMPTE_GERABLES_HANDLER,
   listerProfesseursEquipe,
   trouverProfesseurEquipe,
   mettreAJourProfesseurEquipe,
+  retirerProfesseurEquipe,
 };

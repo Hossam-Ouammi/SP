@@ -24,6 +24,8 @@ async function trouverReglagesEspace(utilisateurId) {
     `
       SELECT
         id,
+        public_id,
+        nom,
         public_calendar_timezone,
         calendar_start_time,
         calendar_end_time,
@@ -73,14 +75,6 @@ async function mettreAJourReglagesCalendrierPublic(
     const existant = await trouverReglagesEspace(id);
     if (!existant) {
       return null;
-    }
-
-    if (actif === true && !String(existant.token_calendrier_public_hash || "").trim()) {
-      const erreur = new Error(
-        "Générez d'abord un lien de calendrier public avant de l'activer."
-      );
-      erreur.status = 409;
-      throw erreur;
     }
 
     const champs = [];

@@ -72,6 +72,7 @@ const requeteSeanceComplete = `
     intervenant.public_id AS intervenant_public_id,
     intervenant.couleur_calendrier AS intervenant_couleur_calendrier,
     handler.public_id AS handler_public_id,
+    handler.nom AS handler_nom,
     (
       SELECT COUNT(*)
       FROM photos
@@ -108,6 +109,52 @@ async function listerSeancesScopees(scope = {}) {
       ORDER BY seances.date ASC, seances.heure_debut ASC, seances.id ASC
     `,
     filtre.parametres
+  );
+}
+
+/**
+ * Returns only the busy intervals for one person, across every team.
+ *
+ * This intentionally omits student, subject and Handler data. It is used
+ * when deriving a person's own availability, where an appointment in another
+ * team must block the interval without making that team's data observable.
+ */
+async function listerOccupationsIntervenant(intervenantId) {
+  const id = normaliserIdentifiant(intervenantId);
+  if (!id) return [];
+
+  return all(
+    `SELECT seances.date, seances.heure_debut, seances.heure_fin, seances.statut_seance
+     FROM seances
+     WHERE seances.intervenant_id = ?
+       AND lower(COALESCE(seances.statut_seance, 'planifiee')) <> 'annulee'
+     ORDER BY seances.date ASC, seances.heure_debut ASC, seances.id ASC`,
+    [id]
+  );
+}
+
+/**
+ * Returns the minimal busy intervals which belong to another team.
+ *
+ * This is deliberately not based on `requeteSeanceComplete`: a Handler who
+ * shares a Professor with another Handler needs to know that the person is
+ * unavailable, but must never receive the student, subject or other-team
+ * details. Callers are expected to turn these rows into an opaque calendar
+ * block.
+ */
+async function listerOccupationsIntervenantsHorsEquipe(intervenantIds = [], handlerId) {
+  const ids = normaliserListeIdentifiants(intervenantIds);
+  const equipeId = normaliserIdentifiant(handlerId);
+  if (ids.length === 0 || !equipeId) return [];
+
+  return all(
+    `SELECT seances.date, seances.heure_debut, seances.heure_fin, seances.intervenant_id
+     FROM seances
+     WHERE seances.intervenant_id IN (${ids.map(() => "?").join(", ")})
+       AND (seances.handler_id IS NULL OR seances.handler_id <> ?)
+       AND lower(COALESCE(seances.statut_seance, 'planifiee')) <> 'annulee'
+     ORDER BY seances.date ASC, seances.heure_debut ASC`,
+    [...ids, equipeId]
   );
 }
 
@@ -266,23 +313,21 @@ async function trouverSeanceIntervenantChevauchante({
   heureFin,
   exclureSeanceId = null,
 }) {
-  const handler = normaliserIdentifiant(handlerId);
   const intervenant = normaliserIdentifiant(intervenantId);
 
-  if (!handler || !intervenant) {
+  if (!intervenant) {
     return null;
   }
 
   const clauseExclusion = exclureSeanceId ? "AND seances.id <> ?" : "";
   const parametres = exclureSeanceId
-    ? [handler, intervenant, date, heureFin, heureDebut, exclureSeanceId]
-    : [handler, intervenant, date, heureFin, heureDebut];
+    ? [intervenant, date, heureFin, heureDebut, exclureSeanceId]
+    : [intervenant, date, heureFin, heureDebut];
 
   return get(
     `
       ${requeteSeanceComplete}
-      WHERE seances.handler_id = ?
-        AND seances.intervenant_id = ?
+      WHERE seances.intervenant_id = ?
         AND seances.date = ?
         AND COALESCE(seances.statut_seance, 'planifiee') <> 'annulee'
         AND seances.heure_debut < ?
@@ -444,6 +489,8 @@ module.exports = {
   construireFiltreSeancesScopees,
   listerToutesLesSeances,
   listerSeancesScopees,
+  listerOccupationsIntervenant,
+  listerOccupationsIntervenantsHorsEquipe,
   listerToutesLesSeancesPourMonetisation,
   listerSeancesPourMonetisationScopees,
   trouverSeanceParId,

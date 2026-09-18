@@ -14,6 +14,13 @@ export function viderTokenCsrf() {
 
 export async function envoyerRequete(url, options = {}) {
   const methode = String(options.method || "GET").toUpperCase();
+  const corps =
+    options.body instanceof FormData ||
+    typeof options.body === "string" ||
+    options.body === undefined ||
+    options.body === null
+      ? options.body
+      : JSON.stringify(options.body);
   const headers = {
     ...(options.body instanceof FormData
       ? {}
@@ -31,6 +38,7 @@ export async function envoyerRequete(url, options = {}) {
     ...options,
     method: methode,
     headers,
+    body: corps,
   });
 
   mettreAJourTokenDepuisReponse(reponse);

@@ -20,18 +20,19 @@ const router = express.Router();
 router.use(
   verifierAuthentification,
   verifierCompteSecurise,
-  chargerScopeAcces,
-  verifierScopeHandlerCourant
+  chargerScopeAcces
 );
 
 router.get("/", recupererReglagesEspace);
 router.patch(
   "/workspace",
+  verifierScopeHandlerCourant,
   verifierModeEcritureAutorise,
   notifierMiseAJourApplication(modifierFuseauHoraireEspace, "settings")
 );
 router.patch(
   "/calendar",
+  verifierScopeHandlerCourant,
   verifierModeEcritureAutorise,
   notifierMiseAJourApplication(modifierReglagesCalendrierEspace, "settings")
 );
@@ -42,6 +43,7 @@ router.patch(
 );
 router.post(
   "/public-calendar/regenerate",
+  verifierScopeHandlerCourant,
   verifierModeEcritureAutorise,
   notifierMiseAJourApplication(regenererLienCalendrierPublic, "settings")
 );

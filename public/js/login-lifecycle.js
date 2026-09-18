@@ -298,6 +298,38 @@
     }, RETOUR_CONNEXION_DELAI_MS);
   }
 
+  function afficherConfirmationDemandeCompte(message) {
+    document.querySelector(".account-request-success-overlay")?.remove();
+    const overlay = document.createElement("div");
+    overlay.className = "account-request-success-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-labelledby", "account-request-success-title");
+
+    const boite = document.createElement("div");
+    boite.className = "account-request-success-box";
+    const titre = document.createElement("h2");
+    titre.id = "account-request-success-title";
+    titre.textContent = "Demande envoyée";
+    const detail = document.createElement("p");
+    detail.textContent = message || "Votre demande a été prise en compte.";
+    const spam = document.createElement("p");
+    spam.className = "account-request-spam-note";
+    spam.textContent = "Après validation, vérifiez aussi le dossier Spam ou Courrier indésirable de votre messagerie.";
+    const bouton = document.createElement("button");
+    bouton.className = "button primary full-width";
+    bouton.type = "button";
+    bouton.textContent = "Retour à la connexion";
+    bouton.addEventListener("click", () => window.location.assign("/"));
+    boite.append(titre, detail, spam, bouton);
+    overlay.appendChild(boite);
+    document.body.appendChild(overlay);
+    bouton.focus();
+
+    if (retourConnexionTimer) window.clearTimeout(retourConnexionTimer);
+    retourConnexionTimer = window.setTimeout(() => window.location.assign("/"), 5_000);
+  }
+
   function verrouillerPageApresSucces(elements, message) {
     const formulaire = elements.accountTokenForm;
     if (!formulaire) return;
@@ -350,7 +382,9 @@
         elements.accountRequestNotification,
         resultat.message || "Votre demande de création de compte a été envoyée."
       );
-      afficherToast(elements, "Demande de création de compte envoyée.");
+      afficherConfirmationDemandeCompte(
+        resultat.message || "Votre demande de création de compte a été envoyée."
+      );
     } catch (erreur) {
       afficherErreur(elements.accountRequestError, erreur.message);
     } finally {

@@ -126,6 +126,9 @@ async function resoudreScopeStatistiques(req) {
 
   if (req.scope?.estHandler) {
     const handlerId = normaliserIdentifiant(req.scope.utilisateurId);
+    if (intervenantId === handlerId) {
+      return { handlerIds: req.scope.handlerIds, intervenantId };
+    }
     const autorise = await scopePeutGererIntervenant(req.scope, { handlerId, intervenantId });
 
     if (!autorise) {
@@ -173,9 +176,19 @@ function construireReponseStatistiques(
 ) {
   const global = initialiserCompteurs();
   const parIntervenant = new Map();
+  const parEquipe = new Map();
 
   for (const seance of seances) {
     ajouterSeanceAuxCompteurs(global, seance);
+    const handlerId = normaliserIdentifiant(seance.handler_id) || 0;
+    const equipe = parEquipe.get(handlerId) || {
+      handler_id: handlerId || null,
+      handler_public_id: seance.handler_public_id || null,
+      handler_nom: seance.handler_nom || null,
+      compteurs: initialiserCompteurs(),
+    };
+    ajouterSeanceAuxCompteurs(equipe.compteurs, seance);
+    parEquipe.set(handlerId, equipe);
     const id = normaliserIdentifiant(seance.intervenant_id) || 0;
     const ligne = parIntervenant.get(id) || {
       intervenant_id: id || null,
@@ -204,6 +217,13 @@ function construireReponseStatistiques(
       ...serialiserCompteurs(global),
       professeurs_actifs: intervenants.length,
       intervenants,
+      equipes: Array.from(parEquipe.values()).map((equipe) => ({
+        handler_id: equipe.handler_id,
+        handler_public_id: equipe.handler_public_id,
+        handler_nom: equipe.handler_nom,
+        ...serialiserCompteurs(equipe.compteurs),
+      })).sort((a, b) => String(a.handler_nom || a.handler_public_id || "")
+        .localeCompare(String(b.handler_nom || b.handler_public_id || ""), "fr")),
     },
   };
 

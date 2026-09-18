@@ -29,6 +29,26 @@ function verifierFenetreVisibleCoteClient() {
     path.join(__dirname, "..", "public", "js", "public-reservation.js"),
     "utf8"
   );
+  assert.match(
+    source,
+    /left:\s*"prev,next"/,
+    "Le calendrier public doit conserver uniquement les deux flèches de navigation."
+  );
+  assert.match(
+    source,
+    /const nextWeekStart = ajouterJoursIso\(initialWeekStart, 7\)/,
+    "La navigation publique doit être bornée à la semaine suivante."
+  );
+  assert.match(
+    source,
+    /boutonSuivant\.disabled = futurLointainInterdit/,
+    "La flèche suivante doit être désactivée sur la deuxième semaine."
+  );
+  assert.doesNotMatch(
+    source,
+    /fc-today-button|left:\s*"[^"]*today/,
+    "Le calendrier public ne doit plus contenir de bouton Aujourd'hui."
+  );
   const debut = source.indexOf("function convertirHeureOptionEnMinutes");
   const fin = source.indexOf("function obtenirMaintenantPublicPourCalendrier", debut);
 
@@ -50,6 +70,17 @@ function verifierFenetreVisibleCoteClient() {
     },
     "Le client ne doit pas borner une fenêtre publique qui traverse minuit à 24:00."
   );
+  assert.deepEqual(
+    calculerFenetreHoraireVisible({
+      slotMinTime: "09:00",
+      slotMaxTime: "24:30",
+    }),
+    {
+      slotMinTime: "09:00:00",
+      slotMaxTime: "24:00:00",
+    },
+    "Une demi-heure isolee apres minuit ne doit pas produire une derniere ligne tronquee."
+  );
 }
 
 function verifierRenduIndisponibilitesCoteClient() {
@@ -63,10 +94,10 @@ function verifierRenduIndisponibilitesCoteClient() {
   assert.notEqual(debut, -1, "Le rendu des créneaux publics est introuvable.");
   assert.notEqual(fin, -1, "La fin du rendu des créneaux publics est introuvable.");
 
-  const { construireEvenementsIndisponibles } = new Function(
-    `${source.slice(debut, fin)}\nreturn { construireEvenementsIndisponibles };`
+  const { construireEvenementsPublics } = new Function(
+    `${source.slice(debut, fin)}\nreturn { construireEvenementsPublics };`
   )();
-  const evenements = construireEvenementsIndisponibles([
+  const evenements = construireEvenementsPublics([
     {
       date: "2026-09-07",
       heure_debut: "08:00",
@@ -84,9 +115,13 @@ function verifierRenduIndisponibilitesCoteClient() {
   assert.equal(
     evenements.length,
     1,
-    "Les créneaux disponibles doivent rester vides dans le calendrier public."
+    "Le calendrier public doit laisser les creneaux disponibles visuellement vides."
   );
-  assert.equal(evenements[0].title, "Indisponible");
+  assert.equal(
+    evenements[0].title,
+    "",
+    "Les barres indisponibles ne doivent pas répéter de texte dans chaque créneau."
+  );
   assert.equal(evenements[0].extendedProps.etat, "indisponible");
 }
 
@@ -112,6 +147,7 @@ async function preparerSchema() {
   await run(`
     CREATE TABLE utilisateurs (
       id INTEGER PRIMARY KEY,
+      public_id TEXT,
       nom TEXT,
       timezone TEXT,
       public_calendar_timezone TEXT NOT NULL DEFAULT 'GMT',

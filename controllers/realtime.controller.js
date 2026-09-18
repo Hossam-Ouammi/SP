@@ -50,7 +50,10 @@ function ouvrirFluxTempsReel(req, res) {
     utilisateurId: req.utilisateur?.id,
     handlerIds: req.scope?.handlerIds,
     handlerOwnIds: req.scope?.handlerOwnIds,
-    intervenantIds: req.scope?.intervenantIds,
+    intervenantIds: [
+      ...(req.scope?.intervenantIds || []),
+      ...(req.scope?.professeurIdsHandlerOwn || []),
+    ],
     clientKey,
     sessionId: req.sessionID,
     sessionExpiresAt: obtenirExpirationSession(req),

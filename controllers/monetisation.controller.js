@@ -1452,6 +1452,9 @@ function construireLignesMonetisation(seances, comptesCatalogueParNom, comptesVi
 
       return {
         id: seance.id,
+        handler_id: normaliserIdentifiantIntervenant(seance?.handler_id),
+        handler_public_id: seance?.handler_public_id || null,
+        handler_nom: seance?.handler_nom || null,
         intervenant_id: normaliserIdentifiantIntervenant(seance?.intervenant_id),
         // The display name is deliberately not an identifier: multiple
         // realisateurs may share it. Keep the stable internal key alongside
@@ -1616,6 +1619,20 @@ async function recupererMonetisation(req, res) {
       comptesCatalogueParNom,
       comptesVisiblesParCle
     );
+    const equipesParId = new Map();
+    lignes.forEach((ligne) => {
+      const id = Number(ligne.handler_id || 0);
+      const equipe = equipesParId.get(id) || {
+        handler_id: id || null,
+        handler_public_id: ligne.handler_public_id,
+        handler_nom: ligne.handler_nom,
+        nombre_seances: 0,
+        montant_total: 0,
+      };
+      equipe.nombre_seances += 1;
+      equipe.montant_total = Number((equipe.montant_total + Number(ligne.montant || 0)).toFixed(2));
+      equipesParId.set(id, equipe);
+    });
     // Le sélecteur de l'interface ne doit proposer que des comptes réels.
     // Les anciennes séances sans `intervenant_id` restent présentes dans les
     // détails et les totaux historiques, mais ne constituent pas un
@@ -1634,6 +1651,10 @@ async function recupererMonetisation(req, res) {
         })),
         intervenants,
         lignes,
+        equipes: Array.from(equipesParId.values()).sort((a, b) =>
+          String(a.handler_nom || a.handler_public_id || "")
+            .localeCompare(String(b.handler_nom || b.handler_public_id || ""), "fr")
+        ),
         ordre_comptes: ordreComptes,
         comptes: statsComptes,
         comptes_par_cle: statsComptesParCle,

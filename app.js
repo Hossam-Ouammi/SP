@@ -214,6 +214,7 @@ app.use("/api/settings", workspaceSettingsRoutes);
 app.use("/api/seances", seancesRoutes);
 app.use("/api/photos", photosRoutes);
 app.use("/reservation", publicReservationPageRoutes);
+app.use("/p", publicReservationPageRoutes);
 
 app.get("/health", async (req, res) => {
   try {

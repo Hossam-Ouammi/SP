@@ -86,6 +86,9 @@ async function trouverHandlerCalendrierPublicParToken(token) {
     `
       SELECT
         utilisateurs.id,
+        utilisateurs.public_id,
+        utilisateurs.nom,
+        utilisateurs.calendrier_public_actif,
         utilisateurs.public_calendar_timezone,
         utilisateurs.calendar_start_time,
         utilisateurs.calendar_end_time,
@@ -112,10 +115,98 @@ async function trouverHandlerCalendrierPublicParToken(token) {
 
   return {
     id: normaliserIdentifiant(handler.id),
+    public_id: String(handler.public_id || "").trim() || null,
+    nom: String(handler.nom || "").trim(),
+    calendrier_public_actif: Number(handler.calendrier_public_actif || 0),
     public_calendar_timezone: String(handler.public_calendar_timezone || "").trim(),
     calendar_start_time: String(handler.calendar_start_time || "").trim(),
     calendar_end_time: String(handler.calendar_end_time || "").trim(),
   };
+}
+
+async function trouverMembreCalendrierPublicParPublicId(publicId) {
+  const idPublic = String(publicId || "").trim().toUpperCase();
+  // Public ids are generated for every active account, including a
+  // SuperAdmin-only account. The URL remains a lookup key only; it does not
+  // grant access to private information.
+  if (!/^[A-Z0-9][A-Z0-9_-]{0,63}$/.test(idPublic)) {
+    return null;
+  }
+
+  return get(
+    `
+      SELECT id, public_id, nom, calendrier_public_actif, public_calendar_timezone,
+             calendar_start_time, calendar_end_time
+      FROM utilisateurs
+      WHERE upper(public_id) = ?
+        AND lower(COALESCE(statut_compte, 'active')) = 'active'
+        AND COALESCE(acces_active, 1) = 1
+      LIMIT 1
+    `,
+    [idPublic]
+  );
+}
+
+async function listerPlagesIndisponiblesMembre({ intervenantId, dateDebut, dateFin }) {
+  const id = normaliserIdentifiant(intervenantId);
+  if (!id || !dateDebut || !dateFin) {
+    return [];
+  }
+
+  // Aucune information metier privee ne quitte cette requete. Une seance de
+  // n'importe quelle equipe et toute indisponibilite personnelle produisent
+  // uniquement une plage bloquee.
+  return all(
+    `
+      SELECT date, heure_debut, heure_fin, jour_complet, intervenant_id
+      FROM (
+        SELECT date, heure_debut, heure_fin, 0 AS jour_complet, intervenant_id
+        FROM seances
+        WHERE intervenant_id = ? AND date BETWEEN ? AND ?
+          AND COALESCE(statut_seance, 'planifiee') <> 'annulee'
+        UNION
+        SELECT date, heure_debut, heure_fin,
+               COALESCE(jour_complet, 0) AS jour_complet, intervenant_id
+        FROM indisponibilites
+        WHERE intervenant_id = ? AND date BETWEEN ? AND ?
+      )
+      ORDER BY date ASC, jour_complet DESC, heure_debut ASC, heure_fin ASC
+    `,
+    [id, dateDebut, dateFin, id, dateDebut, dateFin]
+  );
+}
+
+async function listerCalendriersPersonnelsPourUtilisateur(utilisateurId, estHandler = false) {
+  const id = normaliserIdentifiant(utilisateurId);
+  if (!id) return { personnel: null, equipe: [], equipes: [] };
+
+  const personnel = await get(
+    `SELECT id, public_id, nom, calendrier_public_actif, public_calendar_timezone
+     FROM utilisateurs WHERE id = ?`,
+    [id]
+  );
+  const equipe = estHandler
+    ? await all(
+        `SELECT DISTINCT u.id, u.public_id, u.nom, u.calendrier_public_actif,
+                         u.public_calendar_timezone
+         FROM rattachements_professeurs rp
+         INNER JOIN utilisateurs u ON u.id = rp.professeur_id
+         WHERE rp.handler_id = ? AND rp.actif = 1
+           AND u.id <> ? AND u.acces_active = 1 AND u.statut_compte = 'active'
+         ORDER BY u.nom COLLATE NOCASE`,
+        [id, id]
+      )
+    : [];
+  const equipes = await all(
+    `SELECT DISTINCT h.id, h.public_id, h.nom
+     FROM rattachements_professeurs rp
+     INNER JOIN utilisateurs h ON h.id = rp.handler_id
+     WHERE rp.professeur_id = ? AND rp.actif = 1
+       AND h.acces_active = 1 AND h.statut_compte = 'active'
+     ORDER BY h.nom COLLATE NOCASE`,
+    [id]
+  );
+  return { personnel, equipe, equipes };
 }
 
 async function listerIntervenantsActifsHandler(handlerId) {
@@ -229,6 +320,9 @@ module.exports = {
   creerJetonCalendrierPublicStable,
   jetonCalendrierPublicStableCorrespond,
   trouverHandlerCalendrierPublicParToken,
+  trouverMembreCalendrierPublicParPublicId,
+  listerPlagesIndisponiblesMembre,
+  listerCalendriersPersonnelsPourUtilisateur,
   listerIntervenantsActifsHandler,
   listerPlagesIndisponiblesCalendrierPublic,
 };

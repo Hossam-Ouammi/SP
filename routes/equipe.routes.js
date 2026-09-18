@@ -8,6 +8,7 @@ const {
   supprimerMatiereEquipe,
   modifierTarifsMatieresEquipe,
   modifierProfesseur,
+  retirerProfesseur,
   envoyerResetProfesseur,
 } = require("../controllers/equipe.controller");
 const {
@@ -56,6 +57,11 @@ router.patch(
   "/professeurs/:id",
   verifierModeEcritureAutorise,
   notifierMiseAJourApplication(modifierProfesseur, "team")
+);
+router.delete(
+  "/professeurs/:id",
+  verifierModeEcritureAutorise,
+  notifierMiseAJourApplication(retirerProfesseur, "team")
 );
 router.post(
   "/professeurs/:id/password-reset",

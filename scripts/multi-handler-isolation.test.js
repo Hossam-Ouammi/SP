@@ -835,8 +835,8 @@ async function run() {
     assertStatus(response, 404, "lecture directe seance Alpha par Beta");
 
     response = await beta.request("GET", "/api/indisponibilites");
-    assertStatus(response, 403, "Handler Beta cannot read unavailability management API");
-    assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
+    assertStatus(response, 200, "Handler Beta reads only personal unavailability management API");
+    assert.deepEqual(response.json?.indisponibilites, []);
     response = await beta.request("GET", "/api/disponibilites/regles");
     assertStatus(response, 403, "Handler Beta cannot read retired availability rules");
     assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");

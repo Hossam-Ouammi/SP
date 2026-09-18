@@ -173,7 +173,12 @@ function calculerFenetreHoraireVisible({ slotMinTime, slotMaxTime }) {
 
   return {
     slotMinTime: convertirMinutesEnHeureOption(minBase),
-    slotMaxTime: convertirMinutesEnHeureOption(maxBase),
+    // FullCalendar rend mal une unique demi-heure après minuit dans la
+    // colonne du jour précédent. À cette borne précise, terminer la grille à
+    // minuit évite la ligne 00:00–00:30 tronquée et ambiguë.
+    slotMaxTime: convertirMinutesEnHeureOption(
+      maxBase > 24 * 60 && maxBase <= 24 * 60 + 30 ? 24 * 60 : maxBase
+    ),
   };
 }
 
@@ -244,33 +249,25 @@ function ajouterJoursIso(dateIso, nombreJours) {
   return dateObjet.toISOString().slice(0, 10);
 }
 
-function formaterDateCourte(dateIso) {
+function genererContenuEnteteJour(info) {
+  const dateIso = info.date?.toISOString?.().slice(0, 10) || "";
   const dateObjet = new Date(`${dateIso}T12:00:00Z`);
-
-  if (Number.isNaN(dateObjet.getTime())) {
-    return dateIso;
-  }
-
-  return new Intl.DateTimeFormat("fr-FR", {
-    weekday: "short",
+  const jour = new Intl.DateTimeFormat("fr-FR", { weekday: "short" }).format(dateObjet);
+  const date = new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
     month: "2-digit",
   }).format(dateObjet);
-}
-
-function genererContenuEnteteJour(info) {
-  const dateIso = info.date?.toISOString?.().slice(0, 10) || "";
 
   return {
-    html: `<span class="calendar-monthday-header">${formaterDateCourte(dateIso)}</span>`,
+    html: `<span class="calendar-monthday-header"><span>${jour}</span><span>${date}</span></span>`,
   };
 }
 
 function evenementCreneau(creneau, index) {
-  // Les créneaux disponibles restent volontairement vierges. Le calendrier
-  // public ne rend que les indisponibilités, tout en conservant les données
-  // complètes reçues de l'API.
-  if (creneau?.etat !== "indisponible") {
+  const etatCreneau = creneau?.etat;
+  // Une zone vide signifie disponible. Le calendrier public ne matérialise
+  // que les occupations, sans exposer leur origine ni aucune donnée privée.
+  if (etatCreneau !== "indisponible") {
     return null;
   }
 
@@ -278,7 +275,7 @@ function evenementCreneau(creneau, index) {
     // Cet identifiant est local au rendu FullCalendar : il ne provient jamais
     // de la base de donnees et ne revele aucun objet metier.
     id: `public-slot-${index}`,
-    title: "Indisponible",
+    title: "",
     start: `${creneau.date}T${creneau.heure_debut}:00Z`,
     end:
       creneau.heure_fin === "24:00"
@@ -287,12 +284,12 @@ function evenementCreneau(creneau, index) {
     display: "block",
     classNames: ["reservation-public-blocked-event", "calendar-mobile-week-indisponibilite"],
     extendedProps: {
-      etat: "indisponible",
+      etat: etatCreneau,
     },
   };
 }
 
-function construireEvenementsIndisponibles(creneaux) {
+function construireEvenementsPublics(creneaux) {
   return (Array.isArray(creneaux) ? creneaux : [])
     .map(evenementCreneau)
     .filter(Boolean);
@@ -306,7 +303,7 @@ function mettreAJourCalendrier() {
   const creneaux = Array.isArray(etat.planning?.creneaux) ? etat.planning.creneaux : [];
   etat.calendrier.batchRendering(() => {
     etat.calendrier.removeAllEvents();
-    etat.calendrier.addEventSource(construireEvenementsIndisponibles(creneaux));
+    etat.calendrier.addEventSource(construireEvenementsPublics(creneaux));
   });
 }
 
@@ -550,6 +547,7 @@ function lancerSynchronisationTempsReel() {
 
 function initialiserCalendrier(initialWeekStart) {
   const plugins = [globalThis.FullCalendar?.TimeGrid?.default].filter(Boolean);
+  const nextWeekStart = ajouterJoursIso(initialWeekStart, 7);
 
   if (!globalThis.FullCalendar?.Calendar || plugins.length === 0) {
     afficherErreur("Impossible de charger le calendrier.");
@@ -590,16 +588,25 @@ function initialiserCalendrier(initialWeekStart) {
     },
     dayHeaderContent: genererContenuEnteteJour,
     headerToolbar: {
-      left: "prev,next today",
+      left: "prev,next",
       center: "title",
       right: "",
-    },
-    buttonText: {
-      today: "Aujourd'hui",
     },
     datesSet(info) {
       synchroniserEtatVisuelCalendrier(elements.calendar, info.view.type);
       const weekStart = String(info.startStr || "").slice(0, 10);
+      const boutonPrecedent = elements.calendar?.querySelector(".fc-prev-button");
+      const boutonSuivant = elements.calendar?.querySelector(".fc-next-button");
+      const retourPasseInterdit = !weekStart || weekStart <= initialWeekStart;
+      const futurLointainInterdit = !weekStart || weekStart >= nextWeekStart;
+      if (boutonPrecedent) {
+        boutonPrecedent.disabled = retourPasseInterdit;
+        boutonPrecedent.setAttribute("aria-disabled", String(retourPasseInterdit));
+      }
+      if (boutonSuivant) {
+        boutonSuivant.disabled = futurLointainInterdit;
+        boutonSuivant.setAttribute("aria-disabled", String(futurLointainInterdit));
+      }
 
       if (weekStart && weekStart !== etat.planning.week_start) {
         chargerPlanning(weekStart, { silencieux: true }).catch((erreur) => {
@@ -611,7 +618,10 @@ function initialiserCalendrier(initialWeekStart) {
       synchroniserEtatVisuelCalendrier(elements.calendar, etat.calendrier?.view?.type);
     },
     eventDidMount(info) {
-      info.el.title = "Indisponible";
+      info.el.title =
+        info.event.extendedProps?.etat === "disponible"
+          ? "Disponible"
+          : "Non disponible";
     },
     eventClick(info) {
       info.jsEvent?.preventDefault();

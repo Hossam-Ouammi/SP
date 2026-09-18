@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
@@ -20,7 +20,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/css/style.css?v=20260911-calendar-background-fix" />
+    <link rel="stylesheet" href="/css/style.css?v=20260916-soft-session-colors" />
   </head>
   <body>
     <main>
@@ -195,24 +195,34 @@
           <button class="nav-tab hidden" type="button" data-section-target="indisponibilites">
             Indisponibilités
           </button>
-          <button class="nav-tab hidden" type="button" data-section-target="equipe">
-            Équipe <span id="team-request-badge" class="nav-notification-badge hidden">0</span>
-          </button>
-          <button class="nav-tab" type="button" data-section-target="statistiques">
-            Statistiques
-          </button>
-          <button class="nav-tab hidden" type="button" data-section-target="monetisation">
-            Monétisation
-          </button>
-          <button class="nav-tab" type="button" data-section-target="historique">
-            Historique
-          </button>
           <button class="nav-tab hidden" type="button" data-section-target="calendrier">
             Calendrier
           </button>
-          <button class="nav-tab" type="button" data-section-target="utilisateur">
-            <span id="user-nav-label">User admin</span>
+          <button class="nav-tab hidden" type="button" data-section-target="equipe">
+            Équipe <span id="team-request-badge" class="nav-notification-badge hidden">0</span>
+          </button>
+          <button
+            id="nav-more-toggle"
+            class="nav-more-toggle"
+            type="button"
+            aria-label="Afficher les autres menus"
+            aria-expanded="false"
+            title="Afficher les autres menus"
+          >
+            <span aria-hidden="true">→</span>
+          </button>
+          <button class="nav-tab nav-secondary nav-secondary-collapsed hidden" type="button" data-section-target="monetisation">
+            Monétisation
+          </button>
+          <button class="nav-tab nav-secondary nav-secondary-collapsed" type="button" data-section-target="statistiques">
+            Statistiques
+          </button>
+          <button class="nav-tab nav-secondary nav-secondary-collapsed" type="button" data-section-target="utilisateur">
+            <span id="user-nav-label">Paramètres</span>
             <span id="admin-request-badge" class="nav-notification-badge hidden">0</span>
+          </button>
+          <button class="nav-tab nav-secondary nav-secondary-collapsed" type="button" data-section-target="historique">
+            Historique
           </button>
         </nav>
 
@@ -234,35 +244,34 @@
           <section class="panel calendar-panel">
             <div class="section-heading">
               <h2>Dashboard</h2>
+              <label id="dashboard-person-filter-field" class="dashboard-person-filter hidden">
+                <span>Afficher</span>
+                <select id="dashboard-person-filter" aria-label="Personne affichée dans le calendrier">
+                  <option value="global">Vue globale</option>
+                </select>
+              </label>
             </div>
 
             <div id="calendar"></div>
+            <div id="dashboard-public-link" class="dashboard-public-link hidden">
+              <strong>Votre lien public :</strong>
+              <a id="dashboard-public-link-value" href="#" target="_blank" rel="noopener"></a>
+              <button id="dashboard-public-link-copy" class="button primary" type="button">Copier</button>
+            </div>
           </section>
         </section>
 
         <section id="indisponibilites-section" class="app-section hidden">
-          <section class="panel admin-panel-shell">
-            <div class="section-heading section-heading-stack">
-              <div>
-                <h2>Indisponibilités</h2>
-              </div>
+          <section
+            id="unavailability-declaration-panel"
+            class="panel calendar-panel unavailability-workbench-panel"
+            data-unavailability-panel="declaration"
+          >
+            <div class="section-heading">
+              <h2>Indisponibilités</h2>
             </div>
 
-            <div
-              id="unavailability-declaration-panel"
-              class="unavailability-workbench-panel"
-              data-unavailability-panel="declaration"
-            >
-              <section class="admin-card unavailability-calendar-card">
-                <div class="admin-card-head">
-                  <div>
-                    <h3 class="user-form-title">Déclaration</h3>
-                  </div>
-                </div>
-
-                <div id="unavailability-calendar"></div>
-              </section>
-            </div>
+            <div id="unavailability-calendar"></div>
           </section>
         </section>
 
@@ -430,7 +439,7 @@
 
                 <section id="public-calendar-settings" class="workspace-public-calendar hidden">
                   <div>
-                    <h4 class="user-form-title">Calendrier public</h4>
+                    <h4 class="user-form-title">Liens publics</h4>
                   </div>
                   <div class="admin-identity-stats">
                     <div class="admin-identity-stat">
@@ -457,19 +466,22 @@
                     </div>
                   </form>
 
-                  <label class="field">
-                    <span>Lien public</span>
-                    <input id="public-calendar-link" type="url" readonly value="" />
-                  </label>
-
-                  <div class="form-actions">
-                    <button id="public-calendar-toggle-button" class="button secondary" type="button">
-                      Désactiver le lien
-                    </button>
-                    <button id="public-calendar-copy-button" class="button secondary" type="button">
-                      Copier le lien
-                    </button>
+                  <div class="public-calendar-controls-row">
+                    <label class="field">
+                      <span>Lien public</span>
+                      <input id="public-calendar-link" type="url" readonly value="" />
+                    </label>
+                    <div class="form-actions public-calendar-actions">
+                      <button id="public-calendar-toggle-button" class="button secondary" type="button">
+                        Désactiver le lien
+                      </button>
+                      <button id="public-calendar-copy-button" class="button secondary" type="button">
+                        Copier le lien
+                      </button>
+                    </div>
                   </div>
+                  <div id="public-calendar-team-links" class="stack-form"></div>
+                  <div id="public-calendar-memberships" class="stack-form"></div>
                 </section>
               </div>
             </article>
@@ -1095,6 +1107,59 @@
             </div>
 
             <article
+              id="professor-public-calendar-card"
+              class="admin-card user-notifications-card hidden"
+            >
+              <div class="admin-card-head">
+                <div>
+                  <h3 class="user-form-title">Mon lien public personnel</h3>
+                </div>
+              </div>
+              <div class="admin-card-body stack-form">
+                <p class="user-security-status">
+                  Votre lien public personnel est unique et permanent. Il indique uniquement si vous êtes disponible ou non disponible.
+                </p>
+                <div class="admin-identity-stats">
+                  <div class="admin-identity-stat">
+                    <span>Statut du lien</span>
+                    <strong id="professor-public-calendar-status">-</strong>
+                  </div>
+                </div>
+                <div class="public-calendar-controls-row">
+                  <label class="field">
+                    <span>Lien public</span>
+                    <input id="professor-public-calendar-link" type="url" readonly value="" />
+                  </label>
+                  <div class="form-actions public-calendar-actions">
+                    <button id="professor-public-calendar-copy-button" class="button secondary" type="button">
+                      Copier le lien
+                    </button>
+                    <button id="professor-public-calendar-toggle-button" class="button secondary" type="button">
+                      Activer le lien
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article
+              id="professor-teams-card"
+              class="admin-card hidden"
+            >
+              <div class="admin-card-head">
+                <div>
+                  <h3 class="user-form-title">Mes équipes</h3>
+                </div>
+              </div>
+              <div class="admin-card-body stack-form">
+                <p class="user-security-status">
+                  Voici les Handlers et équipes auxquels vous appartenez actuellement :
+                </p>
+                <div id="professor-teams-list" class="stack-form"></div>
+              </div>
+            </article>
+
+            <article
               id="team-membership-card"
               class="admin-card hidden"
             >
@@ -1576,6 +1641,11 @@
 
               <div class="form-grid">
 
+            <label id="seance-handler-field" class="field hidden">
+              <span>Équipe</span>
+              <select id="seance-handler" name="handler_id"></select>
+            </label>
+
             <label id="seance-intervenant-field" class="field hidden">
               <span>Réalisateur</span>
               <select id="seance-intervenant" name="intervenant_id"></select>
@@ -1917,6 +1987,13 @@
           <section id="unavailability-form-panel" class="detail-card hidden">
             <h4 id="unavailability-form-title">Modifier</h4>
             <form id="unavailability-modal-form" class="stack-form" novalidate>
+              <label id="unavailability-modal-handler-field" class="field hidden">
+                <span>Équipe concernée</span>
+                <select id="unavailability-modal-handler" name="handler_id"></select>
+              </label>
+              <p class="section-note">
+                Cette indisponibilité est personnelle et s'applique à toutes vos équipes.
+              </p>
               <label class="field">
                 <span>Date</span>
                 <input id="unavailability-modal-date" type="date" />
@@ -1990,7 +2067,7 @@
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
     <script src="/js/service-worker-recovery.js?v=20260908-sw-recovery"></script>
-    <script src="/js/login-lifecycle.js?v=20260911-multi-team"></script>
-    <script type="module" src="/js/ui.js?v=20260911-toast-fix"></script>
+    <script src="/js/login-lifecycle.js?v=20260911-account-request-dialog"></script>
+    <script type="module" src="/js/ui.js?v=20260916-soft-session-colors"></script>
   </body>
 </html>

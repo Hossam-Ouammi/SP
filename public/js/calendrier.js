@@ -50,17 +50,42 @@ function couleurIntervenantValide(couleur) {
   return /^#[0-9a-f]{6}$/i.test(String(couleur || ""));
 }
 
-function obtenirPaletteIntervenant(seance) {
-  const couleur = String(seance?.intervenant_couleur_calendrier || "").trim();
-  if (!couleurIntervenantValide(couleur)) {
-    return null;
-  }
+function melangerCouleurHex(couleur, cible, proportion) {
+  const source = String(couleur || "").replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(source)) return couleur;
+
+  const cibleRgb = cible === "black" ? [15, 23, 42] : [255, 255, 255];
+  const composantes = [0, 2, 4].map((index) => parseInt(source.slice(index, index + 2), 16));
+  const resultat = composantes.map((composante, index) =>
+    Math.round(composante + (cibleRgb[index] - composante) * proportion)
+      .toString(16)
+      .padStart(2, "0")
+  );
+  return `#${resultat.join("")}`;
+}
+
+function creerPaletteDouceIntervenant(couleur) {
+  if (!couleurIntervenantValide(couleur)) return null;
 
   return {
-    backgroundColor: couleur,
-    borderColor: couleur,
-    textColor: "#ffffff",
+    backgroundColor: melangerCouleurHex(couleur, "white", 0.68),
+    borderColor: melangerCouleurHex(couleur, "white", 0.28),
+    textColor: melangerCouleurHex(couleur, "black", 0.5),
   };
+}
+
+function obtenirPaletteIntervenant(seance) {
+  const paletteDeclaree = seance?.intervenant_palette_calendrier;
+  if (
+    paletteDeclaree?.backgroundColor &&
+    paletteDeclaree?.borderColor &&
+    paletteDeclaree?.textColor
+  ) {
+    return paletteDeclaree;
+  }
+
+  const couleur = String(seance?.intervenant_couleur_calendrier || "").trim();
+  return creerPaletteDouceIntervenant(couleur);
 }
 
 function creerClasseIntervenant(seance) {
@@ -167,11 +192,7 @@ export function creerPalettesDisponibiliteProfesseurs(intervenants = []) {
     // un repli sûr pour les anciennes réponses qui ne la fournissent pas.
     if (couleurIntervenantValide(couleurServeur) && !couleursServeurUtilisees.has(couleurServeur)) {
       couleursServeurUtilisees.add(couleurServeur);
-      palettes.set(professeur.id, {
-        backgroundColor: couleurServeur,
-        borderColor: couleurServeur,
-        textColor: "#ffffff",
-      });
+      palettes.set(professeur.id, creerPaletteDouceIntervenant(couleurServeur));
       return;
     }
 
@@ -472,9 +493,9 @@ function creerEvenementCreneauIndisponibleCollectif({ dateIso, debut, fin, profe
   };
 }
 
-function seanceHandlerChevaucheCreneau(seance, handlerId, dateIso, debut, fin) {
+function seanceIntervenantChevaucheCreneau(seance, intervenantId, dateIso, debut, fin) {
   if (
-    normaliserIdentifiantCalendrier(seance?.intervenant_id) !== handlerId ||
+    normaliserIdentifiantCalendrier(seance?.intervenant_id) !== intervenantId ||
     String(seance?.date || "") !== dateIso ||
     String(seance?.statut_seance || "").toLowerCase() === "annulee"
   ) {
@@ -516,17 +537,16 @@ function fusionnerCreneauxIndisponiblesCollectifs(creneaux = []) {
 }
 
 /**
- * Fonds d'indisponibilite du calendrier central Handler.
+ * Fonds d'indisponibilité de la vue globale du calendrier Handler.
  *
- * Une case n'est grisee que si chaque Professeur actif a explicitement
- * declare une indisponibilite qui la couvre. Le Handler ne participe pas a
- * ce calcul : son propre rendez-vous peut donc occuper un creneau collectif
- * indisponible. Dans ce cas, le fond gris est retire pour la partie couverte
- * par cette seance afin que la seance la remplace visuellement.
+ * Une case est grisée uniquement si chaque membre actif de l'équipe, Handler
+ * compris, est indisponible. Un membre est occupé soit par une indisponibilité
+ * personnelle, soit par une séance. Les occupations d'une autre équipe sont
+ * déjà transmises comme blocs opaques par l'API et suivent la même règle.
  *
- * Les seances des Professeurs ne sont volontairement pas des indisponibilites
- * visuelles : elles restent des seances affichees dans la meme grille. Elles
- * servent uniquement a filtrer le selecteur de realisateur dans le formulaire.
+ * Les indisponibilités individuelles ne sont jamais dessinées dans la vue
+ * globale : seules les séances de l'équipe et ce fond collectif restent
+ * visibles, afin que la grille demeure lisible.
  */
 export function creerEvenementsIndisponibiliteCollective(calendrier, disponibilites = {}) {
   const handlerId = normaliserIdentifiantCalendrier(disponibilites?.handlerId);
@@ -538,7 +558,7 @@ export function creerEvenementsIndisponibiliteCollective(calendrier, disponibili
   const professeurs = sourceProfesseurs
     .filter(professeurActifPourDisponibilite)
     .map((professeur) => ({ ...professeur, id: normaliserIdentifiantCalendrier(professeur.id) }))
-    .filter((professeur) => professeur.id && professeur.id !== handlerId);
+    .filter((professeur) => professeur.id);
 
   // Sans Professeur rattache, il n'existe pas de collectif a declarer
   // indisponible. Une absence d'equipe ne doit jamais griser le calendrier.
@@ -571,15 +591,12 @@ export function creerEvenementsIndisponibiliteCollective(calendrier, disponibili
             debut,
             fin
           )
+        ) || seances.some((seance) =>
+          seanceIntervenantChevaucheCreneau(seance, professeur.id, dateIso, debut, fin)
         )
       );
-      const seanceHandlerCouvreCreneau =
-        handlerId &&
-        seances.some((seance) =>
-          seanceHandlerChevaucheCreneau(seance, handlerId, dateIso, debut, fin)
-        );
 
-      if (tousProfesseursIndisponibles && !seanceHandlerCouvreCreneau) {
+      if (tousProfesseursIndisponibles) {
         creneauxIndisponibles.push({ dateIso, debut, fin, professeurs });
       }
     }
@@ -707,9 +724,22 @@ function extraireSelectionCalendrier(info) {
     ? ""
     : formaterHeureLocale(info?.end) || extraireHeureDepuisValeurCalendrier(info?.endStr);
 
+  const datesSelectionnees = [];
+  if (dateDebut && dateFin) {
+    const finExclusive = Boolean(info?.allDay);
+    for (
+      let dateCourante = dateDebut;
+      finExclusive ? dateCourante < dateFin : dateCourante <= dateFin;
+      dateCourante = calculerDateSuivante(dateCourante)
+    ) {
+      datesSelectionnees.push(dateCourante);
+    }
+  }
+
   return {
     date: dateDebut,
     date_fin: dateFin,
+    dates_selectionnees: datesSelectionnees,
     heure_debut: heureDebut,
     heure_fin: heureFin,
     toute_la_journee: Boolean(info?.allDay),
@@ -931,16 +961,27 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
     return null;
   }
 
+  // Une séance d'une autre équipe est fournie par l'API sous forme d'un bloc
+  // d'indisponibilité minimal. Son libellé reste volontairement générique :
+  // aucun étudiant, matière, équipe ou Handler ne peut être déduit du rendu.
+  const estOccupationExterneConfidentielle = Boolean(
+    indisponibilite?.est_seance_confidentielle
+  );
+  const classesEvenement = [
+    "indisponibilite-event",
+    ...(estOccupationExterneConfidentielle ? ["calendar-external-busy-event"] : []),
+  ];
+
   if (estIndisponibiliteJourComplet(indisponibilite)) {
     return {
       id: `indisponibilite-${indisponibilite.id}`,
-      title: "",
+      title: estOccupationExterneConfidentielle ? "Indisponible" : "",
       start: indisponibilite.date,
       end: calculerDateSuivante(indisponibilite.date),
       allDay: true,
       display: "background",
       backgroundColor: "rgba(148, 163, 184, 0.22)",
-      classNames: ["indisponibilite-event", "indisponibilite-full-day-event"],
+      classNames: [...classesEvenement, "indisponibilite-full-day-event"],
       typeOrder: 0,
       extendedProps: {
         indisponibilite,
@@ -951,7 +992,7 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
 
   return {
     id: `indisponibilite-${indisponibilite.id}`,
-    title: "",
+    title: estOccupationExterneConfidentielle ? "Indisponible" : "",
     start: `${indisponibilite.date}T${indisponibilite.heure_debut}`,
     end: construireDateHeureFinCalendrier(
       indisponibilite.date,
@@ -960,8 +1001,8 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
     display: estCalendrierMobile() ? "block" : "auto",
     backgroundColor: "rgba(148, 163, 184, 0.16)",
     borderColor: "rgba(148, 163, 184, 0.44)",
-    textColor: "transparent",
-    classNames: ["indisponibilite-event"],
+    textColor: estOccupationExterneConfidentielle ? "#475569" : "transparent",
+    classNames: classesEvenement,
     typeOrder: 10,
     extendedProps: {
       indisponibilite,
@@ -1229,7 +1270,8 @@ export function mettreAJourEvenements(
   if (vue === "central") {
     evenements = [
       ...creerEvenementsIndisponibiliteCollective(calendrier, {
-        professeurs: options?.disponibilites?.professeurs,
+        professeurs:
+          options?.disponibilites?.intervenants || options?.disponibilites?.professeurs,
         indisponibilites: options?.disponibilites?.indisponibilites,
         seances: options?.disponibilites?.seances,
         handlerId: options?.disponibilites?.handlerId,

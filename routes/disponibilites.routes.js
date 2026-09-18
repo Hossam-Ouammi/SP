@@ -25,12 +25,26 @@ const { notifierMiseAJourApplication } = require("../utils/realtime-route");
 
 const router = express.Router();
 
+function refuserHandlerSansEquipeExterne(req, res, next) {
+  if (
+    req.scope?.estHandler === true &&
+    (!Array.isArray(req.scope?.handlerProfesseurIds) || req.scope.handlerProfesseurIds.length === 0)
+  ) {
+    return res.status(403).json({
+      code: "HANDLER_UNAVAILABILITY_FORBIDDEN",
+      message: "Ces anciennes règles ne sont pas disponibles pour un Handler.",
+    });
+  }
+  return next();
+}
+
 router.use(
   verifierAuthentification,
   verifierCompteSecurise,
   chargerScopeAcces,
   verifierScopeHandlerCourant,
-  verifierAccesIndisponibilites
+  verifierAccesIndisponibilites,
+  refuserHandlerSansEquipeExterne
 );
 
 router.get("/", recupererDisponibilites);

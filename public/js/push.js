@@ -29,6 +29,42 @@ function convertirBase64UrlEnUint8Array(base64Url) {
   return tableau;
 }
 
+function abonnementUtiliseCleVapid(abonnement, clePublique) {
+  const cleActuelle = abonnement?.options?.applicationServerKey;
+  if (!cleActuelle || !clePublique) {
+    return false;
+  }
+
+  const actuelle = new Uint8Array(cleActuelle);
+  const attendue = convertirBase64UrlEnUint8Array(clePublique);
+  return (
+    actuelle.length === attendue.length &&
+    actuelle.every((octet, index) => octet === attendue[index])
+  );
+}
+
+async function renouvelerAbonnementPushSiNecessaire(registration, abonnement, configuration) {
+  if (
+    abonnement &&
+    abonnementUtiliseCleVapid(abonnement, configuration?.public_key)
+  ) {
+    return abonnement;
+  }
+
+  if (abonnement) {
+    await abonnement.unsubscribe().catch(() => {});
+  }
+
+  if (Notification.permission !== "granted") {
+    return null;
+  }
+
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: convertirBase64UrlEnUint8Array(configuration.public_key),
+  });
+}
+
 function detecterNavigateur() {
   const agent = String(navigator.userAgent || "");
 
@@ -270,12 +306,23 @@ export async function synchroniserNotificationsPushActuelles() {
     return;
   }
 
-  const abonnement = await recupererAbonnementPushNavigateur();
+  const abonnementExistant = await recupererAbonnementPushNavigateur();
 
-  if (!abonnement) {
+  if (!abonnementExistant) {
     return;
   }
 
+  const [configuration, registration] = await Promise.all([
+    recupererConfigurationPush(),
+    enregistrerServiceWorkerPush(),
+  ]);
+  const abonnement = await renouvelerAbonnementPushSiNecessaire(
+    registration,
+    abonnementExistant,
+    configuration
+  );
+
+  if (!abonnement) return;
   await synchroniserAbonnementPushNavigateur(abonnement);
 }
 
@@ -307,6 +354,12 @@ export async function activerNotificationsPush() {
   ]);
 
   let abonnement = await registration.pushManager.getSubscription();
+
+  abonnement = await renouvelerAbonnementPushSiNecessaire(
+    registration,
+    abonnement,
+    configurationPush
+  );
 
   if (!abonnement) {
     const optionsAbonnement = {

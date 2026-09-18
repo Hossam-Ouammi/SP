@@ -14,6 +14,12 @@ export async function modifierProfesseurEquipe(professeurId, donnees) {
   return resultat.professeur;
 }
 
+export async function retirerProfesseurEquipe(professeurId) {
+  return envoyerRequete(`/api/equipe/professeurs/${Number(professeurId)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function recupererTarificationEquipe() {
   const resultat = await envoyerRequete("/api/equipe/tarification");
   return resultat?.tarification || { matieres: [], realisateurs: [] };

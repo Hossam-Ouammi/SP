@@ -106,20 +106,18 @@ function main() {
     ),
     "Professeur avec disponibilités"
   );
-  assertRefuse(
+  assertAutorise(
     executerMiddleware(
       verifierAccesIndisponibilites,
       requete({ roles: { handler: true } })
     ),
-    "HANDLER_UNAVAILABILITY_FORBIDDEN",
     "Handler indisponibilités"
   );
-  assertRefuse(
+  assertAutorise(
     executerMiddleware(
       verifierAccesIndisponibilites,
       requete({ roles: { handler: true, professeur: true } })
     ),
-    "HANDLER_UNAVAILABILITY_FORBIDDEN",
     "Compte double rôle Handler/Professeur"
   );
   assertAutorise(
@@ -148,13 +146,12 @@ function main() {
     ),
     "Professor may declare own unavailability"
   );
-  assertRefuse(
+  assertAutorise(
     executerMiddleware(
       verifierDeclarationDisponibiliteProfesseur,
       requete({ roles: { handler: true } })
     ),
-    "HANDLER_UNAVAILABILITY_FORBIDDEN",
-    "Handler cannot declare own unavailability"
+    "Handler may declare own unavailability"
   );
   assertRefuse(
     executerMiddleware(

@@ -115,12 +115,15 @@ async function resoudreAffectationSeance({ scope, acteur, donneesSeance, seanceE
     donneesSeance?.intervenant_id ?? donneesSeance?.professeur_id ?? donneesSeance?.intervenantId
   );
 
-  if (scope.estHandler) {
-    const handlerId = utilisateurId;
+  const handlerExistant = normaliserIdentifiant(seanceExistante?.handler_id);
+  const handlerIdsProfesseur = Array.isArray(scope.handlerProfesseurIds)
+    ? scope.handlerProfesseurIds.map(normaliserIdentifiant).filter(Boolean)
+    : [];
+  const handlerId = handlerExistant || handlerDemande ||
+    (scope.estHandler ? utilisateurId : handlerIdsProfesseur[0]) || null;
+  const agitDansSaPropreEquipe = scope.estHandler && handlerId === utilisateurId;
 
-    if (handlerDemande && handlerDemande !== handlerId) {
-      throw creerErreurRessourceInaccessible();
-    }
+  if (agitDansSaPropreEquipe) {
 
     const intervenantId =
       intervenantDemande || normaliserIdentifiant(seanceExistante?.intervenant_id) || utilisateurId;
@@ -132,16 +135,15 @@ async function resoudreAffectationSeance({ scope, acteur, donneesSeance, seanceE
     return { handler_id: handlerId, intervenant_id: intervenantId };
   }
 
-  const handlerIds = Array.isArray(scope.handlerProfesseurIds)
-    ? scope.handlerProfesseurIds.map(normaliserIdentifiant).filter(Boolean)
-    : [];
-  const handlerId = normaliserIdentifiant(seanceExistante?.handler_id) || handlerIds[0] || null;
+  if (scope.estHandler && handlerId && handlerId !== utilisateurId && !handlerIdsProfesseur.includes(handlerId)) {
+    throw creerErreurRessourceInaccessible();
+  }
 
-  if (!scope.estProfesseur || !handlerId || !handlerIds.includes(handlerId)) {
+  if (!scope.estProfesseur || !handlerId || !handlerIdsProfesseur.includes(handlerId)) {
     throw creerErreurHttp(403, "Aucun espace Professeur actif n'est associ\u00e9 \u00e0 ce compte.");
   }
 
-  if (handlerDemande && handlerDemande !== handlerId) {
+  if (handlerExistant && handlerDemande && handlerDemande !== handlerExistant) {
     throw creerErreurRessourceInaccessible();
   }
 
@@ -194,7 +196,7 @@ async function ajouterTarifSnapshotIntervenant(donneesSeance, { seanceExistante 
   const snapshotExistantValide =
     Number.isFinite(snapshotExistant) && snapshotExistant >= 0;
   const instantSeance = obtenirInstantSeance(donneesSeance);
-  const tarifHoraire = conserverSnapshotHistorique && snapshotExistantValide
+  const tarifHoraireTrouve = conserverSnapshotHistorique && snapshotExistantValide
     ? snapshotExistant
     : await obtenirTarifHorairePourSeance({
         handlerId,
@@ -202,6 +204,15 @@ async function ajouterTarifSnapshotIntervenant(donneesSeance, { seanceExistante 
         matiere: donneesSeance?.matiere,
         effectifAu: (instantSeance || maintenant).toISOString(),
       });
+  // Toute nouvelle affectation dispose d'un tarif exploitable. La grille par
+  // matière reste prioritaire ; le tarif du compte, puis 90 dh, servent de
+  // valeur par défaut si une nouvelle combinaison n'a pas encore été sauvée.
+  const tarifCompte = Number(intervenant?.tarif_horaire);
+  const tarifHoraire = Number.isFinite(tarifHoraireTrouve)
+    ? tarifHoraireTrouve
+    : Number.isFinite(tarifCompte) && tarifCompte > 0
+      ? tarifCompte
+      : 90;
   // `compte` demeure une colonne historique et une clé de compatibilité pour
   // les relevés existants. Il ne doit toutefois plus être choisi par le
   // client : une séance est toujours rattachée au Réalisateur effectivement
@@ -295,8 +306,8 @@ function estIndisponibiliteJourComplet(indisponibilite) {
   return Number(indisponibilite?.jour_complet) === 1;
 }
 
-function construireMessageIndisponibilite(indisponibilite) {
-  const raison = normaliserTexte(indisponibilite?.raison);
+function construireMessageIndisponibilite(indisponibilite, { inclureRaison = false } = {}) {
+  const raison = inclureRaison ? normaliserTexte(indisponibilite?.raison) : "";
   const base = estIndisponibiliteJourComplet(indisponibilite)
     ? `Cette journée est marquée comme indisponible le ${indisponibilite.date}.`
     : `Ce créneau est marqué comme indisponible le ${indisponibilite.date} de ${indisponibilite.heure_debut} à ${indisponibilite.heure_fin}.`;
@@ -400,28 +411,6 @@ function seanceDevientActive(seanceAvant, donneesSeance) {
   return seanceEstAnnulee(seanceAvant) && !seanceEstAnnulee(donneesSeance);
 }
 
-/**
- * A Handler may reserve a slot for themself even when the team availability
- * layer marks that slot unavailable.  This exception is deliberately narrow:
- * it is derived only after the server has resolved the assignment, so a
- * client cannot use it to bypass a Professor's own availability.
- *
- * It never bypasses the Handler's own session-conflict check nor the Handler
- * calendar window; those controls are applied independently below.
- */
-function seanceEstAffecteeAuHandlerLuiMeme({ scope, acteur, donneesSeance }) {
-  const acteurId = normaliserIdentifiant(acteur?.id);
-  const handlerId = normaliserIdentifiant(donneesSeance?.handler_id);
-  const intervenantId = normaliserIdentifiant(donneesSeance?.intervenant_id);
-
-  return Boolean(
-    scope?.estHandler === true &&
-      acteurId &&
-      handlerId === acteurId &&
-      intervenantId === acteurId
-  );
-}
-
 async function recupererConflitIndisponibilite(donneesSeance) {
   if (
     normaliserIdentifiant(donneesSeance?.handler_id) &&
@@ -466,7 +455,10 @@ async function recupererConflitSeance(donneesSeance, options = {}) {
   });
 }
 
-function construireMessageConflitSeance(seance) {
+function construireMessageConflitSeance(seance, options = {}) {
+  if (options.anonyme) {
+    return "Ce créneau chevauche déjà une séance.";
+  }
   const etudiant = normaliserTexte(seance?.etudiant);
   const matiere = normaliserTexte(seance?.matiere);
   const details = [etudiant, matiere].filter(Boolean).join(" - ");
@@ -480,7 +472,13 @@ async function verifierAbsenceConflitSeance(donneesSeance, utilisateur, options 
   const conflitSeance = await recupererConflitSeance(donneesSeance, options);
 
   if (conflitSeance) {
-    throw creerErreurHttp(400, construireMessageConflitSeance(conflitSeance));
+    const memeEquipe =
+      normaliserIdentifiant(conflitSeance.handler_id) ===
+      normaliserIdentifiant(donneesSeance?.handler_id);
+    throw creerErreurHttp(
+      400,
+      construireMessageConflitSeance(conflitSeance, { anonyme: !memeEquipe })
+    );
   }
 }
 
@@ -892,40 +890,51 @@ async function recupererToutesLesSeances(req, res) {
 
 async function recupererOptionsSeances(req, res) {
   const catalogue = filtrerCataloguePourUtilisateur(await listerCatalogueOptions(), req.utilisateur);
-  const handlerId = req.scope?.estHandler
-    ? normaliserIdentifiant(req.scope.utilisateurId)
-    : normaliserIdentifiant(req.scope?.handlerProfesseurIds?.[0]);
-  const intervenantIds = handlerId
-    ? await listerIntervenantsAutorisesHandler(handlerId)
-    : [];
-  const matieresHandler = handlerId ? await listerMatieresHandler(handlerId) : [];
-  const intervenants = (
-    await Promise.all(intervenantIds.map((intervenantId) => trouverUtilisateurParId(intervenantId)))
-  )
-    .filter(Boolean)
-    .filter((intervenant) =>
-      req.scope?.estHandler || Number(intervenant.id) === Number(req.utilisateur?.id)
-    )
-    .map((intervenant) => ({
+  const utilisateurId = normaliserIdentifiant(req.scope?.utilisateurId);
+  const ids = [
+    ...(req.scope?.estHandler && utilisateurId ? [utilisateurId] : []),
+    ...(Array.isArray(req.scope?.handlerProfesseurIds) ? req.scope.handlerProfesseurIds : []),
+  ].map(normaliserIdentifiant).filter(Boolean);
+  const handlerIds = [...new Set(ids)];
+
+  const equipes = await Promise.all(handlerIds.map(async (handlerId) => {
+    const handler = await trouverUtilisateurParId(handlerId);
+    const agitCommeHandler = Boolean(req.scope?.estHandler && handlerId === utilisateurId);
+    const intervenantIds = agitCommeHandler
+      ? await listerIntervenantsAutorisesHandler(handlerId)
+      : [utilisateurId];
+    const matieresHandler = await listerMatieresHandler(handlerId);
+    const intervenants = (await Promise.all(
+      intervenantIds.map((intervenantId) => trouverUtilisateurParId(intervenantId))
+    )).filter(Boolean).map((intervenant) => ({
       id: intervenant.id,
       public_id: intervenant.public_id || null,
       nom: intervenant.nom,
       couleur_calendrier: intervenant.couleur_calendrier || null,
       tarif_horaire: Number(intervenant.tarif_horaire) || 0,
     }));
+    return {
+      id: handlerId,
+      public_id: handler?.public_id || null,
+      nom: handler?.nom || "Equipe",
+      mode: agitCommeHandler ? "handler" : "professeur",
+      matieres: matieresHandler.map((matiere) => ({ id: Number(matiere.id), valeur: matiere.libelle })),
+      intervenants,
+    };
+  }));
+  const equipeParDefaut = equipes[0] || null;
 
   return res.json({
     options: {
-      matieres: handlerId
-        ? matieresHandler.map((matiere) => ({
-            id: Number(matiere.id),
-            valeur: matiere.libelle,
-          }))
+      equipes,
+      handler_id: equipeParDefaut?.id || null,
+      matieres: equipeParDefaut
+        ? equipeParDefaut.matieres
         : Array.isArray(catalogue.matieres)
           ? catalogue.matieres
           : [],
       comptes: Array.isArray(catalogue.comptes) ? catalogue.comptes : [],
-      intervenants,
+      intervenants: equipeParDefaut?.intervenants || [],
     },
   });
 }
@@ -977,7 +986,9 @@ async function creerSeanceDepuisDonneesValidees({
     const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesAffectees);
 
     if (conflitIndisponibilite) {
-      throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite));
+      throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite, {
+        inclureRaison: Number(conflitIndisponibilite.intervenant_id) === Number(acteur?.id),
+      }));
     }
   }
 
@@ -1058,7 +1069,9 @@ async function modifierSeanceDepuisDonneesValidees({
     const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesAffectees);
 
     if (conflitIndisponibilite && controlesCreneauRequis) {
-      throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite));
+      throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite, {
+        inclureRaison: Number(conflitIndisponibilite.intervenant_id) === Number(acteur?.id),
+      }));
     }
   }
 
@@ -1113,19 +1126,10 @@ async function ajouterSeance(req, res) {
     });
   }
 
-  const seanceHandlerLuiMeme = seanceEstAffecteeAuHandlerLuiMeme({
-    scope: req.scope,
-    acteur: req.utilisateur,
-    donneesSeance,
-  });
-
   const nouvelleSeance = await creerSeanceDepuisDonneesValidees({
     donneesSeance,
     acteur: req.utilisateur,
-    // A Handler's own session is private to that Handler and may replace the
-    // visual collective-unavailable state.  The lower-level session-conflict
-    // and calendar-window checks remain active in all cases.
-    verifierIndisponibilite: !seanceHandlerLuiMeme,
+    verifierIndisponibilite: true,
     // Collective availability is a Dashboard visualization, not a booking
     // authorization rule.  A Professor target is still validated individually.
     verifierDisponibiliteCollective: false,
@@ -1173,17 +1177,11 @@ async function modifierSeance(req, res) {
     return res.status(400).json({ message: erreurs.join(" ") });
   }
 
-  const seanceHandlerLuiMeme = seanceEstAffecteeAuHandlerLuiMeme({
-    scope: req.scope,
-    acteur: req.utilisateur,
-    donneesSeance,
-  });
-
   const seanceTransactionnelle = await modifierSeanceDepuisDonneesValidees({
     seanceExistante,
     donneesSeance,
     acteur: req.utilisateur,
-    verifierIndisponibilite: !seanceHandlerLuiMeme,
+    verifierIndisponibilite: true,
     verifierDisponibiliteCollective: false,
   });
   res.locals.realtimeScope = {
@@ -1221,21 +1219,16 @@ async function changerStatutSeance(req, res) {
       ...seanceExistante,
       statut_seance: statutSeance,
     };
-    const seanceHandlerLuiMeme = seanceEstAffecteeAuHandlerLuiMeme({
-      scope: req.scope,
-      acteur: req.utilisateur,
-      donneesSeance,
-    });
-
     await verifierAbsenceConflitSeance(donneesSeance, req.utilisateur, {
       exclureSeanceId: seanceExistante.id,
     });
 
-    const conflitIndisponibilite = seanceHandlerLuiMeme
-      ? null
-      : await recupererConflitIndisponibilite(donneesSeance);
+    const conflitIndisponibilite = await recupererConflitIndisponibilite(donneesSeance);
     if (conflitIndisponibilite) {
-      throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite));
+      throw creerErreurHttp(400, construireMessageIndisponibilite(conflitIndisponibilite, {
+        inclureRaison:
+          Number(conflitIndisponibilite.intervenant_id) === Number(req.utilisateur?.id),
+      }));
     }
   }
 

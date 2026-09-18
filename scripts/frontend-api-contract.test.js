@@ -87,6 +87,13 @@ const contrats = [
     chemin: "/professeurs/:id/password-reset",
   },
   {
+    client: "public/js/equipe.js",
+    appel: /\/api\/equipe\/professeurs\/\$\{Number\(professeurId\)\}[\s\S]{0,250}method:\s*"DELETE"/,
+    route: "routes/equipe.routes.js",
+    methode: "delete",
+    chemin: "/professeurs/:id",
+  },
+  {
     client: "public/js/admin.js",
     appel: /\/api\/admin\/access[\s\S]{0,250}method:\s*"PATCH"/,
     route: "routes/admin.routes.js",

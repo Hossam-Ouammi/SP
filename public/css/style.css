@@ -121,6 +121,37 @@ button {
 .account-token-success-dialog { position: absolute; z-index: 20; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, 85%); padding: 18px; border-radius: 12px; background: #fff; box-shadow: 0 18px 55px rgba(15, 23, 42, .28); text-align: center; font-weight: 700; }
 .login-card:has(.account-token-success-dialog) { position: relative; }
 
+.account-request-success-overlay {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(7px);
+}
+
+.account-request-success-box {
+  width: min(440px, 100%);
+  padding: 26px;
+  border: 1px solid #86efac;
+  border-radius: 18px;
+  background: #f0fdf4;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+  color: #166534;
+  text-align: center;
+}
+
+.account-request-success-box h2 { margin: 0 0 12px; color: #15803d; }
+.account-request-success-box p { margin: 0 0 14px; line-height: 1.55; }
+.account-request-success-box .account-request-spam-note {
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: #dcfce7;
+  font-weight: 700;
+}
+
 .login-lifecycle-actions {
   display: grid;
   gap: 4px;
@@ -690,6 +721,63 @@ button {
 .monetisation-extra-panel,
 .monetisation-report-accounts-panel {
   margin-bottom: 16px;
+}
+
+.nav-secondary-collapsed {
+  display: none;
+}
+
+.nav-more-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 auto;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--accent-strong);
+  font-size: 1.25rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.nav-more-toggle:hover {
+  border-color: #bfdbfe;
+  background: var(--accent-soft);
+}
+
+.nav-more-toggle span {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.nav-more-toggle.is-expanded span {
+  transform: rotate(180deg);
+}
+
+.dashboard-person-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.dashboard-person-filter select {
+  min-width: 230px;
+  padding: 9px 36px 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
 }
 
 .statistiques-period-panel,
@@ -1724,39 +1812,22 @@ button {
   background: var(--calendar-unavailability-light) !important;
 }
 
-/* Une hachure neutre apparaît seulement lorsque tous les Professeurs actifs
- * ont déclaré le créneau indisponible. */
+/* Le fond collectif reste derrière les séances, mais reprend exactement le
+ * rendu des indisponibilités personnelles du calendrier dédié. */
 #calendar.fc .fc-bg-event.calendar-availability-unavailable {
   opacity: 1;
   border-radius: 0 !important;
   padding: 0 !important;
   box-shadow: none !important;
-  border-top: 1px solid rgba(148, 163, 184, 0.34);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid var(--calendar-unavailability-light-border) !important;
   /* Les créneaux restent sélectionnables : FullCalendar reçoit le clic sur la
    * case exacte, plutôt que sur le fond fusionné de toute la plage grisée. */
   pointer-events: none;
-  background: repeating-linear-gradient(
-    135deg,
-    rgba(148, 163, 184, 0.22) 0,
-    rgba(148, 163, 184, 0.22) 7px,
-    rgba(226, 232, 240, 0.26) 7px,
-    rgba(226, 232, 240, 0.26) 14px
-  ) !important;
+  background: var(--calendar-unavailability-light) !important;
 }
 
 #calendar.fc .fc-bg-event.calendar-availability-unavailable::after {
-  position: absolute;
-  inset: 0 6px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  color: rgba(71, 85, 105, 0.78);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  content: "Indisponible";
-  pointer-events: none;
+  content: none;
 }
 
 .seance-choice-list {
@@ -3002,7 +3073,6 @@ button {
 #indisponibilites-section .admin-workbench-tab,
 #indisponibilites-section .admin-card,
 #indisponibilites-section .admin-session-item,
-#indisponibilites-section .button,
 #indisponibilites-section .status-badge,
 #indisponibilites-section .form-error,
 #unavailability-detail-modal .detail-card,
@@ -3018,9 +3088,6 @@ button {
   border-radius: 0 !important;
 }
 
-#unavailability-calendar.fc .fc-toolbar.fc-header-toolbar,
-#unavailability-calendar.fc .fc-scrollgrid,
-#unavailability-calendar.fc .fc-button,
 #unavailability-calendar.fc .fc-timegrid-event,
 #unavailability-calendar.fc .fc-timegrid-event .fc-event-main-frame,
 #unavailability-calendar.fc .fc-daygrid-event,
@@ -5050,20 +5117,6 @@ button {
     font-weight: 800;
   }
 
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance {
-    color: #ffffff !important;
-  }
-
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance .fc-event-main,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance .fc-event-title,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance .fc-event-time,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-main,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-title,
-  #calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-time {
-    color: #ffffff !important;
-  }
-
   #calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .fc-col-header-cell-cushion {
     padding: 8px 0 6px;
   }
@@ -5520,10 +5573,10 @@ button {
   background:
     repeating-linear-gradient(
       135deg,
-      rgba(148, 163, 184, 0.84) 0,
-      rgba(148, 163, 184, 0.84) 6px,
-      rgba(203, 213, 225, 0.96) 6px,
-      rgba(203, 213, 225, 0.96) 12px
+      rgba(148, 163, 184, 0.42) 0,
+      rgba(148, 163, 184, 0.42) 6px,
+      rgba(203, 213, 225, 0.58) 6px,
+      rgba(203, 213, 225, 0.58) 12px
     );
 }
 
@@ -5545,10 +5598,10 @@ button {
   background:
     repeating-linear-gradient(
       135deg,
-      rgba(148, 163, 184, 0.84) 0,
-      rgba(148, 163, 184, 0.84) 8px,
-      rgba(203, 213, 225, 0.96) 8px,
-      rgba(203, 213, 225, 0.96) 16px
+      rgba(148, 163, 184, 0.42) 0,
+      rgba(148, 163, 184, 0.42) 8px,
+      rgba(203, 213, 225, 0.58) 8px,
+      rgba(203, 213, 225, 0.58) 16px
     ) !important;
   color: transparent !important;
 }
@@ -5639,6 +5692,19 @@ button {
   #reservation-public-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .calendar-mobile-week-indisponibilite {
     border-radius: 0 !important;
     box-shadow: none !important;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .reservation-public-blocked-event {
+    border-color: rgba(100, 116, 139, 0.5) !important;
+    background:
+      repeating-linear-gradient(
+        135deg,
+        rgba(148, 163, 184, 0.48) 0,
+        rgba(148, 163, 184, 0.48) 7px,
+        rgba(226, 232, 240, 0.72) 7px,
+        rgba(226, 232, 240, 0.72) 14px
+      ) !important;
+    opacity: 0.88 !important;
   }
 }
 
@@ -5894,18 +5960,6 @@ button {
     border: 1px solid var(--calendar-unavailability-light-border) !important;
     background: var(--calendar-unavailability-light) !important;
     box-shadow: none;
-  }
-
-  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance,
-  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance {
-    color: #ffffff !important;
-  }
-
-  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance .fc-event-main,
-  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-month-seance .fc-event-title,
-  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-main,
-  #unavailability-calendar[data-calendar-mobile="true"].fc .calendar-mobile-week-seance .fc-event-title {
-    color: #ffffff !important;
   }
 
   #unavailability-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc .fc-timegrid-slot-label-cushion,
@@ -6326,25 +6380,26 @@ button {
 
 /* Etats neutres du calendrier public tokenise : aucune couleur d'equipe,
    aucun indice sur le nombre ou l'identite des intervenants. */
-.reservation-public-legend-swatch-available {
-  border-color: #86efac;
-  background: #dcfce7;
+/* The public calendar deliberately exposes only the neutral state of a
+   slot. Both states remain readable; no business or appointment metadata is
+   rendered in either event. */
+#reservation-public-calendar.fc .reservation-public-blocked-event,
+.reservation-public-calendar .fc .reservation-public-blocked-event {
+  color: #475569 !important;
 }
 
-#reservation-public-calendar.fc .reservation-public-available-event,
-.reservation-public-calendar .fc .reservation-public-available-event {
-  border: 1px solid #86efac !important;
-  background: #dcfce7 !important;
-  color: #166534 !important;
+#reservation-public-calendar.fc .reservation-public-blocked-event .fc-event-main,
+#reservation-public-calendar.fc .reservation-public-blocked-event .fc-event-title,
+.reservation-public-calendar .fc .reservation-public-blocked-event .fc-event-main,
+.reservation-public-calendar .fc .reservation-public-blocked-event .fc-event-title {
+  display: none !important;
 }
 
-#reservation-public-calendar.fc .reservation-public-available-event .fc-event-main,
-#reservation-public-calendar.fc .reservation-public-available-event .fc-event-title,
-.reservation-public-calendar .fc .reservation-public-available-event .fc-event-main,
-.reservation-public-calendar .fc .reservation-public-available-event .fc-event-title {
-  color: #166534 !important;
-  font-size: 0.68rem !important;
-  font-weight: 700;
+#reservation-public-calendar.fc .calendar-monthday-header {
+  display: grid;
+  gap: 1px;
+  line-height: 1.15;
+  text-align: center;
 }
 
 .workspace-public-calendar {
@@ -6352,6 +6407,122 @@ button {
   gap: 14px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
+}
+
+.public-calendar-controls-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.public-calendar-actions {
+  align-items: center;
+  padding-top: 0;
+  border-top: 0;
+  white-space: nowrap;
+}
+
+.public-calendar-member-row {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.public-calendar-member-row > span {
+  grid-column: auto;
+  font-weight: 700;
+}
+
+.public-calendar-member-row > input {
+  min-width: 0;
+  width: 100%;
+}
+
+.workspace-public-calendar > .admin-identity-stats,
+.workspace-public-calendar > .public-calendar-controls-row {
+  display: none;
+}
+
+.dashboard-public-link {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.dashboard-public-link.hidden {
+  display: none;
+}
+
+.dashboard-public-link a {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--accent-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reservation-disabled-main {
+  display: grid;
+  min-height: 100vh;
+  padding: 24px;
+  place-items: center;
+}
+
+.reservation-disabled-card {
+  width: min(100%, 620px);
+  padding: clamp(28px, 6vw, 54px);
+  text-align: center;
+}
+
+.reservation-disabled-card h1 {
+  margin: 14px 0 12px;
+  font-size: clamp(1.6rem, 5vw, 2.4rem);
+}
+
+.reservation-disabled-card p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+.reservation-disabled-icon {
+  display: inline-grid;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 1.6rem;
+  font-weight: 800;
+  place-items: center;
+}
+
+@media (max-width: 720px) {
+  .public-calendar-controls-row,
+  .public-calendar-member-row,
+  .dashboard-public-link {
+    grid-template-columns: 1fr;
+  }
+
+  .public-calendar-actions {
+    justify-content: stretch;
+  }
+
+  .public-calendar-actions .button,
+  .public-calendar-member-row > .button {
+    width: 100%;
+  }
+
+  .public-calendar-member-row > span {
+    grid-column: auto;
+  }
 }
 
 .admin-analytics-filter {
@@ -6402,4 +6573,100 @@ button {
   .admin-global-analytics-row span {
     text-align: left;
   }
+}
+
+/* Calendrier public — rendu canonique des périodes indisponibles.
+   Point de retour demandé (16/09/2026) : rayures 7 px, couleurs
+   rgba(148,163,184,.48) / rgba(226,232,240,.72), opacity .88. */
+#reservation-public-calendar.fc .reservation-public-blocked-event,
+.reservation-public-calendar .fc .reservation-public-blocked-event {
+  border: 0 !important;
+  border-radius: 3px !important;
+  background-color: rgba(226, 232, 240, 0.72) !important;
+  background-image:
+    repeating-linear-gradient(
+      135deg,
+      rgba(100, 116, 139, 0.18) 0,
+      rgba(100, 116, 139, 0.18) 2px,
+      rgba(248, 250, 252, 0.3) 2px,
+      rgba(248, 250, 252, 0.3) 10px
+    ) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.45),
+    0 1px 2px rgba(15, 23, 42, 0.04) !important;
+  opacity: 1 !important;
+}
+
+#reservation-public-calendar.fc .reservation-public-blocked-event .fc-event-main,
+#reservation-public-calendar.fc .reservation-public-blocked-event .fc-event-title,
+.reservation-public-calendar .fc .reservation-public-blocked-event .fc-event-main,
+.reservation-public-calendar .fc .reservation-public-blocked-event .fc-event-title {
+  display: none !important;
+}
+
+.reservation-public-legend-swatch-blocked {
+  border: 0;
+  background-color: rgba(226, 232, 240, 0.72);
+  background-image:
+    repeating-linear-gradient(
+      135deg,
+      rgba(100, 116, 139, 0.18) 0,
+      rgba(100, 116, 139, 0.18) 2px,
+      rgba(248, 250, 252, 0.3) 2px,
+      rgba(248, 250, 252, 0.3) 8px
+    );
+}
+
+@media (max-width: 720px) {
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .reservation-public-blocked-event {
+    border: 0 !important;
+    background-color: rgba(226, 232, 240, 0.78) !important;
+    background-image:
+      repeating-linear-gradient(
+        135deg,
+        rgba(100, 116, 139, 0.2) 0,
+        rgba(100, 116, 139, 0.2) 2px,
+        rgba(248, 250, 252, 0.34) 2px,
+        rgba(248, 250, 252, 0.34) 9px
+      ) !important;
+    opacity: 1 !important;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child {
+    width: auto;
+    max-width: 100%;
+    margin-inline: auto;
+    padding: 4px;
+    gap: 6px;
+    border: 1px solid rgba(203, 213, 225, 0.72);
+    border-radius: 14px;
+    background: rgba(248, 250, 252, 0.92);
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-button-group {
+    display: flex;
+    gap: 6px;
+    overflow: visible;
+    border-radius: 0;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-prev-button,
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-next-button {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
+    margin: 0 !important;
+    padding: 0;
+    border: 1px solid rgba(203, 213, 225, 0.9);
+    border-radius: 10px !important;
+    background: #ffffff;
+    color: #334155;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-prev-button:disabled,
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-next-button:disabled {
+    opacity: 0.34;
+  }
+
 }

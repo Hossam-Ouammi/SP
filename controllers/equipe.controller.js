@@ -2,6 +2,7 @@ const {
   listerProfesseursEquipe,
   trouverProfesseurEquipe,
   mettreAJourProfesseurEquipe,
+  retirerProfesseurEquipe,
 } = require("../models/equipe.model");
 const {
   creerJetonReinitialisationMotDePasse,
@@ -276,6 +277,37 @@ async function modifierProfesseur(req, res) {
   });
 }
 
+async function retirerProfesseur(req, res) {
+  const handlerId = handlerCourant(req);
+  const professeurId = normaliserIdentifiant(req.params.id);
+
+  if (!professeurId) {
+    return res.status(400).json({ message: "Identifiant de professeur invalide." });
+  }
+
+  const professeur = await retirerProfesseurEquipe(handlerId, professeurId);
+  if (!professeur) {
+    return res.status(404).json({ message: "Professeur introuvable dans cette équipe." });
+  }
+
+  await journaliserEquipe({
+    req,
+    professeur,
+    actionType: "professeur_retire_equipe",
+    actionLabel: "Retrait d'un professeur de l'équipe",
+    details: {
+      professeur: serialiserProfesseur(professeur),
+      rattachement_actif: false,
+    },
+  });
+  res.locals.realtimeScope = { handlerId, intervenantId: professeurId };
+
+  return res.json({
+    message: "Professeur retiré de l'équipe.",
+    professeur_id: professeurId,
+  });
+}
+
 async function envoyerResetProfesseur(req, res) {
   const handlerId = handlerCourant(req);
   const professeurId = normaliserIdentifiant(req.params.id);
@@ -351,6 +383,7 @@ module.exports = {
   supprimerMatiereEquipe,
   modifierTarifsMatieresEquipe,
   modifierProfesseur,
+  retirerProfesseur,
   envoyerResetProfesseur,
   serialiserProfesseur,
   serialiserProfesseurs,

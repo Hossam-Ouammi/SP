@@ -410,8 +410,8 @@ async function run() {
       slot_duration_minutes: 30,
       modifiable: true,
     });
-    assert.equal(reponse.json?.reglages?.calendrier_public?.jeton_configure, false);
-    assert.equal(reponse.json?.reglages?.calendrier_public?.lien_public, null);
+    assert.equal(reponse.json?.reglages?.calendrier_public?.jeton_configure, true);
+    assert.match(reponse.json?.reglages?.calendrier_public?.lien_public, /^\/p\/HD-/);
     assert.equal(reponse.json?.reglages?.calendrier_public?.public_calendar_timezone, "GMT+1");
     assert.equal(reponse.json?.reglages?.timezone, undefined);
 
@@ -428,9 +428,9 @@ async function run() {
         slot_duration_minutes: 30,
         modifiable: false,
       },
-      "Le Professeur doit lire la plage de son Handler, pas ses preferences individuelles."
+      "Le Professeur conserve sa plage personnelle en lecture seule."
     );
-    assert.equal(reponse.json?.reglages?.calendrier_public?.disponible, false);
+    assert.equal(reponse.json?.reglages?.calendrier_public?.disponible, true);
 
     reponse = await professeur.request("PATCH", "/api/settings/calendar", {
       calendar_start_time: "08:30",
@@ -444,7 +444,7 @@ async function run() {
     reponse = await professeur.request("PATCH", "/api/settings/public-calendar", {
       public_calendar_timezone: "GMT+1",
     });
-    assertStatus(reponse, 403, "fuseau public refuse au Professeur");
+    assertStatus(reponse, 200, "fuseau public personnel autorise au Professeur");
 
     reponse = await handler.request("PATCH", "/api/settings/calendar", {
       calendar_start_time: "08:30",
@@ -577,14 +577,14 @@ async function run() {
       reponse.json?.reglages?.calendrier,
       {
         reference_timezone: "Europe/Paris",
-        calendar_start_time: "08:30",
-        calendar_end_time: "21:30",
-        slot_min_time: "08:30:00",
-        slot_max_time: "21:30:00",
+        calendar_start_time: "08:00",
+        calendar_end_time: "23:30",
+        slot_min_time: "08:00:00",
+        slot_max_time: "23:30:00",
         slot_duration_minutes: 30,
         modifiable: false,
       },
-      "Le Professeur doit heriter la modification du Handler sans configuration locale."
+      "Le calendrier public personnel reste indépendant des équipes."
     );
 
     const handlerReconnecte = new SessionClient(baseUrl);
@@ -624,7 +624,7 @@ async function run() {
     assertStatus(reponse, 200, "enregistrement du premier lien public");
     const lienInitial = String(reponse.json?.reglages?.calendrier_public?.lien_public || "");
     tokenActuel = lienInitial.split("/").filter(Boolean).at(-1) || "";
-    assert.match(tokenActuel, /^[A-Za-z0-9_-]{32,160}$/);
+    assert.match(tokenActuel, /^(?:HD|PR)-[A-Z0-9-]{1,32}$/);
     assert.equal(reponse.json?.reglages?.calendrier_public?.actif, true);
 
     reponse = await handler.request("GET", "/api/settings");
@@ -656,7 +656,7 @@ async function run() {
       .split("/")
       .filter(Boolean)
       .at(-1) || "";
-    assert.match(nouveauToken, /^[A-Za-z0-9_-]{32,160}$/);
+    assert.match(nouveauToken, /^(?:HD|PR)-[A-Z0-9-]{1,32}$/);
     assert.equal(nouveauToken, tokenActuel, "Aucune action ne fait tourner le lien unique.");
     reponse = await fetch(`${baseUrl}/api/reservation-public/${nouveauToken}?week_start=2026-09-07`);
     assert.equal(reponse.status, 200, "lien réactivé fonctionnel");
@@ -693,7 +693,7 @@ async function run() {
       "08:00",
       "Le Professeur doit conserver l'heure centrale, quel que soit l'offset public."
     );
-    assert.equal(reponse.json?.reglages?.calendrier?.calendar_end_time, "09:00");
+    assert.equal(reponse.json?.reglages?.calendrier?.calendar_end_time, "23:30");
 
     const verifierProjectionPubliqueReference = async ({ offset, debut, fin }) => {
       const reponsePublique = await fetch(
@@ -771,8 +771,7 @@ async function run() {
     assert.equal(ligne?.public_calendar_timezone, "GMT+4");
     assert.equal(ligne?.calendar_start_time, "08:00");
     assert.equal(ligne?.calendar_end_time, "09:00");
-    assert.match(String(ligne?.token_calendrier_public_hash || ""), /^[a-f0-9]{64}$/);
-    assert.notEqual(ligne?.token_calendrier_public_hash, tokenActuel);
+    assert.equal(String(ligne?.token_calendrier_public_hash || ""), "");
 
     console.log("workspace-settings test: PASS");
   } catch (error) {

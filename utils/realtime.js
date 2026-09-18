@@ -272,6 +272,19 @@ function fermerFluxTempsReelPublicHandler(handlerId, options = {}) {
   return totalFermes;
 }
 
+function fermerFluxTempsReelPublicIntervenant(intervenantId, options = {}) {
+  const id = normaliserIdentifiant(intervenantId);
+  if (!id) return 0;
+  let totalFermes = 0;
+  for (const client of Array.from(clientsTempsReel)) {
+    if (!client.public || !client.intervenantIds.includes(id)) continue;
+    totalFermes += fermerClientTempsReel(client, {
+      reason: options.reason || "public_calendar_access_revoked",
+    }) ? 1 : 0;
+  }
+  return totalFermes;
+}
+
 function programmerExpirationClient(client) {
   if (!client || !Number.isFinite(client.sessionExpiresAt)) {
     return;
@@ -364,7 +377,11 @@ function serialiserMessageTempsReelPourClient(client, message) {
 
 function clientPublicEstDansCibleHandler(client, message) {
   const handlerId = normaliserIdentifiant(message?.handlerId);
-  return Boolean(handlerId && client.handlerIds.includes(handlerId));
+  const intervenantId = normaliserIdentifiant(message?.intervenantId);
+  return Boolean(
+    (handlerId && client.handlerIds.includes(handlerId)) ||
+      (intervenantId && client.intervenantIds.includes(intervenantId))
+  );
 }
 
 function messageCibleUneEquipe(message) {
@@ -426,6 +443,7 @@ module.exports = {
   fermerFluxTempsReelUtilisateur,
   fermerFluxTempsReelSession,
   fermerFluxTempsReelPublicHandler,
+  fermerFluxTempsReelPublicIntervenant,
   configurerHeartbeatClient,
   diffuserMiseAJourApplication,
 };

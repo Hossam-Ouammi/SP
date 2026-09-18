@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Indisponible pour le moment</title>
+    <link rel="stylesheet" href="/css/style.css?v=20260913-public-disabled" />
+  </head>
+  <body class="reservation-public-body">
+    <main class="reservation-disabled-main">
+      <section class="panel reservation-disabled-card">
+        <span class="reservation-disabled-icon" aria-hidden="true">—</span>
+        <h1>Je ne prends pas de séances pour le moment</h1>
+        <p>
+          Ce calendrier public est temporairement désactivé.<% if (nom) { %>
+          Vous pouvez contacter <strong><%= nom %></strong> directement pour plus d’informations.<% } else { %>
+          Veuillez contacter cette personne directement pour plus d’informations.<% } %>
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

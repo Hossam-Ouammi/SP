@@ -14,7 +14,6 @@ const {
 } = require("../middleware/auth.middleware");
 const {
   chargerScopeAcces,
-  verifierScopeHandlerCourant,
   verifierDeclarationDisponibiliteProfesseur,
 } = require("../middleware/scope.middleware");
 const { notifierMiseAJourApplication } = require("../utils/realtime-route");
@@ -25,7 +24,6 @@ router.use(
   verifierAuthentification,
   verifierCompteSecurise,
   chargerScopeAcces,
-  verifierScopeHandlerCourant,
   verifierAccesIndisponibilites
 );
 

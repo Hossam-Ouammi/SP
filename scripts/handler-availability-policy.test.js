@@ -428,6 +428,30 @@ async function run() {
 
     // A professor can declare their own exception even when the legacy UI
     // permission flag was never activated. The default is otherwise available.
+    response = await professeurA.request("POST", "/api/indisponibilites", {
+      ...donneesIndisponibilite("2034-06-10", "08:00", "09:00"),
+      dates: ["2034-06-10", "2034-06-11", "2034-06-12"],
+    });
+    assertStatus(response, 201, "Professor creates the same unavailability on multiple days");
+    assert.deepEqual(
+      response.json?.indisponibilites?.map((item) => item.date),
+      ["2034-06-10", "2034-06-11", "2034-06-12"],
+      "The batch must create one identical slot for every selected day"
+    );
+    assert.ok(
+      response.json.indisponibilites.every(
+        (item) => item.heure_debut === "08:00" && item.heure_fin === "09:00"
+      ),
+      "Every selected day must receive the same time range"
+    );
+    for (const indisponibilite of response.json.indisponibilites) {
+      const suppression = await professeurA.request(
+        "DELETE",
+        `/api/indisponibilites/${indisponibilite.id}`
+      );
+      assertStatus(suppression, 200, "Professor cleans up a batch unavailability");
+    }
+
     response = await professeurA.request(
       "POST",
       "/api/indisponibilites",
@@ -437,31 +461,55 @@ async function run() {
     const indisponibiliteProfesseurAId = Number(response.json?.indisponibilite?.id);
     assert.ok(indisponibiliteProfesseurAId > 0, "A professor unavailability identifier is required.");
 
-    // The unavailability module is Professor-only. A Handler cannot access
-    // it directly, including its retired availability rules/exceptions API.
+    response = await handler.request(
+      "POST",
+      "/api/indisponibilites",
+      donneesIndisponibilite("2034-06-03", "09:00", "10:00")
+    );
+    assertStatus(
+      response,
+      201,
+      "Handler can declare a personal unavailability overlapping a Professor's block"
+    );
+    const indisponibiliteHandlerMemeCreneauId = Number(
+      response.json?.indisponibilite?.id
+    );
+    assert.ok(
+      Number.isInteger(indisponibiliteHandlerMemeCreneauId),
+      "Same-slot Handler unavailability exposes its identifier"
+    );
+    response = await handler.request(
+      "DELETE",
+      `/api/indisponibilites/${indisponibiliteHandlerMemeCreneauId}`
+    );
+    assertStatus(
+      response,
+      200,
+      "Handler removes the temporary same-slot personal unavailability"
+    );
+
+    // A Handler manages one personal unavailability calendar, independently
+    // from the retired positive-availability rules/exceptions API.
     response = await handler.request("GET", "/api/indisponibilites");
-    assertStatus(response, 403, "Handler cannot read unavailability management API");
-    assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
+    assertStatus(response, 200, "Handler reads personal unavailability management API");
     response = await handler.request(
       "POST",
       "/api/indisponibilites",
       donneesIndisponibilite("2034-06-03", "10:00", "11:00")
     );
-    assertStatus(response, 403, "Handler cannot declare personal unavailability");
-    assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
+    assertStatus(response, 201, "Handler declares personal unavailability");
+    const indisponibiliteHandlerCreeeId = Number(response.json?.indisponibilite?.id);
     response = await handler.request(
       "PUT",
       `/api/indisponibilites/${historiqueHandlerId}`,
       donneesIndisponibilite("2034-06-03", "08:30", "09:30")
     );
-    assertStatus(response, 403, "Handler cannot edit historical personal unavailability");
-    assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
+    assertStatus(response, 200, "Handler edits historical personal unavailability");
     response = await handler.request(
       "DELETE",
-      `/api/indisponibilites/${historiqueHandlerId}`
+      `/api/indisponibilites/${indisponibiliteHandlerCreeeId}`
     );
-    assertStatus(response, 403, "Handler cannot delete historical personal unavailability");
-    assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
+    assertStatus(response, 200, "Handler deletes personal unavailability");
     response = await handler.request("GET", "/api/disponibilites");
     assertStatus(response, 403, "Handler cannot read legacy availability rules");
     assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
@@ -474,8 +522,8 @@ async function run() {
     assertStatus(response, 403, "Handler cannot mutate legacy availability rules");
     assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
 
-    // The central calendar receives a separate, read-only, minimal
-    // projection of active Professors only; it must not leak Handler blocks.
+    // The central calendar receives the global personal blocks of the Handler
+    // and every active member, without private metadata.
     response = await handler.request("GET", "/api/dashboard/indisponibilites");
     assertStatus(response, 200, "Handler reads central-calendar professor blocks");
     assert.ok(
@@ -485,16 +533,16 @@ async function run() {
       "The central Dashboard must receive an active professor's declared unavailability."
     );
     assert.ok(
-      response.json?.indisponibilites?.every(
-        (indisponibilite) => Number(indisponibilite.intervenant_id) !== handlerId
+      response.json?.indisponibilites?.some(
+        (indisponibilite) => Number(indisponibilite.intervenant_id) === handlerId
       ),
-      "The central Dashboard must exclude Handler unavailability rows."
+      "The central Dashboard must include Handler personal unavailability rows."
     );
     assert.ok(
-      !response.json?.indisponibilites?.some(
+      response.json?.indisponibilites?.some(
         (indisponibilite) => Number(indisponibilite.id) === historiqueHandlerId
       ),
-      "A Handler historical block must not be exposed by the central Dashboard endpoint."
+      "A Handler personal block must be exposed by the central Dashboard endpoint."
     );
     assert.ok(
       response.json?.indisponibilites?.every((indisponibilite) =>
@@ -587,13 +635,14 @@ async function run() {
     );
 
     // Professor A is blocked at 09:00, but Professor B is default-available:
-    // the Handler can still use the central slot.
+    // the Handler can still schedule Professor B. The Handler itself has a
+    // personal block at this time and must not bypass it.
     response = await handler.request(
       "POST",
       "/api/seances",
-      donneesSeance("one-professor-free", "2034-06-03", "09:00", handlerId)
+      donneesSeance("one-professor-free", "2034-06-03", "09:00", professeurBId)
     );
-    assertStatus(response, 201, "At least one available active professor permits Handler booking");
+    assertStatus(response, 201, "An available selected Professor permits Handler booking");
     const seanceUnProfLibreId = Number(response.json?.seance?.id);
     assert.ok(seanceUnProfLibreId > 0, "Allowed session must be created.");
 
@@ -913,14 +962,12 @@ async function run() {
       `/api/indisponibilites/${indisponibilitePersonnelleProfesseurAId}`,
       donneesIndisponibilite("2034-06-04", "21:00", "22:00")
     );
-    assertStatus(response, 403, "Handler cannot edit a Professor's personal unavailability");
-    assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
+    assertStatus(response, 404, "Handler cannot edit a Professor's personal unavailability");
     response = await handler.request(
       "DELETE",
       `/api/indisponibilites/${indisponibilitePersonnelleProfesseurAId}`
     );
-    assertStatus(response, 403, "Handler cannot delete a Professor's personal unavailability");
-    assert.equal(response.json?.code, "HANDLER_UNAVAILABILITY_FORBIDDEN");
+    assertStatus(response, 404, "Handler cannot delete a Professor's personal unavailability");
     response = await professeurB.request(
       "PUT",
       `/api/indisponibilites/${indisponibilitePersonnelleProfesseurAId}`,

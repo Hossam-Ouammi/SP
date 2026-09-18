@@ -20,9 +20,13 @@ const {
 const {
   creerJetonCalendrierPublicStable,
   jetonCalendrierPublicStableCorrespond,
+  listerCalendriersPersonnelsPourUtilisateur,
 } = require("../models/public-calendar.model");
 const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
-const { fermerFluxTempsReelPublicHandler } = require("../utils/realtime");
+const {
+  fermerFluxTempsReelPublicHandler,
+  fermerFluxTempsReelPublicIntervenant,
+} = require("../utils/realtime");
 
 function creerErreurHttp(status, message) {
   const erreur = new Error(message);
@@ -80,19 +84,8 @@ function resoudreContexteCalendrier(req) {
     throw creerErreurHttp(401, "Utilisateur introuvable.");
   }
 
-  if (req.scope?.estHandler) {
-    return { handlerId: utilisateurId, modifiable: true };
-  }
-
-  const handlerIds = Array.isArray(req.scope?.handlerProfesseurIds)
-    ? req.scope.handlerProfesseurIds.map(normaliserIdentifiant).filter(Boolean)
-    : [];
-
-  if (req.scope?.estProfesseur && handlerIds.length > 0) {
-    // Les autres APIs de l'espace Professeur utilisent déjà le premier
-    // rattachement actif lorsqu'aucun espace n'est sélectionné dans la
-    // session. Le client ne peut jamais injecter un handler_id ici.
-    return { handlerId: handlerIds[0], modifiable: false };
+  if (req.scope?.estHandler || req.scope?.estProfesseur) {
+    return { handlerId: utilisateurId, modifiable: req.scope?.estHandler === true };
   }
 
   throw creerErreurHttp(403, "Aucun espace Handler actif n'est associé à ce compte.");
@@ -103,12 +96,7 @@ function serialiserReglages(reglages, options = {}) {
     return null;
   }
 
-  const possedeJeton = Boolean(String(reglages.token_calendrier_public_hash || "").trim());
-  const jetonStable =
-    possedeJeton &&
-    jetonCalendrierPublicStableCorrespond(reglages.id, reglages.token_calendrier_public_hash)
-      ? creerJetonCalendrierPublicStable(reglages.id)
-      : null;
+  const possedeJeton = Boolean(reglages.public_id);
   const plage = normaliserPlageDepuisReglages(reglages);
   const fuseauPublic = obtenirDefinitionFuseauCalendrierPublic(
     reglages.public_calendar_timezone
@@ -131,7 +119,9 @@ function serialiserReglages(reglages, options = {}) {
       // A raw public token is never stored. The stable HMAC representation is
       // reproducible only by this server and is returned only in the
       // authenticated Handler settings response.
-      lien_public: options.lienPublic || (jetonStable ? `/reservation/${jetonStable}` : null),
+      lien_public:
+        options.lienPublic ||
+        (reglages.public_id ? `/p/${encodeURIComponent(reglages.public_id)}` : null),
       public_calendar_timezone: fuseauPublic.identifiant,
       public_calendar_offset_minutes: fuseauPublic.offsetMinutes,
       public_calendar_offset_label: fuseauPublic.libelle,
@@ -235,13 +225,27 @@ async function recupererReglagesEspace(req, res, next) {
     const reglagesSerialises = serialiserReglages(reglages, {
       modifiable: contexte.modifiable,
     });
+    const calendriers = await listerCalendriersPersonnelsPourUtilisateur(
+      req.utilisateur.id,
+      req.scope?.estHandler === true
+    );
+    const serialiserMembre = (membre) => ({
+      id: membre.id,
+      public_id: membre.public_id,
+      nom: membre.nom,
+      actif: Number(membre.calendrier_public_actif) === 1,
+      lien_public: `/p/${encodeURIComponent(membre.public_id)}`,
+      public_calendar_timezone: membre.public_calendar_timezone || "GMT+1",
+    });
     return res.json({
       reglages: {
         ...reglagesSerialises,
         calendrier_public: {
           ...reglagesSerialises.calendrier_public,
-          disponible: contexte.modifiable,
+          disponible: true,
         },
+        liens_publics_equipe: calendriers.equipe.map(serialiserMembre),
+        equipes: calendriers.equipes,
       },
     });
   } catch (erreur) {
@@ -335,7 +339,18 @@ async function modifierReglagesCalendrierEspace(req, res, next) {
 
 async function modifierReglagesCalendrierPublic(req, res, next) {
   try {
-    const handlerId = verifierHandler(req);
+    const utilisateurId = normaliserIdentifiant(req.utilisateur?.id);
+    const cibleDemandee = normaliserIdentifiant(req.body?.utilisateur_id);
+    const handlerId = cibleDemandee || utilisateurId;
+    if (!utilisateurId || (!req.scope?.estHandler && handlerId !== utilisateurId)) {
+      throw creerErreurHttp(403, "Calendrier public inaccessible.");
+    }
+    if (handlerId !== utilisateurId) {
+      const calendriers = await listerCalendriersPersonnelsPourUtilisateur(utilisateurId, true);
+      if (!calendriers.equipe.some((membre) => Number(membre.id) === handlerId)) {
+        throw creerErreurHttp(404, "Membre introuvable.");
+      }
+    }
     const contientEtat = Object.prototype.hasOwnProperty.call(req.body || {}, "actif");
     const contientFuseau = Object.prototype.hasOwnProperty.call(
       req.body || {},
@@ -356,16 +371,6 @@ async function modifierReglagesCalendrierPublic(req, res, next) {
       ? normaliserFuseauCalendrierPublic(req.body?.public_calendar_timezone)
       : undefined;
     const avant = await trouverReglagesEspace(handlerId);
-    // Saving the public configuration creates the one Handler URL on first
-    // use and reuses it afterward. Deactivation deliberately retains it, so
-    // a later save re-enables the exact same link.
-    const doitAssurerLien = contientFuseau || actif === true;
-    if (doitAssurerLien) {
-      const reglagesAvecLien = await assurerJetonCalendrierPublicStable(handlerId);
-      if (!reglagesAvecLien) {
-        throw creerErreurHttp(404, "Reglages introuvables.");
-      }
-    }
     if (!avant) {
       throw creerErreurHttp(404, "Réglages introuvables.");
     }
@@ -406,11 +411,14 @@ async function modifierReglagesCalendrierPublic(req, res, next) {
     }
 
     const fluxTempsReelFermes = actif === false
-      ? fermerFluxTempsReelPublicHandler(handlerId, {
+      ? fermerFluxTempsReelPublicIntervenant(handlerId, {
           reason: "public_calendar_disabled",
         })
       : 0;
-    res.locals.realtimeScope = { handlerId };
+    res.locals.realtimeScope = {
+      handlerId: req.scope?.estHandler ? utilisateurId : null,
+      intervenantId: handlerId,
+    };
 
     return res.json({
       message:
@@ -430,12 +438,12 @@ async function modifierReglagesCalendrierPublic(req, res, next) {
 async function regenererLienCalendrierPublic(req, res, next) {
   try {
     const handlerId = verifierHandler(req);
-    const resultat = await regenererJetonCalendrierPublic(handlerId);
-    if (!resultat) {
+    const reglages = await mettreAJourReglagesCalendrierPublic(handlerId, { actif: true });
+    if (!reglages) {
       throw creerErreurHttp(404, "Réglages introuvables.");
     }
 
-    const lienPublic = `/reservation/${encodeURIComponent(resultat.token)}`;
+    const lienPublic = `/p/${encodeURIComponent(reglages.public_id)}`;
     await journaliserReglage(req, {
       actionType: "lien_calendrier_public_enregistre",
       actionLabel: "Enregistrement du lien de calendrier public",
@@ -445,7 +453,7 @@ async function regenererLienCalendrierPublic(req, res, next) {
 
     return res.json({
       message: "Lien public enregistré.",
-      reglages: serialiserReglages(resultat.reglages, {
+      reglages: serialiserReglages(reglages, {
         lienPublic,
         modifiable: true,
       }),
