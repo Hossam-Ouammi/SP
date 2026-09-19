@@ -68,8 +68,18 @@ assert.match(
 );
 assert.match(
   viewSource,
-  /service-worker-recovery\.js\?v=20260908-sw-recovery[\s\S]*?login-lifecycle\.js[\s\S]*?type="module" src="\/js\/ui\.js/,
+  /service-worker-recovery\.js\?v=20260919-auto-refresh[\s\S]*?login-lifecycle\.js[\s\S]*?type="module" src="\/js\/ui\.js/,
   "La recuperation du worker doit etre chargee avant les scripts qui initialisent l'interface."
+);
+assert.match(
+  appSource,
+  /app\.get\("\/app-version"[\s\S]*?VERSION_INSTANCE_APPLICATION/,
+  "Le serveur doit exposer une version d'instance non mise en cache."
+);
+assert.match(
+  recoverySource,
+  /window\.fetch\("\/app-version"[\s\S]*?window\.location\.reload\(\)/,
+  "Une nouvelle version déployée doit provoquer un rechargement automatique unique."
 );
 
 function creerCibleEvenements() {
@@ -132,6 +142,10 @@ function creerEnvironnementRecovery({ controleurInitial = null, workerEnAttente 
   vm.runInNewContext(recoverySource, {
     navigator: { serviceWorker },
     window,
+    document: {
+      visibilityState: "visible",
+      addEventListener() {},
+    },
     Promise,
   });
 

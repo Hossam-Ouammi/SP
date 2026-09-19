@@ -114,6 +114,82 @@ button {
   padding: 28px;
 }
 
+/* Garde-fous responsive communs : aucun champ ni panneau métier ne doit
+ * élargir la page au-delà du viewport. */
+#app-view .app-section,
+#app-view .panel,
+#app-view .admin-panel-shell,
+#app-view .detail-card,
+#app-view .form-grid,
+#app-view .field,
+#app-view .time-select-row {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#app-view .field input,
+#app-view .field select,
+#app-view .field textarea,
+#app-view .time-select-row,
+#app-view .time-select-row select {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 720px) {
+  #app-view .form-grid,
+  #app-view .form-grid-profile,
+  #app-view .settings-grid,
+  #app-view .stats-grid,
+  #app-view .monetisation-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  #unavailability-detail-modal {
+    width: auto;
+    height: auto;
+    padding: 10px;
+    place-items: center;
+    overflow: visible;
+    background: transparent;
+  }
+
+  #unavailability-detail-modal .modal-backdrop {
+    display: block;
+  }
+
+  #unavailability-detail-modal .modal-panel {
+    display: block;
+    width: min(100%, 1120px);
+    max-width: 100%;
+    height: auto;
+    min-height: 0;
+    max-height: calc(100dvh - 20px);
+    padding: 16px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  #unavailability-detail-modal .modal-header {
+    position: static;
+    margin-bottom: 16px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    backdrop-filter: none;
+  }
+
+  #unavailability-detail-modal .detail-layout {
+    display: grid;
+    padding: 0;
+    overflow: visible;
+  }
+}
+
 .user-pill-identity { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; }
 .user-pill-identity small { font-size: .7rem; font-weight: 600; opacity: .82; }
 .nav-notification-badge { display: inline-grid; place-items: center; min-width: 1.25rem; height: 1.25rem; margin-left: .35rem; padding: 0 .3rem; border-radius: 999px; background: #dc2626; color: #fff; font-size: .72rem; font-weight: 800; }
@@ -1134,6 +1210,23 @@ button {
   box-shadow: inset 3px 0 0 #d97706, 0 4px 16px rgba(15, 23, 42, 0.04);
 }
 
+.today-item.today-item-handler-colored {
+  border-color: var(--border);
+  border-left: 4px solid var(--today-handler-border, var(--accent));
+  background: color-mix(
+    in srgb,
+    var(--today-handler-background, var(--surface)) 22%,
+    var(--surface)
+  );
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.045);
+}
+
+.today-row:hover .today-item.today-item-handler-colored {
+  border-color: var(--border);
+  border-left-color: var(--today-handler-border, var(--accent));
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.055);
+}
+
 .today-item-confidentielle {
   border-color: #cbd5e1;
   background:
@@ -1451,9 +1544,17 @@ button {
 
 .fc .fc-prev-button,
 .fc .fc-next-button {
-  min-width: 38px;
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
   padding: 0;
   border-radius: 10px;
+  overflow: visible;
+  font-size: 1.45rem;
+  line-height: 1;
 }
 
 .fc .fc-button-group .fc-button {
@@ -1472,6 +1573,19 @@ button {
 .fc .fc-button-group .fc-button:last-child {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
+}
+
+.fc .fc-toolbar-chunk:first-child .fc-button-group {
+  gap: 6px;
+  overflow: visible;
+  border-radius: 0;
+}
+
+.fc .fc-toolbar-chunk:first-child .fc-prev-button,
+.fc .fc-toolbar-chunk:first-child .fc-next-button {
+  margin: 0 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.055);
 }
 
 .fc .fc-button-primary:not(:disabled):active,
@@ -1918,25 +2032,17 @@ button {
   }
 }
 
-#seance-modal:not(.hidden) .modal-backdrop,
-#detail-modal:not(.hidden) .modal-backdrop,
-#unavailability-detail-modal:not(.hidden) .modal-backdrop {
+.modal:not(.hidden) .modal-backdrop {
   animation: modal-backdrop-in 0.16s ease-out both;
 }
 
-#seance-modal:not(.hidden) .modal-panel,
-#detail-modal:not(.hidden) .modal-panel,
-#unavailability-detail-modal:not(.hidden) .modal-panel {
+.modal:not(.hidden) .modal-panel {
   animation: modal-panel-in 0.18s ease-out both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #seance-modal:not(.hidden) .modal-backdrop,
-  #detail-modal:not(.hidden) .modal-backdrop,
-  #unavailability-detail-modal:not(.hidden) .modal-backdrop,
-  #seance-modal:not(.hidden) .modal-panel,
-  #detail-modal:not(.hidden) .modal-panel,
-  #unavailability-detail-modal:not(.hidden) .modal-panel {
+  .modal:not(.hidden) .modal-backdrop,
+  .modal:not(.hidden) .modal-panel {
     animation: none;
   }
 }
@@ -3070,24 +3176,6 @@ button {
   background: var(--surface-muted);
 }
 
-#indisponibilites-section .admin-workbench-tab,
-#indisponibilites-section .admin-card,
-#indisponibilites-section .admin-session-item,
-#indisponibilites-section .status-badge,
-#indisponibilites-section .form-error,
-#unavailability-detail-modal .detail-card,
-#unavailability-detail-modal .modal-panel,
-#unavailability-detail-modal .icon-button,
-#unavailability-detail-modal .button,
-#unavailability-detail-modal .status-badge,
-#unavailability-modal-form .field input,
-#unavailability-modal-form .field select,
-#unavailability-modal-form .field textarea,
-#unavailability-modal-form .time-select-row,
-#unavailability-modal-form .checkbox-option span {
-  border-radius: 0 !important;
-}
-
 #unavailability-calendar.fc .fc-timegrid-event,
 #unavailability-calendar.fc .fc-timegrid-event .fc-event-main-frame,
 #unavailability-calendar.fc .fc-daygrid-event,
@@ -4196,6 +4284,32 @@ button {
     align-items: flex-start;
   }
 
+  #dashboard-section .section-heading {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  #dashboard-section .section-heading h2 {
+    flex: 0 0 auto;
+  }
+
+  #dashboard-section .dashboard-person-filter {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+    gap: 6px;
+    font-size: 0.78rem;
+  }
+
+  #dashboard-section .dashboard-person-filter select {
+    width: min(160px, 100%);
+    min-width: 0;
+    padding: 8px 28px 8px 9px;
+    font-size: 0.78rem;
+  }
+
   .monetisation-period-bar {
     width: 100%;
   }
@@ -4263,6 +4377,55 @@ button {
   }
 
   .topbar-actions .button {
+    width: 100%;
+  }
+
+  #app-view .topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title title"
+      "identity logout"
+      "add add";
+    align-items: center;
+    gap: 10px;
+  }
+
+  #app-view .topbar-left,
+  #app-view .topbar-actions {
+    display: contents;
+  }
+
+  #app-view .brand-title {
+    grid-area: title;
+    width: 100%;
+    text-align: center;
+  }
+
+  #app-view .topbar-meta {
+    grid-area: identity;
+    min-width: 0;
+  }
+
+  #app-view .topbar-meta .user-pill-identity {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  #app-view .topbar-meta .user-pill-identity small {
+    font-size: 0.72rem;
+  }
+
+  #app-view #logout-button {
+    grid-area: logout;
+    width: auto;
+    min-width: 118px;
+  }
+
+  #app-view #add-seance-button {
+    grid-area: add;
     width: 100%;
   }
 
@@ -4938,6 +5101,78 @@ button {
   .fc .fc-prev-button,
   .fc .fc-next-button {
     min-width: 38px;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child {
+    width: auto;
+    margin: 0;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child .fc-button-group {
+    display: flex;
+    width: auto;
+    gap: 6px;
+    overflow: visible;
+    border-radius: 0;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child .fc-prev-button,
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child .fc-next-button {
+    flex: 0 0 34px;
+    width: 34px;
+    min-width: 34px;
+    height: 36px;
+    min-height: 36px;
+    margin: 0;
+    border: 1px solid #d8dee8;
+    border-radius: 11px !important;
+    background: #ffffff;
+    color: #1e40af;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    font-size: 1.4rem;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar.fc-header-toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "navigation title views";
+    align-items: center;
+    gap: 8px;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child {
+    grid-area: navigation;
+    justify-self: start;
+    justify-content: flex-start;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:nth-child(2) {
+    grid-area: title;
+    width: 100%;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar-title {
+    font-size: 0.84rem;
+    line-height: 1.15;
+    white-space: nowrap;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:last-child {
+    grid-area: views;
+    width: auto;
+    justify-self: end;
+    justify-content: flex-end;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:last-child .fc-button-group {
+    flex-wrap: nowrap;
+    overflow: visible;
+  }
+
+  #calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:last-child .fc-button {
+    min-height: 36px;
+    padding-inline: 0.62rem;
+    font-size: 0.74rem;
   }
 
   .fc .fc-toolbar-title {

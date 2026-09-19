@@ -56,6 +56,7 @@ const { demarrerPlanificateurBackupSeances } = require("./utils/seances-backup-e
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || process.env.IP || "0.0.0.0";
+const VERSION_INSTANCE_APPLICATION = `${Date.now()}-${process.pid}`;
 let serveurHttp = null;
 let arretEnCours = false;
 const trustProxy =
@@ -178,6 +179,11 @@ app.use(
 app.get("/index.html", (req, res) => {
   appliquerNoCacheStatic(res);
   return res.redirect(301, "/");
+});
+
+app.get("/app-version", (req, res) => {
+  appliquerNoCacheStatic(res);
+  return res.json({ version: VERSION_INSTANCE_APPLICATION });
 });
 
 app.use("/uploads", (req, res) => {

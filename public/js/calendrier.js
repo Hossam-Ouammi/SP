@@ -74,6 +74,19 @@ function creerPaletteDouceIntervenant(couleur) {
   };
 }
 
+export function creerPaletteMembrePlateforme(identifiant) {
+  const id = normaliserIdentifiantCalendrier(identifiant);
+  if (!id) return null;
+
+  const teinte = Math.round((id * 137.508) % 360);
+  const saturation = 52 + (id % 3) * 4;
+  return {
+    backgroundColor: `hsl(${teinte} ${saturation}% 87%)`,
+    borderColor: `hsl(${teinte} ${Math.max(saturation - 12, 36)}% 62%)`,
+    textColor: `hsl(${teinte} 38% 27%)`,
+  };
+}
+
 function obtenirPaletteIntervenant(seance) {
   const paletteDeclaree = seance?.intervenant_palette_calendrier;
   if (
@@ -819,6 +832,8 @@ function obtenirOptionsResponsiveCalendrier() {
         right: "timeGridWeek,dayGridMonth",
       },
       buttonText: {
+        prev: "‹",
+        next: "›",
         month: "Mois",
         week: "Sem.",
       },
@@ -839,6 +854,8 @@ function obtenirOptionsResponsiveCalendrier() {
         right: "timeGridWeek,dayGridMonth",
       },
       buttonText: {
+        prev: "‹",
+        next: "›",
         month: "Mois",
         week: "Semaine",
       },
@@ -857,6 +874,8 @@ function obtenirOptionsResponsiveCalendrier() {
       right: "timeGridWeek,dayGridMonth",
     },
     buttonText: {
+      prev: "‹",
+      next: "›",
       today: "Aujourd'hui",
       month: "Mois",
       week: "Semaine",
@@ -975,7 +994,7 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
   if (estIndisponibiliteJourComplet(indisponibilite)) {
     return {
       id: `indisponibilite-${indisponibilite.id}`,
-      title: estOccupationExterneConfidentielle ? "Indisponible" : "",
+      title: "",
       start: indisponibilite.date,
       end: calculerDateSuivante(indisponibilite.date),
       allDay: true,
@@ -992,7 +1011,7 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
 
   return {
     id: `indisponibilite-${indisponibilite.id}`,
-    title: estOccupationExterneConfidentielle ? "Indisponible" : "",
+    title: "",
     start: `${indisponibilite.date}T${indisponibilite.heure_debut}`,
     end: construireDateHeureFinCalendrier(
       indisponibilite.date,
@@ -1142,6 +1161,7 @@ export function initialiserCalendrier(
     scrollTime: plageHoraireInitiale.slotMinTime,
     dayMaxEvents: optionsResponsive.dayMaxEvents,
     headerToolbar: optionsResponsive.headerToolbar,
+    buttonIcons: false,
     buttonText: optionsResponsive.buttonText,
     dayHeaderFormat: optionsResponsive.dayHeaderFormat,
     dayHeaderContent: genererContenuEnteteJour,

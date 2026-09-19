@@ -1,6 +1,65 @@
 (() => {
   "use strict";
 
+  const INTERVALLE_VERIFICATION_VERSION_MS = 15000;
+  let versionApplicationObservee = "";
+  let verificationVersionEnCours = false;
+  let rechargementVersionPlanifie = false;
+
+  async function verifierNouvelleVersionApplication() {
+    if (
+      verificationVersionEnCours ||
+      rechargementVersionPlanifie ||
+      document.visibilityState === "hidden" ||
+      typeof window.fetch !== "function"
+    ) {
+      return;
+    }
+
+    verificationVersionEnCours = true;
+
+    try {
+      const reponse = await window.fetch("/app-version", {
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      const resultat = reponse.ok ? await reponse.json() : null;
+      const nouvelleVersion = String(resultat?.version || "").trim();
+
+      if (!nouvelleVersion) {
+        return;
+      }
+
+      if (!versionApplicationObservee) {
+        versionApplicationObservee = nouvelleVersion;
+        return;
+      }
+
+      if (nouvelleVersion !== versionApplicationObservee) {
+        rechargementVersionPlanifie = true;
+        window.location.reload();
+      }
+    } catch (error) {
+      // Une coupure réseau ne doit jamais interrompre l'utilisation courante.
+    } finally {
+      verificationVersionEnCours = false;
+    }
+  }
+
+  verifierNouvelleVersionApplication();
+  if (typeof window.setInterval === "function") {
+    window.setInterval(
+      verifierNouvelleVersionApplication,
+      INTERVALLE_VERIFICATION_VERSION_MS
+    );
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      verifierNouvelleVersionApplication();
+    }
+  });
+
   // The application itself does not use an offline cache.  A browser can
   // nevertheless retain a service worker from an older deployment which did.
   // Refresh an already-installed worker on every normal page load so that an

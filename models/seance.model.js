@@ -73,6 +73,7 @@ const requeteSeanceComplete = `
     intervenant.couleur_calendrier AS intervenant_couleur_calendrier,
     handler.public_id AS handler_public_id,
     handler.nom AS handler_nom,
+    handler.couleur_calendrier AS handler_couleur_calendrier,
     (
       SELECT COUNT(*)
       FROM photos

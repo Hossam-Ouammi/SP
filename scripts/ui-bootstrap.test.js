@@ -263,7 +263,7 @@ const indisponibilitesAvecSeanceHandler = calendrierTestable.creerEvenementsIndi
   calendrierSemaine,
   {
     handlerId: 70,
-    intervenants: [{ id: 70, nom: "Handler" }, ...professeursDisponibilite],
+    professeurs: professeursDisponibilite,
     indisponibilites: [
       {
         intervenant_id: 71,
@@ -294,8 +294,8 @@ const indisponibilitesAvecSeanceHandler = calendrierTestable.creerEvenementsIndi
 );
 assert.deepEqual(
   indisponibilitesAvecSeanceHandler.map((evenement) => [evenement.start, evenement.end]),
-  [["2034-06-03T08:00", "2034-06-03T08:30"]],
-  "Une séance personnelle du Handler doit remplacer le fond indisponible seulement sur sa propre durée."
+  [["2034-06-03T08:00", "2034-06-03T09:00"]],
+  "Les indisponibilités du Handler ne doivent pas modifier le calcul collectif des Professeurs."
 );
 assert.deepEqual(
   calendrierTestable.creerEvenementsIndisponibiliteCollective(calendrierSemaine, {
@@ -357,12 +357,12 @@ assert.match(
 assert.match(
   calendrierSource,
   /tousProfesseursIndisponibles = professeurs\.every\([\s\S]*?seanceIntervenantChevaucheCreneau/,
-  "Une séance de chaque membre, Handler compris, doit participer au calcul collectif du créneau indisponible."
+  "Une séance de chaque Professeur doit participer au calcul collectif du créneau indisponible."
 );
 assert.match(
   source,
-  /function construireDonneesDisponibiliteCalendrierCentral\(\)[\s\S]*?intervenants: obtenirIntervenantsCalendrierCentral\(\)[\s\S]*?handlerId: Number\(etat\.utilisateur\?\.id \|\| 0\) \|\| null/,
-  "Le rendu central doit transmettre les Professeurs, les indisponibilités et le Handler au calcul de fond."
+  /function construireDonneesDisponibiliteCalendrierCentral\(\)[\s\S]*?intervenants: obtenirProfesseursCalendrierCentral\(\)[\s\S]*?handlerId: Number\(etat\.utilisateur\?\.id \|\| 0\) \|\| null/,
+  "Le rendu central doit transmettre uniquement les Professeurs au calcul de fond collectif."
 );
 assert.match(
   calendrierSource,
@@ -401,8 +401,8 @@ assert.match(
 );
 assert.match(
   calendrierSource,
-  /function creerPaletteDouceIntervenant\(couleur\)[\s\S]*?backgroundColor[\s\S]*?borderColor[\s\S]*?textColor/,
-  "Chaque Réalisateur doit disposer d'un fond doux, d'une bordure et d'un texte lisible."
+  /export function creerPaletteMembrePlateforme\(identifiant\)[\s\S]*?backgroundColor[\s\S]*?borderColor[\s\S]*?textColor/,
+  "Chaque membre doit disposer d'une palette stable, douce et lisible."
 );
 assert.match(
   stylesSource,

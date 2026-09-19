@@ -48,7 +48,8 @@ import {
   mettreAJourHorlogeCalendrier,
   mettreAJourPlageHoraireCalendrier,
   creerPalettesDisponibiliteProfesseurs,
-} from "./calendrier.js?v=20260909-unified-dashboard";
+  creerPaletteMembrePlateforme,
+} from "./calendrier.js?v=20260919-calendar-navigation";
 import {
   recupererEtatNotificationsPush,
   synchroniserNotificationsPushActuelles,
@@ -182,6 +183,7 @@ const etat = {
   equipesDisponibles: [],
   reglagesEspace: null,
   historique: [],
+  historiqueARecharger: true,
   monetisation: null,
   monetisationPeriodeMode: "monthly",
   monetisationFiltreAnnee: anneeInitialeApplication,
@@ -905,7 +907,10 @@ function construireDonneesDisponibiliteCalendrierCentral() {
     // l'équipe, Handler compris, le sont. `etat.seances` conserve aussi les
     // séances personnelles du Handler dans une autre équipe : elles servent
     // uniquement à ce calcul et ne sont jamais dessinées dans la vue globale.
-    intervenants: obtenirIntervenantsCalendrierCentral(),
+    // La disponibilité globale dépend uniquement des Professeurs de l'équipe.
+    // Les indisponibilités personnelles du Handler restent réservées à son
+    // calendrier public et à sa propre vue.
+    intervenants: obtenirProfesseursCalendrierCentral(),
     seances: etat.seances,
     indisponibilites: etat.indisponibilites,
     handlerId: Number(etat.utilisateur?.id || 0) || null,
@@ -984,34 +989,19 @@ function obtenirPasCreneauCalendrierCentral() {
 }
 
 function appliquerCouleursEquipeAuxSeancesCalendrier(seances = []) {
-  if (!utilisateurEstHandler()) {
-    return seances;
-  }
-
-  const realisateurs = [
-    {
-      ...etat.utilisateur,
-      id: Number(etat.utilisateur?.id || 0),
-      acces_active: etat.utilisateur?.acces_active ?? 1,
-      statut_compte: etat.utilisateur?.statut_compte || "active",
-    },
-    ...obtenirProfesseursCalendrierCentral(),
-  ].filter((intervenant) => Number(intervenant?.id || 0) > 0);
-  const palettesParIntervenant = new Map(
-    Array.from(creerPalettesDisponibiliteProfesseurs(realisateurs).entries()).map(
-      ([intervenantId, palette]) => [
-        Number(intervenantId),
-        palette,
-      ]
-    )
-  );
-
-  if (palettesParIntervenant.size === 0) {
-    return seances;
-  }
-
   return (Array.isArray(seances) ? seances : []).map((seance) => {
-    const palette = palettesParIntervenant.get(Number(seance?.intervenant_id));
+    const utilisateurId = Number(etat.utilisateur?.id || 0);
+    const handlerId = Number(seance?.handler_id || 0);
+    const intervenantId = Number(seance?.intervenant_id || 0);
+    const vueMoiHandler =
+      utilisateurEstHandler() &&
+      String(etat.filtreCalendrierPersonne) === String(utilisateurId);
+    const identiteCouleur = utilisateurEstHandler()
+      ? vueMoiHandler && handlerId && handlerId !== utilisateurId
+        ? handlerId
+        : intervenantId
+      : handlerId;
+    const palette = creerPaletteMembrePlateforme(identiteCouleur);
     return palette
       ? {
           ...seance,
@@ -1033,9 +1023,9 @@ function obtenirDonneesCalendrierIndisponibilitesPersonnelles() {
   const estPropre = (element) => Number(element?.intervenant_id) === realisateurId;
 
   return {
-    // Ce calendrier sert exclusivement à déclarer et gérer les
-    // indisponibilités. Les séances restent visibles dans le Dashboard.
-    seances: [],
+    // La déclaration reste personnelle, mais les séances déjà réalisées par
+    // cette personne sont visibles afin d'expliquer les créneaux occupés.
+    seances: (Array.isArray(etat.seances) ? etat.seances : []).filter(estPropre),
     indisponibilites: (Array.isArray(etat.indisponibilites)
       ? etat.indisponibilites
       : []
@@ -1102,6 +1092,7 @@ function viderDonneesApplication() {
   etat.demandesAdministration = [];
   etat.reglagesEspace = null;
   etat.historique = [];
+  etat.historiqueARecharger = true;
   etat.monetisation = null;
   etat.monetisationPeriodeMode = "monthly";
   etat.monetisationFiltreAnnee = obtenirAnneeCouranteIso();
@@ -1579,7 +1570,7 @@ function lireDonneesIndisponibiliteDepuisControles(controles) {
   }
 
   return {
-    date: controles.dateInput.value,
+    date: controles.dateInput.dataset.primaryDate || controles.dateInput.value,
     dates: Array.isArray(dates) && dates.length > 1 ? dates : undefined,
     heure_debut: jourComplet ? "00:00" : lireHeureIndisponibilite(controles, "start"),
     heure_fin: jourComplet ? "23:59" : lireHeureIndisponibilite(controles, "end"),
@@ -2467,6 +2458,8 @@ function attacherEcouteurs() {
   elements.navTabs.forEach((bouton) => {
     bouton?.addEventListener("click", () => {
       afficherSectionApplication(bouton.dataset.sectionTarget);
+      navigationSecondaireOuverte = false;
+      synchroniserNavigationSecondaire();
     });
   });
   elements.navMoreToggle?.addEventListener("click", () => {
@@ -2825,12 +2818,12 @@ function afficherSectionApplication(section) {
 
   etat.sectionActive = sectionDemandee;
 
-  const ongletActif = elements.navTabs.find(
-    (bouton) => bouton.dataset.sectionTarget === sectionDemandee
-  );
-  if (ongletActif?.classList.contains("nav-secondary")) {
-    navigationSecondaireOuverte = true;
-    synchroniserNavigationSecondaire();
+  if (
+    sectionDemandee !== "historique" &&
+    elements.historyDetailModal &&
+    !elements.historyDetailModal.classList.contains("hidden")
+  ) {
+    fermerModal(elements.historyDetailModal);
   }
 
   const cartes = {
@@ -2878,6 +2871,12 @@ function afficherSectionApplication(section) {
   if (sectionDemandee === "statistiques") {
     mettreAJourFormulaireStatistiques();
     mettreAJourStatistiques();
+  }
+
+  if (sectionDemandee === "historique" && etat.historiqueARecharger) {
+    chargerHistorique({ force: true }).catch((erreur) =>
+      afficherToast(erreur.message, "error")
+    );
   }
 
   if (sectionDemandee === "indisponibilites") {
@@ -4179,6 +4178,9 @@ function reinitialiserFormulaireIndisponibiliteModal() {
   }
 
   controles.fullDayInput.checked = false;
+  controles.dateInput.type = "date";
+  controles.dateInput.readOnly = false;
+  controles.dateInput.dataset.primaryDate = "";
   definirHeureIndisponibilite(controles, "start", recupererHeureDebutParDefaut());
   definirHeureIndisponibilite(
     controles,
@@ -4215,7 +4217,9 @@ function remplirFormulaireIndisponibiliteModal(indisponibilite, options = {}) {
   rendreEquipesIndisponibilite(indisponibilite.handler_id);
 
   controles.dateInput.value = dupliquer ? "" : indisponibilite.date || "";
+  controles.dateInput.type = "date";
   controles.dateInput.readOnly = false;
+  controles.dateInput.dataset.primaryDate = "";
   controles.fullDayInput.checked = estIndisponibiliteJourCompletClient(indisponibilite);
   definirHeureIndisponibilite(
     controles,
@@ -4337,8 +4341,11 @@ function ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection = {})
   controles.form.dataset.datesSelectionnees = JSON.stringify(
     selectionNormalisee.datesSelectionnees
   );
-  controles.dateInput.value = selectionNormalisee.date;
-  controles.dateInput.readOnly = selectionNormalisee.datesSelectionnees.length > 1;
+  const selectionMultiple = selectionNormalisee.datesSelectionnees.length > 1;
+  controles.dateInput.type = selectionMultiple ? "text" : "date";
+  controles.dateInput.value = selectionMultiple ? "Multiple days" : selectionNormalisee.date;
+  controles.dateInput.dataset.primaryDate = selectionNormalisee.date;
+  controles.dateInput.readOnly = selectionMultiple;
   controles.fullDayInput.checked = selectionNormalisee.touteLaJournee;
   definirHeureIndisponibilite(controles, "start", selectionNormalisee.heureDebut);
   definirHeureIndisponibilite(controles, "end", selectionNormalisee.heureFin);
@@ -5404,8 +5411,14 @@ async function chargerIndisponibilites() {
 }
 
 async function chargerHistorique(options = {}) {
+  if (etat.sectionActive !== "historique" && options.force !== true) {
+    etat.historiqueARecharger = true;
+    return;
+  }
+
   const historique = await recupererHistoriqueActions();
   etat.historique = historique;
+  etat.historiqueARecharger = false;
   afficherListeHistorique();
 
   const idRecherche =
@@ -6756,6 +6769,12 @@ function creerCarteSeanceAujourdhui(seance) {
 
   const carte = document.createElement("span");
   carte.className = `today-item today-item-${seance.statut_seance}`;
+  const paletteHandler = creerPaletteMembrePlateforme(seance.handler_id);
+  if (paletteHandler) {
+    carte.classList.add("today-item-handler-colored");
+    carte.style.setProperty("--today-handler-border", paletteHandler.borderColor);
+    carte.style.setProperty("--today-handler-background", paletteHandler.backgroundColor);
+  }
   if (estConfidentielle) {
     carte.classList.add("today-item-confidentielle");
   }
@@ -6806,6 +6825,7 @@ function creerCarteSeanceAujourdhui(seance) {
         ? ["today-meta-pill-account", classeCompteAujourdhui.replace("today-item", "today-meta-pill")]
         : []
     ),
+    creerPuceAujourdhui(`Handler : ${seance.handler_nom || seance.handler_public_id || "-"}`),
     creerPuceAujourdhui(seance.est_essai ? "Essai" : "Normale")
   );
 
@@ -10127,9 +10147,6 @@ async function gererSoumissionSeance(event) {
     return;
   }
 
-  const seancePersonnelleHandler =
-    utilisateurEstHandler() && Number(intervenantId) === Number(etat.utilisateur?.id);
-
   const conflitSeanceConfidentielle = trouverSeanceConfidentielleChevauchanteLocale({
     date: donneesSeance.date,
     heure_debut: donneesSeance.heure_debut,
@@ -10189,7 +10206,6 @@ async function gererSoumissionSeance(event) {
 
   if (
     conflitIndisponibilite &&
-    !seancePersonnelleHandler &&
     !(
       mode === "modification" &&
       creneauSeanceEquivalent(

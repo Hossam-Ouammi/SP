@@ -547,7 +547,7 @@ function lancerSynchronisationTempsReel() {
 
 function initialiserCalendrier(initialWeekStart) {
   const plugins = [globalThis.FullCalendar?.TimeGrid?.default].filter(Boolean);
-  const nextWeekStart = ajouterJoursIso(initialWeekStart, 7);
+  const endExclusive = ajouterJoursIso(initialWeekStart, 14);
 
   if (!globalThis.FullCalendar?.Calendar || plugins.length === 0) {
     afficherErreur("Impossible de charger le calendrier.");
@@ -566,6 +566,10 @@ function initialiserCalendrier(initialWeekStart) {
     now: obtenirMaintenantPublicPourCalendrier(),
     initialView: "timeGridWeek",
     initialDate: `${initialWeekStart}T12:00:00Z`,
+    validRange: {
+      start: initialWeekStart,
+      end: endExclusive,
+    },
     firstDay: 1,
     allDaySlot: false,
     slotMinTime: fenetreInitiale.slotMinTime,
@@ -592,21 +596,14 @@ function initialiserCalendrier(initialWeekStart) {
       center: "title",
       right: "",
     },
+    buttonIcons: false,
+    buttonText: {
+      prev: "‹",
+      next: "›",
+    },
     datesSet(info) {
       synchroniserEtatVisuelCalendrier(elements.calendar, info.view.type);
       const weekStart = String(info.startStr || "").slice(0, 10);
-      const boutonPrecedent = elements.calendar?.querySelector(".fc-prev-button");
-      const boutonSuivant = elements.calendar?.querySelector(".fc-next-button");
-      const retourPasseInterdit = !weekStart || weekStart <= initialWeekStart;
-      const futurLointainInterdit = !weekStart || weekStart >= nextWeekStart;
-      if (boutonPrecedent) {
-        boutonPrecedent.disabled = retourPasseInterdit;
-        boutonPrecedent.setAttribute("aria-disabled", String(retourPasseInterdit));
-      }
-      if (boutonSuivant) {
-        boutonSuivant.disabled = futurLointainInterdit;
-        boutonSuivant.setAttribute("aria-disabled", String(futurLointainInterdit));
-      }
 
       if (weekStart && weekStart !== etat.planning.week_start) {
         chargerPlanning(weekStart, { silencieux: true }).catch((erreur) => {

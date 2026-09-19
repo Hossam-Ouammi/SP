@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260916-mobile-navigation" />
+    <link rel="stylesheet" href="/css/style.css?v=20260919-calendar-navigation" />
   </head>
   <body
     class="reservation-public-body"
@@ -28,7 +28,6 @@
           </div>
 
           <div class="reservation-public-actions">
-            <span class="reservation-public-timezone"><%= publicCalendarOffsetLabel %></span>
             <span
               id="reservation-public-updated-at"
               class="reservation-public-sync"
@@ -60,6 +59,7 @@
     <script src="/vendor/@fullcalendar/daygrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
-    <script type="module" src="/js/public-reservation.js?v=20260916-two-weeks"></script>
+    <script src="/js/service-worker-recovery.js?v=20260919-auto-refresh"></script>
+    <script type="module" src="/js/public-reservation.js?v=20260919-calendar-navigation"></script>
   </body>
 </html>
