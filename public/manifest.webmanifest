@@ -1,6 +1,6 @@
 {
-  "name": "Gestion des seances",
-  "short_name": "Seances",
+  "name": "Gestion Superprof",
+  "short_name": "Superprof",
   "id": "/",
   "description": "Application de gestion collaborative des seances.",
   "start_url": "/",

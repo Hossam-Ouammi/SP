@@ -114,6 +114,232 @@ button {
   padding: 28px;
 }
 
+/* Aujourd'hui mobile : en-tête et cartes compacts sans réduire la lisibilité. */
+.today-heading-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  #aujourdhui-section .today-panel {
+    padding: 12px;
+  }
+
+  #aujourdhui-section .section-heading {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  #aujourdhui-section .today-heading-primary {
+    flex: 0 0 auto;
+    gap: 6px;
+  }
+
+  #aujourdhui-section .section-heading h2 {
+    font-size: 0.98rem;
+  }
+
+  #aujourdhui-section #today-date-label {
+    margin: 0;
+    min-width: 0;
+    font-size: 0.76rem;
+    line-height: 1.2;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  #aujourdhui-section .history-count {
+    min-width: 24px;
+    height: 24px;
+    padding-inline: 7px;
+    font-size: 0.72rem;
+  }
+
+  #aujourdhui-section .today-agenda {
+    gap: 10px;
+  }
+
+  #aujourdhui-section .today-row {
+    gap: 6px;
+  }
+
+  #aujourdhui-section .today-time {
+    min-height: 0;
+    padding-top: 0;
+    font-size: 0.8rem;
+  }
+
+  #aujourdhui-section .today-item {
+    gap: 8px;
+    padding: 11px 12px;
+  }
+
+  #aujourdhui-section .today-item-head {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  #aujourdhui-section .today-item-student {
+    font-size: 0.96rem;
+  }
+
+  #aujourdhui-section .today-item-subject {
+    font-size: 0.82rem;
+  }
+
+  #aujourdhui-section .today-item-meta {
+    gap: 6px;
+  }
+
+  #aujourdhui-section .today-meta-pill {
+    min-height: 26px;
+    padding-inline: 8px;
+    font-size: 0.72rem;
+  }
+}
+
+/* Barre de navigation mobile commune aux calendriers privés. */
+@media (max-width: 720px) {
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-toolbar.fc-header-toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "navigation title views";
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 0.7rem;
+    padding: 4px 0 10px;
+    border: 0;
+    background: transparent;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child {
+    grid-area: navigation;
+    display: flex;
+    justify-self: start;
+    justify-content: flex-start;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    gap: 6px;
+    border: 0;
+    background: transparent;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-toolbar-chunk:nth-child(2) {
+    grid-area: title;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-toolbar-title {
+    font-size: 0.84rem;
+    line-height: 1.15;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-toolbar-chunk:last-child {
+    grid-area: views;
+    display: flex;
+    justify-self: end;
+    justify-content: flex-end;
+    width: auto;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child .fc-button-group,
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-toolbar-chunk:last-child .fc-button-group {
+    display: flex;
+    width: auto;
+    gap: 6px;
+    flex-wrap: nowrap;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-prev-button,
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-next-button {
+    flex: 0 0 34px;
+    width: 34px;
+    min-width: 34px;
+    height: 36px;
+    min-height: 36px;
+    margin: 0 !important;
+    padding: 0;
+    border: 1px solid #d8dee8;
+    border-radius: 11px !important;
+    background: #ffffff;
+    color: #1e40af;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    font-size: 1.4rem;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-toolbar-chunk:last-child .fc-button {
+    min-height: 36px;
+    padding: 0.4rem 0.68rem;
+    font-size: 0.76rem;
+  }
+
+  /* Le calendrier public reste limite aux semaines actuelle et suivante. */
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar.fc-header-toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "navigation title";
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 0.7rem;
+    padding: 4px 0 10px;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child {
+    grid-area: navigation;
+    display: flex;
+    justify-self: start;
+    justify-content: flex-start;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    gap: 6px;
+    border: 0;
+    background: transparent;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:nth-child(2) {
+    grid-area: title;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar-title {
+    font-size: 0.84rem;
+    line-height: 1.15;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-prev-button,
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-next-button {
+    flex: 0 0 34px;
+    width: 34px;
+    min-width: 34px;
+    height: 36px;
+    min-height: 36px;
+    border-radius: 11px !important;
+    color: #1e40af;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    font-size: 1.4rem;
+  }
+}
+
 /* Garde-fous responsive communs : aucun champ ni panneau métier ne doit
  * élargir la page au-delà du viewport. */
 #app-view .app-section,
@@ -501,6 +727,13 @@ button {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
+}
+
+.superprof-wordmark {
+  color: #ff6363;
+  font-family: "Arial Rounded MT Bold", "Nunito Sans", "Trebuchet MS", sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.045em;
 }
 
 .topbar-meta {
@@ -4384,11 +4617,14 @@ button {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
-      "title title"
-      "identity logout"
-      "add add";
+      "title logout"
+      "identity identity";
     align-items: center;
     gap: 10px;
+    margin-bottom: -16px;
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: 0;
+    box-shadow: none;
   }
 
   #app-view .topbar-left,
@@ -4399,7 +4635,7 @@ button {
   #app-view .brand-title {
     grid-area: title;
     width: 100%;
-    text-align: center;
+    text-align: left;
   }
 
   #app-view .topbar-meta {
@@ -4422,11 +4658,25 @@ button {
     grid-area: logout;
     width: auto;
     min-width: 118px;
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  #app-view #logout-button:hover {
+    border-color: var(--accent-strong);
+    background: var(--accent-strong);
+    color: #ffffff;
   }
 
   #app-view #add-seance-button {
     grid-area: add;
-    width: 100%;
+    display: none;
+  }
+
+  #app-view .workspace-nav {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
   }
 
   .form-grid,
@@ -6904,4 +7154,78 @@ button {
     opacity: 0.34;
   }
 
+}
+
+/* Priorité finale : même composition compacte que le dashboard. */
+@media (max-width: 720px) {
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-toolbar.fc-header-toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "navigation title views";
+    align-items: center;
+    flex-direction: initial;
+    gap: 8px;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child {
+    grid-area: navigation;
+    width: auto;
+    justify-self: start;
+    justify-content: flex-start;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:nth-child(2) {
+    grid-area: title;
+    width: 100%;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:last-child {
+    grid-area: views;
+    width: auto;
+    justify-self: end;
+    justify-content: flex-end;
+  }
+
+  #unavailability-calendar[data-calendar-mobile="true"].fc .fc-toolbar-title {
+    font-size: 0.84rem;
+    white-space: nowrap;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar.fc-header-toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "navigation title";
+    align-items: center;
+    flex-direction: initial;
+    gap: 8px;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:first-child {
+    grid-area: navigation;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    justify-self: start;
+    justify-content: flex-start;
+    border: 0;
+    background: transparent;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:nth-child(2) {
+    grid-area: title;
+    width: 100%;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar-title {
+    font-size: 0.84rem;
+    white-space: nowrap;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-prev-button,
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-next-button {
+    width: 34px;
+    min-width: 34px;
+    height: 36px;
+    min-height: 36px;
+  }
 }

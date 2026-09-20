@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gestion des séances</title>
+    <title>Gestion Superprof</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -20,7 +20,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/css/style.css?v=20260919-mobile-identity-row" />
+    <link rel="stylesheet" href="/css/style.css?v=20260920-calendar-toolbar-unified" />
   </head>
   <body>
     <main>
@@ -28,7 +28,7 @@
         <div class="login-shell">
           <div class="panel login-card">
             <div class="login-header">
-              <div class="login-brand">Gestion des séances</div>
+              <div class="login-brand">Gestion <span class="superprof-wordmark">Superprof</span></div>
               <h1>Connexion</h1>
             </div>
 
@@ -166,7 +166,7 @@
       <section id="app-view" class="page app-page<%= user ? "" : " hidden" %>">
         <header class="topbar panel">
           <div class="topbar-left">
-            <h1 class="brand-title">Gestion des séances</h1>
+            <h1 class="brand-title">Gestion <span class="superprof-wordmark">Superprof</span></h1>
             <div class="topbar-meta">
               <span class="user-pill user-pill-identity">
                 <span id="current-user-name">Utilisateur</span>
@@ -187,7 +187,7 @@
 
         <nav class="workspace-nav panel">
           <button class="nav-tab hidden" type="button" data-section-target="aujourdhui">
-            Aujourd'hui
+            Aujourd'hui <span id="today-count" class="nav-notification-badge hidden">0</span>
           </button>
           <button class="nav-tab" type="button" data-section-target="dashboard">
             Dashboard
@@ -229,11 +229,10 @@
         <section id="aujourdhui-section" class="app-section">
           <section class="panel today-panel">
             <div class="section-heading section-heading-stack">
-              <div>
+              <div class="today-heading-primary">
                 <h2>Aujourd'hui</h2>
-                <p id="today-date-label" class="section-note">-</p>
               </div>
-              <span id="today-count" class="history-count">0</span>
+              <p id="today-date-label" class="section-note">-</p>
             </div>
 
             <div id="today-list" class="today-agenda"></div>
@@ -2068,6 +2067,6 @@
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
     <script src="/js/service-worker-recovery.js?v=20260919-auto-refresh"></script>
     <script src="/js/login-lifecycle.js?v=20260911-account-request-dialog"></script>
-    <script type="module" src="/js/ui.js?v=20260919-calendar-navigation"></script>
+    <script type="module" src="/js/ui.js?v=20260919-today-payment-badge"></script>
   </body>
 </html>

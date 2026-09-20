@@ -23,7 +23,7 @@ self.addEventListener("push", (event) => {
     };
   }
 
-  const title = payload.title || "Gestion des séances";
+  const title = payload.title || "Gestion Superprof";
   const options = {
     body: payload.body || "Nouvelle notification.",
     icon: payload.icon || "/icons/icon-192.png",

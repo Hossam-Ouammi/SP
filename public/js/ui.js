@@ -6732,6 +6732,7 @@ function mettreAJourVueAujourdhui() {
   const seancesAujourdhui = obtenirSeancesAujourdhui();
   if (elements.todayCount) {
     elements.todayCount.textContent = String(seancesAujourdhui.length);
+    elements.todayCount.classList.toggle("hidden", seancesAujourdhui.length === 0);
   }
   
   if (elements.todayList) {
@@ -6779,7 +6780,8 @@ function creerCarteSeanceAujourdhui(seance) {
     carte.classList.add("today-item-confidentielle");
   }
 
-  const compteNormalise = normaliserNomCompte(seance.compte);
+  const nomRealisateur = seance.intervenant_nom || seance.compte || "-";
+  const compteNormalise = normaliserNomCompte(nomRealisateur);
   const classeCompteAujourdhui = obtenirClasseCompteAujourdhui(compteNormalise);
   if (utilisateurEstHandler() && classeCompteAujourdhui) {
     carte.classList.add(classeCompteAujourdhui);
@@ -6807,8 +6809,8 @@ function creerCarteSeanceAujourdhui(seance) {
   } else {
     definirBadge(
       badgeStatut,
-      seance.statut_seance,
-      libellesStatutSeance[seance.statut_seance] || "Séance"
+      seance.est_essai ? "planifiee" : "faite",
+      seance.est_essai ? "Essai" : "Payante"
     );
   }
 
@@ -6820,13 +6822,12 @@ function creerCarteSeanceAujourdhui(seance) {
     creerPuceAujourdhui(construirePlageHoraire(seance)),
     creerPuceAujourdhui(seance.duree_label || "-"),
     creerPuceAujourdhui(
-      seance.compte || "-",
+      nomRealisateur,
       utilisateurEstHandler() && classeCompteAujourdhui
         ? ["today-meta-pill-account", classeCompteAujourdhui.replace("today-item", "today-meta-pill")]
         : []
     ),
-    creerPuceAujourdhui(`Handler : ${seance.handler_nom || seance.handler_public_id || "-"}`),
-    creerPuceAujourdhui(seance.est_essai ? "Essai" : "Normale")
+    creerPuceAujourdhui(`Handler : ${seance.handler_nom || seance.handler_public_id || "-"}`)
   );
 
   carte.append(entete, meta);
