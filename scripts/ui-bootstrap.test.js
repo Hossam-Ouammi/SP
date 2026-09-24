@@ -181,10 +181,39 @@ const stylesSource = fs.readFileSync(stylesPath, "utf8");
 const calendrierTestable = new Function(
   `${calendrierSource.replace(/^export /gm, "")}\nreturn __test__;`
 )();
+assert.equal(
+  calendrierTestable.construireMaintenantCalendrier(
+    "Africa/Casablanca",
+    new Date("2026-02-01T12:00:00Z")
+  ),
+  "2026-02-01T13:00:00"
+);
+assert.equal(
+  calendrierTestable.construireMaintenantCalendrier(
+    "Africa/Casablanca",
+    new Date("2026-03-01T12:00:00Z")
+  ),
+  "2026-03-01T12:00:00",
+  "L'horloge marocaine doit suivre le changement d'heure, sans décalage fixe."
+);
+assert.deepEqual(
+  calendrierTestable.extraireCreneauDepuisClicCalendrier({
+    date: new Date("2026-03-01T10:30:00Z"),
+    allDay: false,
+  }),
+  {
+    date: "2026-03-01",
+    date_fin: "2026-03-01",
+    heure_debut: "10:30",
+    heure_fin: "",
+    toute_la_journee: false,
+  },
+  "Un clic dans le calendrier central doit conserver l'heure affichée, même sur un appareil hors du Maroc."
+);
 const calendrierSemaine = {
   view: {
-    activeStart: new Date(2034, 5, 3),
-    activeEnd: new Date(2034, 5, 4),
+    activeStart: new Date("2034-06-03T00:00:00Z"),
+    activeEnd: new Date("2034-06-04T00:00:00Z"),
   },
 };
 const professeursDisponibilite = [

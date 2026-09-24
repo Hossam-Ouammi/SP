@@ -7,6 +7,7 @@ const {
 } = require("../utils/timezone");
 
 const FUSEAU_PARIS = "Europe/Paris";
+const FUSEAU_MAROC = "Africa/Casablanca";
 
 function verifier() {
   // Le spring-forward de Paris 2026 saute 02:00--02:59.
@@ -40,6 +41,21 @@ function verifier() {
       heure: "02:30",
       secondes: "02:30:00",
     }
+  );
+
+  // Le Maroc repasse temporairement à UTC pendant le Ramadan : le calendrier
+  // central doit suivre Africa/Casablanca et non un décalage fixe GMT+1.
+  assert.equal(
+    convertirDateHeureZonneeEnInstant("2026-02-01", "13:00", FUSEAU_MAROC).toISOString(),
+    "2026-02-01T12:00:00.000Z"
+  );
+  assert.equal(
+    convertirDateHeureZonneeEnInstant("2026-03-01", "12:00", FUSEAU_MAROC).toISOString(),
+    "2026-03-01T12:00:00.000Z"
+  );
+  assert.equal(
+    convertirDateHeureZonneeEnInstant("2026-04-01", "13:00", FUSEAU_MAROC).toISOString(),
+    "2026-04-01T12:00:00.000Z"
   );
 }
 

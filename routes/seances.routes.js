@@ -6,6 +6,8 @@ const {
   recupererUneSeance,
   ajouterSeance,
   modifierSeance,
+  deplacerSeance,
+  redimensionnerSeance,
   changerStatutSeance,
   supprimerUneSeance,
 } = require("../controllers/seances.controller");
@@ -35,6 +37,16 @@ router.put(
   "/:id",
   verifierModeEcritureAutorise,
   notifierMiseAJourApplication(modifierSeance, "seances")
+);
+router.patch(
+  "/:id/duree",
+  verifierModeEcritureAutorise,
+  notifierMiseAJourApplication(redimensionnerSeance, "seances")
+);
+router.patch(
+  "/:id/horaire",
+  verifierModeEcritureAutorise,
+  notifierMiseAJourApplication(deplacerSeance, "seances")
 );
 router.patch(
   "/:id/statut",

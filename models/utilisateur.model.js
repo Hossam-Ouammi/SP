@@ -209,11 +209,12 @@ async function creerUtilisateur({
         peut_voir_monetisation,
         peut_voir_aujourdhui,
         peut_voir_indisponibilites,
+        calendrier_public_actif,
         doit_changer_mot_de_passe,
         tarif_horaire,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
     `,
     [
       nom,

@@ -50,6 +50,22 @@ export async function recupererIndisponibilites() {
   return resultat.indisponibilites;
 }
 
+export async function deplacerSeance(seanceId, date, heureDebut) {
+  const resultat = await envoyerRequete(`/api/seances/${seanceId}/horaire`, {
+    method: "PATCH",
+    body: JSON.stringify({ date, heure_debut: heureDebut }),
+  });
+  return resultat.seance;
+}
+
+export async function redimensionnerSeance(seanceId, heureDebut, dureeMinutes) {
+  const resultat = await envoyerRequete(`/api/seances/${seanceId}/duree`, {
+    method: "PATCH",
+    body: JSON.stringify({ heure_debut: heureDebut, duree_minutes: dureeMinutes }),
+  });
+  return resultat.seance;
+}
+
 // The Handler calendar deliberately uses a separate read-only projection.
 // `/api/indisponibilites` stays reserved for Professors' personal module.
 export async function recupererIndisponibilitesCalendrierCentral() {

@@ -202,6 +202,413 @@ button {
   }
 }
 
+/* Identité visuelle Superprof — calendrier public uniquement. */
+.reservation-public-body {
+  --sp-coral: #ff6363;
+  --sp-coral-strong: #ee5656;
+  --sp-coral-soft: #fff0ee;
+  --sp-coral-pale: #fff8f6;
+  --sp-ink: #30303b;
+  --sp-muted: #71717d;
+  --sp-line: #eee7e5;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 10% 4%, rgba(255, 99, 99, 0.13), transparent 28rem),
+    radial-gradient(circle at 92% 95%, rgba(255, 184, 169, 0.18), transparent 26rem),
+    #fffaf9;
+  color: var(--sp-ink);
+  font-family: "Nunito Sans", "Arial Rounded MT Bold", Arial, sans-serif;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.reservation-public-main {
+  width: min(1240px, calc(100% - 40px));
+  padding: 28px 0 36px;
+}
+
+.reservation-public-shell {
+  gap: 18px;
+}
+
+.reservation-public-toolbar,
+.reservation-public-calendar-panel,
+.reservation-disabled-card {
+  border: 1px solid rgba(238, 231, 229, 0.92);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 40px rgba(82, 48, 43, 0.07);
+}
+
+.reservation-public-toolbar {
+  padding: 22px 26px;
+  border-radius: 24px;
+}
+
+.reservation-public-heading {
+  min-width: 0;
+}
+
+.reservation-public-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 34px;
+}
+
+.reservation-public-brand-signature {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  line-height: 1;
+}
+
+.reservation-public-logo-mark {
+  display: block;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  image-rendering: auto;
+}
+
+.reservation-public-wordmark {
+  color: var(--sp-coral);
+  font-size: 1.55rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.065em;
+  transform: translateY(-1px);
+}
+
+.reservation-public-brand-separator {
+  width: 1px;
+  height: 22px;
+  background: var(--sp-line);
+}
+
+.reservation-public-brand-context {
+  color: var(--sp-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.reservation-public-toolbar h1 {
+  margin: 16px 0 3px;
+  color: var(--sp-ink);
+  font-size: clamp(1.65rem, 4vw, 2.3rem);
+  font-weight: 900;
+  letter-spacing: -0.045em;
+}
+
+.reservation-public-toolbar p {
+  margin: 0;
+  color: var(--sp-muted);
+  font-size: 0.94rem;
+  font-weight: 600;
+}
+
+.reservation-public-sync {
+  padding: 9px 13px;
+  border: 0;
+  background: var(--sp-coral-soft);
+  color: var(--sp-coral-strong);
+  font-size: 0.77rem;
+  font-weight: 800;
+}
+
+.reservation-public-sync::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 999px;
+  background: var(--sp-coral);
+  content: "";
+}
+
+.reservation-public-calendar-panel {
+  padding: 18px;
+  border-radius: 24px;
+  overflow: hidden;
+}
+
+.reservation-public-calendar-head {
+  margin-bottom: 8px;
+}
+
+.reservation-public-legend-item {
+  min-height: 32px;
+  padding: 5px 11px 5px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--sp-coral-pale);
+  color: var(--sp-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.reservation-public-legend-swatch-blocked {
+  border-radius: 7px;
+  background-color: rgba(255, 219, 214, 0.82);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 99, 99, 0.3) 0,
+    rgba(255, 99, 99, 0.3) 2px,
+    rgba(255, 247, 245, 0.72) 2px,
+    rgba(255, 247, 245, 0.72) 8px
+  );
+}
+
+#reservation-public-calendar.fc {
+  --fc-border-color: #f0e9e7;
+  --fc-page-bg-color: #ffffff;
+  --fc-neutral-bg-color: #fff9f8;
+  --fc-today-bg-color: rgba(255, 99, 99, 0.055);
+  color: var(--sp-ink);
+  font-family: inherit;
+}
+
+#reservation-public-calendar.fc .fc-scrollgrid {
+  border-color: var(--sp-line);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+#reservation-public-calendar.fc .fc-toolbar-title {
+  color: var(--sp-ink);
+  font-weight: 900;
+  letter-spacing: -0.025em;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--sp-line);
+  border-radius: 11px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(82, 48, 43, 0.06);
+}
+
+
+#reservation-public-calendar.fc .fc-toolbar.fc-header-toolbar {
+  margin-bottom: 2px;
+}
+
+#reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar.fc-header-toolbar {
+  margin-bottom: 6px;
+}
+
+#reservation-public-calendar.fc .fc-button {
+  border-color: var(--sp-line);
+  background: #ffffff;
+  color: var(--sp-ink);
+  font-family: inherit;
+  font-weight: 900;
+  box-shadow: 0 4px 12px rgba(82, 48, 43, 0.06);
+}
+
+#reservation-public-calendar.fc .fc-button:hover,
+#reservation-public-calendar.fc .fc-button:focus-visible {
+  border-color: rgba(255, 99, 99, 0.42);
+  background: var(--sp-coral-soft);
+  color: var(--sp-coral-strong);
+}
+
+#reservation-public-calendar.fc .fc-button:disabled {
+  border-color: #f1ecea;
+  background: #faf8f7;
+  color: #c5bfbd;
+  box-shadow: none;
+}
+
+#reservation-public-calendar.fc .fc-col-header-cell {
+  background: #fffaf9;
+}
+
+#reservation-public-calendar.fc .fc-col-header-cell-cushion {
+  color: var(--sp-muted);
+  font-weight: 900;
+}
+
+#reservation-public-calendar.fc .fc-day-today .fc-col-header-cell-cushion,
+#reservation-public-calendar.fc .fc-day-today .calendar-monthday-date {
+  color: var(--sp-coral-strong);
+}
+
+#reservation-public-calendar.fc .fc-timegrid-slot-label-cushion,
+#reservation-public-calendar.fc .fc-timegrid-axis-cushion {
+  color: #8b8583;
+  font-weight: 800;
+}
+
+#reservation-public-calendar.fc .fc-timegrid-slot:not(.fc-timegrid-slot-minor) {
+  border-top-color: #ddd5d2;
+}
+
+#reservation-public-calendar.fc .reservation-public-blocked-event,
+.reservation-public-calendar .fc .reservation-public-blocked-event {
+  border: 0 !important;
+  border-radius: 6px !important;
+  background-color: rgba(255, 219, 214, 0.82) !important;
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 99, 99, 0.26) 0,
+    rgba(255, 99, 99, 0.26) 2px,
+    rgba(255, 247, 245, 0.7) 2px,
+    rgba(255, 247, 245, 0.7) 10px
+  ) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 99, 99, 0.08) !important;
+}
+
+.reservation-public-footer {
+  padding: 0 10px;
+  color: #9b918e;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.reservation-public-slot-notice {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 100;
+  width: max-content;
+  max-width: calc(100vw - 28px);
+  padding: 11px 16px;
+  transform: translate(-50%, -12px);
+  border: 1px solid rgba(255, 99, 99, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.97);
+  color: var(--sp-coral-strong);
+  box-shadow: 0 12px 30px rgba(82, 48, 43, 0.16);
+  font-size: 0.84rem;
+  font-weight: 900;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.reservation-public-slot-notice.is-visible {
+  transform: translate(-50%, 0);
+  opacity: 1;
+}
+
+.reservation-disabled-main {
+  width: min(620px, calc(100% - 32px));
+}
+
+.reservation-disabled-card {
+  padding: 38px;
+  border-radius: 26px;
+}
+
+.reservation-disabled-brand {
+  margin-bottom: 28px;
+}
+
+.reservation-disabled-icon {
+  border: 0;
+  background: var(--sp-coral-soft);
+  color: var(--sp-coral);
+  box-shadow: none;
+}
+
+.reservation-disabled-card h1 {
+  color: var(--sp-ink);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+}
+
+.reservation-disabled-card p {
+  color: var(--sp-muted);
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .reservation-public-main {
+    width: min(100% - 16px, 1240px);
+    padding: 10px 0 22px;
+  }
+
+  .reservation-public-shell {
+    gap: 10px;
+  }
+
+  .reservation-public-toolbar {
+    align-items: flex-start;
+    padding: 15px 16px;
+    border-radius: 18px;
+  }
+
+  .reservation-public-toolbar h1 {
+    margin-top: 11px;
+    font-size: 1.35rem;
+  }
+
+  .reservation-public-toolbar p {
+    font-size: 0.78rem;
+  }
+
+  .reservation-public-wordmark {
+    font-size: 1.3rem;
+  }
+
+  .reservation-public-logo-mark {
+    flex-basis: 27px;
+    width: 27px;
+    height: 27px;
+  }
+
+  .reservation-public-actions {
+    width: auto;
+  }
+
+  .reservation-public-sync {
+    padding: 7px 9px;
+    font-size: 0.68rem;
+  }
+
+  .reservation-public-calendar-panel {
+    padding: 9px;
+    border-radius: 18px;
+  }
+
+  #reservation-public-calendar.fc .fc-scrollgrid {
+    border-radius: 13px;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-prev-button,
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-next-button {
+    border-color: rgba(255, 99, 99, 0.2);
+    background: #ffffff;
+    color: var(--sp-coral-strong);
+    box-shadow: 0 3px 10px rgba(255, 99, 99, 0.1);
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar-title {
+    font-size: 0.82rem;
+    color: #30303b;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .reservation-public-blocked-event {
+    background-color: rgba(255, 219, 214, 0.78) !important;
+    background-image: repeating-linear-gradient(
+      135deg,
+      rgba(255, 99, 99, 0.24) 0,
+      rgba(255, 99, 99, 0.24) 2px,
+      rgba(255, 247, 245, 0.72) 2px,
+      rgba(255, 247, 245, 0.72) 9px
+    ) !important;
+  }
+
+  .reservation-disabled-card {
+    padding: 26px 20px;
+    border-radius: 20px;
+  }
+}
+
 /* Barre de navigation mobile commune aux calendriers privés. */
 @media (max-width: 720px) {
   :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-toolbar.fc-header-toolbar {
@@ -1901,6 +2308,62 @@ button {
   overflow: hidden;
 }
 
+#calendar.fc .fc-event.fc-event-draggable {
+  cursor: grab;
+}
+
+#calendar.fc .fc-event.fc-event-dragging {
+  cursor: grabbing;
+  opacity: 0.82;
+}
+
+@media (min-width: 769px) {
+  #calendar.fc .fc-timegrid-event .fc-event-resizer {
+    left: 0;
+    right: 0;
+    height: 8px;
+    width: auto;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    cursor: ns-resize;
+    z-index: 5;
+  }
+
+  #calendar.fc .fc-timegrid-event .fc-event-resizer-start { top: 0; }
+  #calendar.fc .fc-timegrid-event .fc-event-resizer-end { bottom: 0; }
+}
+
+.calendar-drag-time-indicator {
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
+  transform: translateY(-50%);
+  padding: 4px 1px;
+  border-radius: 5px 0 0 5px;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.calendar-drag-time-indicator::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 5px solid #1d4ed8;
+}
+
 .fc .fc-event-title {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3481,6 +3944,10 @@ button {
   grid-template-columns: 1.15fr 0.85fr;
   align-items: start;
   gap: 16px;
+}
+
+#detail-modal .detail-layout {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .detail-card {
@@ -7214,10 +7681,12 @@ button {
   #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar-chunk:nth-child(2) {
     grid-area: title;
     width: 100%;
+    justify-content: flex-end;
   }
 
   #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar-title {
     font-size: 0.84rem;
+    text-align: right;
     white-space: nowrap;
   }
 
@@ -7228,4 +7697,369 @@ button {
     height: 36px;
     min-height: 36px;
   }
+}
+
+/* Cascade finale du thème public : neutralise les anciens styles historiques. */
+.reservation-public-body {
+  background:
+    radial-gradient(circle at 10% 4%, rgba(255, 99, 99, 0.13), transparent 28rem),
+    radial-gradient(circle at 92% 95%, rgba(255, 184, 169, 0.18), transparent 26rem),
+    #fffaf9;
+  color: var(--sp-ink);
+  font-family: "Nunito Sans", "Arial Rounded MT Bold", Arial, sans-serif;
+}
+
+.reservation-public-main {
+  width: min(1240px, calc(100% - 40px));
+  padding: 28px 0 36px;
+}
+
+.reservation-public-shell {
+  gap: 18px;
+}
+
+.reservation-public-toolbar,
+.reservation-public-calendar-panel,
+.reservation-disabled-card {
+  border-color: rgba(238, 231, 229, 0.92);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 40px rgba(82, 48, 43, 0.07);
+}
+
+.reservation-public-toolbar {
+  padding: 22px 26px;
+  border-radius: 24px;
+}
+
+.reservation-public-toolbar h1 {
+  margin: 16px 0 3px;
+  color: var(--sp-ink);
+  font-weight: 900;
+}
+
+.reservation-public-sync {
+  border: 0;
+  background: var(--sp-coral-soft);
+  color: var(--sp-coral-strong);
+}
+
+.reservation-public-calendar-panel {
+  padding: 18px;
+  border-radius: 24px;
+  overflow: hidden;
+}
+
+.reservation-public-legend-item {
+  border: 0;
+  border-radius: 999px;
+  background: var(--sp-coral-pale);
+  color: var(--sp-muted);
+}
+
+#reservation-public-calendar.fc {
+  --fc-border-color: #f0e9e7;
+  --fc-neutral-bg-color: #fff9f8;
+  --fc-today-bg-color: rgba(255, 99, 99, 0.055);
+  color: var(--sp-ink);
+  font-family: inherit;
+}
+
+#reservation-public-calendar.fc .fc-scrollgrid {
+  border-color: var(--sp-line);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+#reservation-public-calendar.fc .fc-toolbar-title {
+  color: var(--sp-ink);
+  font-weight: 900;
+}
+
+#reservation-public-calendar.fc .fc-button {
+  border-color: var(--sp-line);
+  background: #ffffff;
+  color: var(--sp-ink);
+  font-family: inherit;
+  font-weight: 900;
+  box-shadow: 0 4px 12px rgba(82, 48, 43, 0.06);
+}
+
+#reservation-public-calendar.fc .fc-button:hover,
+#reservation-public-calendar.fc .fc-button:focus-visible {
+  border-color: rgba(255, 99, 99, 0.42);
+  background: var(--sp-coral-soft);
+  color: var(--sp-coral-strong);
+}
+
+#reservation-public-calendar.fc .fc-col-header-cell {
+  background: #fffaf9;
+}
+
+#reservation-public-calendar.fc .reservation-public-blocked-event,
+.reservation-public-calendar .fc .reservation-public-blocked-event {
+  border: 0 !important;
+  border-radius: 6px !important;
+  background-color: rgba(255, 219, 214, 0.82) !important;
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 99, 99, 0.26) 0,
+    rgba(255, 99, 99, 0.26) 2px,
+    rgba(255, 247, 245, 0.7) 2px,
+    rgba(255, 247, 245, 0.7) 10px
+  ) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 99, 99, 0.08) !important;
+  opacity: 0.6 !important;
+  cursor: pointer;
+}
+
+.reservation-public-legend-swatch-blocked {
+  border: 0;
+  border-radius: 7px;
+  background-color: rgba(255, 219, 214, 0.82);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 99, 99, 0.3) 0,
+    rgba(255, 99, 99, 0.3) 2px,
+    rgba(255, 247, 245, 0.72) 2px,
+    rgba(255, 247, 245, 0.72) 8px
+  );
+}
+
+@media (max-width: 720px) {
+  .reservation-public-main {
+    width: min(100% - 16px, 1240px);
+    padding: 10px 0 22px;
+  }
+
+  .reservation-public-shell {
+    gap: 10px;
+  }
+
+  .reservation-public-toolbar {
+    padding: 15px 16px;
+    border-radius: 18px;
+  }
+
+  .reservation-public-calendar-panel {
+    padding: 9px;
+    border-radius: 18px;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-prev-button,
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-next-button {
+    border-color: rgba(255, 99, 99, 0.2);
+    background: #ffffff;
+    color: var(--sp-coral-strong);
+    box-shadow: 0 3px 10px rgba(255, 99, 99, 0.1);
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .reservation-public-blocked-event {
+    background-color: rgba(255, 219, 214, 0.78) !important;
+    background-image: repeating-linear-gradient(
+      135deg,
+      rgba(255, 99, 99, 0.24) 0,
+      rgba(255, 99, 99, 0.24) 2px,
+      rgba(255, 247, 245, 0.72) 2px,
+      rgba(255, 247, 245, 0.72) 9px
+    ) !important;
+  }
+
+  #reservation-public-calendar[data-calendar-mobile="true"][data-calendar-view="timeGridWeek"].fc
+    .reservation-public-blocked-event.calendar-mobile-week-indisponibilite {
+    border: 0 !important;
+    background-color: rgba(255, 219, 214, 0.78) !important;
+    background-image: repeating-linear-gradient(
+      135deg,
+      rgba(255, 99, 99, 0.24) 0,
+      rgba(255, 99, 99, 0.24) 2px,
+      rgba(255, 247, 245, 0.72) 2px,
+      rgba(255, 247, 245, 0.72) 9px
+    ) !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 99, 99, 0.07) !important;
+    opacity: 0.6 !important;
+  }
+}
+
+/* Finition de la barre du calendrier public. */
+#reservation-public-calendar.fc .fc-toolbar.fc-header-toolbar {
+  margin-bottom: 2px;
+}
+
+#reservation-public-calendar.fc .fc-toolbar-title {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--sp-line);
+  border-radius: 11px;
+  background: #ffffff;
+  color: #30303b;
+  box-shadow: 0 4px 12px rgba(82, 48, 43, 0.06);
+}
+
+@media (max-width: 720px) {
+  #reservation-public-calendar[data-calendar-mobile="true"].fc .fc-toolbar.fc-header-toolbar {
+    margin-bottom: 2px;
+  }
+}
+
+/* Finition ciblée de l'espace privé : Dashboard et Indisponibilités partagent
+   exactement la même géométrie, sans modifier le calendrier public. */
+#app-view #logout-button {
+  border-color: #dfe3ea;
+  background: #ffffff;
+  color: #475569;
+  box-shadow: none;
+}
+
+#app-view #logout-button:hover,
+#app-view #logout-button:focus-visible {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #1e3a5f;
+}
+
+/* Même indication bleutée du créneau choisi sur les deux agendas privés. */
+:is(#calendar, #unavailability-calendar).fc .fc-highlight {
+  border: 1px solid rgba(37, 99, 235, 0.34);
+  background: rgba(37, 99, 235, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+@media (max-width: 720px) {
+  #app-view #logout-button {
+    min-width: 104px;
+    min-height: 34px;
+    padding: 0.4rem 0.72rem;
+    font-size: 0.78rem;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc
+    .fc-toolbar.fc-header-toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "navigation title views";
+    align-items: center;
+    flex-direction: initial;
+    gap: 8px;
+    margin-bottom: 0.7rem;
+    padding: 4px 0 10px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc
+    .fc-toolbar-chunk:first-child {
+    grid-area: navigation;
+    width: auto;
+    justify-self: start;
+    justify-content: flex-start;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc
+    .fc-toolbar-chunk:nth-child(2) {
+    grid-area: title;
+    width: 100%;
+    justify-content: center;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc
+    .fc-toolbar-chunk:last-child {
+    grid-area: views;
+    width: auto;
+    justify-self: end;
+    justify-content: flex-end;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc
+    .fc-toolbar-chunk:first-child .fc-button-group {
+    display: flex;
+    width: auto;
+    gap: 6px;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc
+    :is(.fc-prev-button, .fc-next-button) {
+    flex: 0 0 34px;
+    width: 34px;
+    min-width: 34px;
+    height: 36px;
+    min-height: 36px;
+    margin: 0 !important;
+    padding: 0;
+    border: 1px solid #d8dee8;
+    border-radius: 11px !important;
+    background: #ffffff;
+    color: #1e40af;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    font-size: 1.4rem;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc
+    .fc-toolbar-chunk:last-child .fc-button-group {
+    display: flex;
+    width: auto;
+    overflow: hidden;
+    border: 1px solid #dadce0;
+    border-radius: 999px;
+    background: #ffffff;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc
+    .fc-toolbar-chunk:last-child .fc-button {
+    flex: 0 0 auto;
+    min-height: 36px;
+    margin: 0;
+    padding: 0.4rem 0.62rem;
+    border: 0;
+    border-radius: 0 !important;
+    background: #ffffff;
+    font-size: 0.74rem;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc
+    .fc-toolbar-chunk:last-child .fc-button + .fc-button {
+    border-left: 1px solid #dadce0;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc
+    .fc-toolbar-title {
+    font-size: 0.84rem;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  :is(#calendar, #unavailability-calendar)[data-calendar-mobile="true"].fc .fc-scrollgrid {
+    overflow: hidden;
+    border-color: #e6e9ef;
+    border-radius: 14px;
+    background: #ffffff;
+    box-shadow: none;
+  }
+}
+.admin-delete-preserve-option {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: fit-content;
+  font-weight: 700;
+  color: #1f2937;
+  cursor: pointer;
+}
+
+.admin-delete-preserve-option input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  accent-color: #ff6363;
+}
+
+.admin-delete-preserve-option + .field-hint {
+  margin: -0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
 }

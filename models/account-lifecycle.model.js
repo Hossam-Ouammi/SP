@@ -352,9 +352,10 @@ async function creerUtilisateurEnAttenteActivation({ nom, email, motDePasseHash,
             acces_active,
             session_version,
             doit_changer_mot_de_passe,
+            calendrier_public_actif,
             created_at
           )
-          VALUES (?, ?, ?, ?, ?, 0, 1, 1, CURRENT_TIMESTAMP)
+          VALUES (?, ?, ?, ?, ?, 0, 1, 1, 1, CURRENT_TIMESTAMP)
         `,
         [
           nomNormalise,

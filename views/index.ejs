@@ -20,7 +20,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/css/style.css?v=20260920-calendar-toolbar-unified" />
+    <link rel="stylesheet" href="/css/style.css?v=20260920-account-deletion-policy" />
   </head>
   <body>
     <main>
@@ -253,7 +253,7 @@
 
             <div id="calendar"></div>
             <div id="dashboard-public-link" class="dashboard-public-link hidden">
-              <strong>Votre lien public :</strong>
+              <strong id="dashboard-public-link-label">Votre lien public :</strong>
               <a id="dashboard-public-link-value" href="#" target="_blank" rel="noopener"></a>
               <button id="dashboard-public-link-copy" class="button primary" type="button">Copier</button>
             </div>
@@ -1096,6 +1096,11 @@
                   <div class="admin-card-head"><div><h3 class="user-form-title">Supprimer un compte</h3></div></div>
                   <form id="admin-delete-user-form" class="admin-card-body stack-form">
                     <label class="field"><span>Compte à supprimer</span><select id="admin-delete-user-id" required></select></label>
+                    <label class="admin-delete-preserve-option">
+                      <input id="admin-delete-user-preserve-completed" type="checkbox" />
+                      <span>Préserver les séances déjà faites</span>
+                    </label>
+                    <p class="field-hint">Les séances prévues seront toujours supprimées.</p>
                     <label class="field"><span>Votre mot de passe actuel</span><input id="admin-delete-user-password" type="password" autocomplete="current-password" required /></label>
                     <p id="admin-delete-user-error" class="form-error hidden"></p>
                     <div class="security-notice">Cette suppression est définitive. Votre propre compte et les comptes Super Admin sont protégés.</div>
@@ -1699,28 +1704,6 @@
 
             <input id="heure_fin_calculee" type="hidden" />
 
-            <fieldset id="status-section" class="field field-full checkbox-field">
-              <span>Statut</span>
-              <div class="checkbox-options checkbox-options-2">
-                <label class="checkbox-option status-option">
-                  <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="planifiee" />
-                  <span>Planifiée</span>
-                </label>
-                <label class="checkbox-option status-option">
-                  <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="faite" />
-                  <span>Faite</span>
-                </label>
-                <label class="checkbox-option status-option status-option-edit-only">
-                  <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="reportee" />
-                  <span>Reportée</span>
-                </label>
-                <label class="checkbox-option status-option status-option-edit-only">
-                  <input class="single-checkbox statut-checkbox" name="statut_seance" type="checkbox" value="annulee" />
-                  <span>Annulée</span>
-                </label>
-              </div>
-            </fieldset>
-
             <fieldset id="seance-trial-field" class="field field-full checkbox-field">
               <span>Séance d'essai</span>
               <div class="checkbox-options checkbox-options-2">
@@ -1738,25 +1721,6 @@
               </div>
             </section>
 
-            <section id="description-section" class="form-section">
-              <div class="form-section-header">
-                <div>
-                  <h4>Description</h4>
-                </div>
-              </div>
-
-              <div class="form-grid form-grid-single">
-                <label class="field field-full notes-field">
-                  <span>Description</span>
-                  <textarea
-                    id="description"
-                    name="description"
-                    rows="4"
-                    placeholder="Notes, remarques, points à revoir..."
-                  ></textarea>
-                </label>
-              </div>
-            </section>
           </div>
 
           <p id="seance-form-error" class="form-error hidden"></p>
@@ -1880,11 +1844,6 @@
               </div>
             </div>
 
-            <div class="detail-description">
-              <span>Description</span>
-              <p id="detail-description">Aucune description.</p>
-            </div>
-
             <div class="detail-actions">
               <button id="edit-seance-button" class="button primary" type="button">
                 Modifier
@@ -1898,23 +1857,6 @@
             </div>
           </section>
 
-          <section class="detail-side">
-            <article class="detail-card">
-              <h4>Actions</h4>
-              <div class="quick-actions">
-                <button class="button secondary quick-status-button" data-status="faite" type="button">
-                  Marquer faite
-                </button>
-                <button class="button secondary quick-status-button" data-status="reportee" type="button">
-                  Reporter
-                </button>
-                <button class="button secondary quick-status-button" data-status="annulee" type="button">
-                  Annuler
-                </button>
-              </div>
-            </article>
-
-          </section>
         </div>
       </div>
     </div>
@@ -2067,6 +2009,6 @@
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
     <script src="/js/service-worker-recovery.js?v=20260919-auto-refresh"></script>
     <script src="/js/login-lifecycle.js?v=20260911-account-request-dialog"></script>
-    <script type="module" src="/js/ui.js?v=20260919-today-payment-badge"></script>
+    <script type="module" src="/js/ui.js?v=20260924-session-resize"></script>
   </body>
 </html>

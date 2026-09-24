@@ -364,7 +364,49 @@ async function listerIndisponibilitesInclusesDansPlage({
   );
 }
 
+// Appelée dans la transaction de redimensionnement de la séance.
+async function retirerPlageIndisponibilitesPersonnelles({ intervenantId, date, heureDebut, heureFin }) {
+  if (!normaliserIdentifiant(intervenantId)) throw new Error("Réalisateur invalide.");
+  const indisponibilites = await listerIndisponibilitesChevauchantes({
+    intervenantId, date, heureDebut, heureFin,
+  });
+  const ajustements = [];
+  for (const indisponibilite of indisponibilites) {
+    const segments = [];
+    if (indisponibilite.heure_debut < heureDebut) {
+      segments.push([indisponibilite.heure_debut, heureDebut]);
+    }
+    if (indisponibilite.heure_fin > heureFin) {
+      segments.push([heureFin, indisponibilite.heure_fin]);
+    }
+    const donnees = {
+      date, raison: indisponibilite.raison, jourComplet: 0,
+      handlerId: indisponibilite.handler_id, intervenantId: indisponibilite.intervenant_id,
+    };
+    if (!segments.length) {
+      await supprimerIndisponibilite(indisponibilite.id);
+    } else {
+      await modifierIndisponibilite(indisponibilite.id, {
+        ...donnees, heureDebut: segments[0][0], heureFin: segments[0][1],
+      });
+      if (segments.length > 1) {
+        await creerIndisponibilite({
+          ...donnees, heureDebut: segments[1][0], heureFin: segments[1][1],
+          creePar: indisponibilite.cree_par,
+        });
+      }
+    }
+    ajustements.push({
+      id: indisponibilite.id,
+      avant: `${indisponibilite.heure_debut}–${indisponibilite.heure_fin}`,
+      apres: segments.map(([debut, fin]) => `${debut}–${fin}`).join(", ") || "Supprimée",
+    });
+  }
+  return ajustements;
+}
+
 module.exports = {
+  retirerPlageIndisponibilitesPersonnelles,
   construireFiltreIndisponibilitesScopees,
   listerToutesLesIndisponibilites,
   listerIndisponibilitesScopees,

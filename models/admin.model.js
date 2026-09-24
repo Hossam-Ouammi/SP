@@ -98,6 +98,7 @@ async function listerComptesAdministration() {
         WHERE utilisateur_roles.utilisateur_id = utilisateurs.id
       ) AS roles
     FROM utilisateurs
+    WHERE lower(COALESCE(statut_compte, 'active')) <> 'supprime'
     ORDER BY id ASC
   `);
 
@@ -389,8 +390,7 @@ async function supprimerToutesLesSeances() {
       heure_debut,
       heure_fin,
       duree_minutes,
-      statut_seance,
-      description
+      statut_seance
     FROM seances
   `);
 
@@ -456,16 +456,52 @@ async function restaurerElementCatalogueSupprime(elementId) {
   return restaurerValeurCatalogueSupprimeeParId(elementId);
 }
 
-async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemplacementId) {
-  const seancesLiees = await get(`
-    SELECT COUNT(*) AS total
-    FROM seances
-    WHERE handler_id = ? OR intervenant_id = ?
-  `, [utilisateurId, utilisateurId]);
-  if (Number(seancesLiees?.total || 0) > 0) {
-    const error = new Error("Ce compte possede des seances et ne peut pas etre supprime. Suspendez-le.");
-    error.status = 409;
-    throw error;
+async function supprimerUtilisateurAdministration(
+  utilisateurId,
+  utilisateurRemplacementId,
+  { preserverSeancesFaites = false } = {}
+) {
+  const seancesLiees = await all(
+    `
+      SELECT
+        id,
+        etudiant,
+        parent,
+        matiere,
+        compte,
+        est_essai,
+        date,
+        heure_debut,
+        heure_fin,
+        duree_minutes,
+        statut_seance
+      FROM seances
+      WHERE handler_id = ? OR intervenant_id = ?
+      ORDER BY id ASC
+    `,
+    [utilisateurId, utilisateurId]
+  );
+  const seancesFaitesConservees = preserverSeancesFaites
+    ? seancesLiees.filter(
+        (seance) => String(seance.statut_seance || "").trim().toLowerCase() === "faite"
+      )
+    : [];
+  const idsSeancesConservees = new Set(
+    seancesFaitesConservees.map((seance) => Number(seance.id))
+  );
+  const seancesASupprimer = seancesLiees.filter(
+    (seance) => !idsSeancesConservees.has(Number(seance.id))
+  );
+
+  if (seancesASupprimer.length > 0) {
+    const ids = seancesASupprimer.map((seance) => Number(seance.id));
+    const placeholders = ids.map(() => "?").join(", ");
+
+    await executerTransactionImmediate(async () => {
+      await detacherSeancesHistorique(seancesASupprimer);
+      await detacherSeancesPropositions(seancesASupprimer);
+      await run(`DELETE FROM seances WHERE id IN (${placeholders})`, ids);
+    });
   }
 
   // Ces données personnelles ne doivent pas survivre à la suppression du compte.
@@ -531,7 +567,33 @@ async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemp
     await run("DELETE FROM demandes_rattachement_equipe WHERE handler_id = ? OR professeur_id = ?", [utilisateurId, utilisateurId]);
     await run("DELETE FROM rattachements_professeurs WHERE handler_id = ? OR professeur_id = ?", [utilisateurId, utilisateurId]);
     await run("DELETE FROM utilisateur_roles WHERE utilisateur_id = ?", [utilisateurId]);
-    const suppression = await run("DELETE FROM utilisateurs WHERE id = ?", [utilisateurId]);
+    let suppression = { changes: 0 };
+    let identiteHistoriqueConservee = false;
+
+    if (seancesFaitesConservees.length > 0) {
+      const emailArchive = `compte-supprime-${utilisateurId}-${Date.now()}@archive.invalid`;
+      suppression = await run(
+        `
+          UPDATE utilisateurs
+          SET
+            email = ?,
+            mot_de_passe = 'COMPTE_SUPPRIME',
+            statut_compte = 'supprime',
+            acces_active = 0,
+            mode_lecture_seule = 1,
+            calendrier_public_actif = 0,
+            token_calendrier_public_hash = NULL,
+            session_version = COALESCE(session_version, 0) + 1,
+            dernier_login_ip = NULL,
+            doit_changer_mot_de_passe = 0
+          WHERE id = ?
+        `,
+        [emailArchive, utilisateurId]
+      );
+      identiteHistoriqueConservee = Number(suppression?.changes || 0) > 0;
+    } else {
+      suppression = await run("DELETE FROM utilisateurs WHERE id = ?", [utilisateurId]);
+    }
 
   return {
     totalSessionsSupprimees,
@@ -540,6 +602,9 @@ async function supprimerUtilisateurAdministration(utilisateurId, utilisateurRemp
     totalSeancesLegacyDetachees: Number(seancesLegacyDetachees?.changes || 0),
     totalHistoriqueDetache: Number(historiqueDetache?.historiqueActionsChanges || 0),
     totalUtilisateursSupprimes: Number(suppression?.changes || 0),
+    totalSeancesSupprimees: seancesASupprimer.length,
+    totalSeancesFaitesConservees: seancesFaitesConservees.length,
+    identiteHistoriqueConservee,
   };
 }
 

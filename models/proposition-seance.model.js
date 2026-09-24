@@ -173,7 +173,6 @@ async function creerPropositionSeance(donnees) {
         statut_seance,
         prix,
         statut_paiement,
-        description,
         indisponibilite_id,
         indisponibilite_date_originale,
         indisponibilite_heure_debut_originale,
@@ -184,7 +183,7 @@ async function creerPropositionSeance(donnees) {
         handler_id,
         intervenant_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       donnees.titre,
@@ -200,7 +199,6 @@ async function creerPropositionSeance(donnees) {
       donnees.statut_seance,
       donnees.prix,
       donnees.statut_paiement,
-      donnees.description,
       donnees.indisponibilite_id || null,
       donnees.indisponibilite_date_originale || null,
       donnees.indisponibilite_heure_debut_originale || null,
@@ -234,7 +232,6 @@ async function mettreAJourPropositionSeance(id, donnees) {
         statut_seance = ?,
         prix = ?,
         statut_paiement = ?,
-        description = ?,
         indisponibilite_id = COALESCE(?, indisponibilite_id),
         indisponibilite_date_originale = COALESCE(?, indisponibilite_date_originale),
         indisponibilite_heure_debut_originale = COALESCE(?, indisponibilite_heure_debut_originale),
@@ -262,7 +259,6 @@ async function mettreAJourPropositionSeance(id, donnees) {
       donnees.statut_seance,
       donnees.prix,
       donnees.statut_paiement,
-      donnees.description,
       donnees.indisponibilite_id || null,
       donnees.indisponibilite_date_originale || null,
       donnees.indisponibilite_heure_debut_originale || null,

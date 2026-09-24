@@ -71,6 +71,9 @@ function determinerActionTempsReel(req, scope, reponseJson = null) {
     if (methode === "PUT") {
       return "seance_updated";
     }
+    if (methode === "PATCH" && (chemin.includes("/horaire") || chemin.includes("/duree"))) {
+      return "seance_updated";
+    }
 
     if (methode === "PATCH" && chemin.includes("/statut")) {
       return "seance_status_updated";

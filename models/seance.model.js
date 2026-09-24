@@ -364,7 +364,6 @@ async function creerSeance(donneesSeance) {
         statut_seance,
         prix,
         statut_paiement,
-        description,
         cree_par,
         modifie_par,
         utilisateur_id,
@@ -372,7 +371,7 @@ async function creerSeance(donneesSeance) {
         intervenant_id,
         tarif_horaire_applique
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       donneesSeance.titre,
@@ -388,7 +387,6 @@ async function creerSeance(donneesSeance) {
       donneesSeance.statut_seance,
       donneesSeance.prix,
       donneesSeance.statut_paiement,
-      donneesSeance.description,
       donneesSeance.cree_par,
       donneesSeance.modifie_par,
       donneesSeance.utilisateur_id,
@@ -425,7 +423,6 @@ async function mettreAJourSeance(id, donneesSeance, utilisateurId = null) {
         statut_seance = ?,
         prix = ?,
         statut_paiement = ?,
-        description = ?,
         modifie_par = ?,
         handler_id = COALESCE(?, handler_id),
         intervenant_id = COALESCE(?, intervenant_id),
@@ -447,7 +444,6 @@ async function mettreAJourSeance(id, donneesSeance, utilisateurId = null) {
       donneesSeance.statut_seance,
       donneesSeance.prix,
       donneesSeance.statut_paiement,
-      donneesSeance.description,
       donneesSeance.modifie_par,
       normaliserIdentifiant(donneesSeance.handler_id),
       normaliserIdentifiant(donneesSeance.intervenant_id),

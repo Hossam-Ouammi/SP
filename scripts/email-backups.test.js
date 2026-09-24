@@ -30,10 +30,10 @@ async function utilisateur({ nom, email, publicId, roles, actif = true }) {
 async function seance(handlerId, intervenantId, marqueur) {
   await run(`INSERT INTO seances
     (titre,etudiant,parent,matiere,compte,est_essai,date,heure_debut,heure_fin,
-     duree_minutes,statut_seance,prix,statut_paiement,description,cree_par,modifie_par,
+     duree_minutes,statut_seance,prix,statut_paiement,cree_par,modifie_par,
      utilisateur_id,handler_id,intervenant_id,tarif_horaire_applique)
     VALUES (?,?,'Parent','Maths','Cours',0,'2026-09-09','09:00','10:00',60,'faite',120,
-      'payee','NE-JAMAIS-EXPORTER',?,?,?,?,?,90)`,
+      'payee',?,?,?,?,?,90)`,
     [`Cours ${marqueur}`, marqueur, handlerId, handlerId, handlerId, handlerId, intervenantId]);
 }
 
@@ -70,7 +70,7 @@ async function main() {
   assert.equal(admin.destinataires, 1);
   const global = messages.at(-1).attachments[0].content.toString("utf8");
   assert.ok(global.includes("MARQUEUR-A") && global.includes("MARQUEUR-B"));
-  assert.ok(global.includes("handler,handler_public,date"));
+  assert.ok(global.includes("seance_id,handler_id,handler,handler_public,intervenant_id"));
 
   const echec = await executerBackupAdminEmail({ sansVerrou: true, date,
     occurrenceKey: "test:admin:retry", sendMail: async () => { throw new Error("SMTP down"); } });
@@ -95,7 +95,7 @@ async function main() {
     listerHandlers: async () => { appelsHandlers += 1; return []; },
     listerAdministrateurs: async () => { appelsAdmin += 1; return []; },
     listerSeancesGlobal: async () => [] });
-  assert.deepEqual([appelsHandlers, appelsAdmin], [1, 2], "Minuit lance Handler et Admin.");
+  assert.deepEqual([appelsHandlers, appelsAdmin], [0, 2], "Minuit lance uniquement le global Admin.");
   console.log("email backups isolation/idempotence test: PASS");
 }
 

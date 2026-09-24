@@ -57,11 +57,10 @@ async function main() {
       INSERT INTO seances (
         etudiant, parent, matiere, compte, est_essai, date, heure_debut,
         heure_fin, duree_minutes, statut_seance, prix, statut_paiement,
-        description, cree_par, utilisateur_id, handler_id, intervenant_id
+        cree_par, utilisateur_id, handler_id, intervenant_id
       )
       SELECT ?, '', 'Mathématiques', 'Audit visuel', 0, '2026-09-07', '10:00',
-        '11:00', 60, 'planifiee', 100, 'non_payee',
-        'Séance de recette visuelle', ?, ?, ?, ?
+        '11:00', 60, 'planifiee', 100, 'non_payee', ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM seances
         WHERE handler_id = ? AND intervenant_id = ? AND date = '2026-09-07'

@@ -28,6 +28,8 @@ import {
   recupererOptionsSeances,
   ajouterSeance,
   modifierSeance,
+  deplacerSeance,
+  redimensionnerSeance,
   supprimerSeance,
   changerStatutSeance,
   recupererIndisponibilites,
@@ -41,7 +43,7 @@ import {
   recupererStatistiques,
   recupererMonetisation,
   telechargerReleveMonetisation,
-} from "./seances.js";
+} from "./seances.js?v=20260924-session-resize";
 import {
   initialiserCalendrier,
   mettreAJourEvenements,
@@ -49,7 +51,7 @@ import {
   mettreAJourPlageHoraireCalendrier,
   creerPalettesDisponibiliteProfesseurs,
   creerPaletteMembrePlateforme,
-} from "./calendrier.js?v=20260919-calendar-navigation";
+} from "./calendrier.js?v=20260924-session-resize";
 import {
   recupererEtatNotificationsPush,
   synchroniserNotificationsPushActuelles,
@@ -157,19 +159,27 @@ function creerCatalogueVide() {
   };
 }
 
+const FUSEAU_CALENDRIER_CENTRAL_PAR_DEFAUT = "Africa/Casablanca";
+
 // Au chargement du module, les réglages serveur ne sont pas encore disponibles.
 // Ces valeurs initiales ne doivent donc pas appeler les helpers du calendrier :
 // ceux-ci lisent `etat`, qui est précisément en cours d'initialisation ici.
 // Les filtres sont ensuite normalisés avec le fuseau central dès que les
 // réglages sont chargés.
 const dateInitialeApplication = new Date();
-const anneeInitialeApplication = String(dateInitialeApplication.getFullYear());
-const moisInitialApplication = `${anneeInitialeApplication}-${String(
-  dateInitialeApplication.getMonth() + 1
-).padStart(2, "0")}`;
-const jourInitialApplication = `${moisInitialApplication}-${String(
-  dateInitialeApplication.getDate()
-).padStart(2, "0")}`;
+const partiesDateInitiale = new Intl.DateTimeFormat("en-CA", {
+  timeZone: FUSEAU_CALENDRIER_CENTRAL_PAR_DEFAUT,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).formatToParts(dateInitialeApplication);
+const dateInitialeMaroc = Object.fromEntries(
+  partiesDateInitiale.filter((partie) => partie.type !== "literal")
+    .map((partie) => [partie.type, partie.value])
+);
+const anneeInitialeApplication = dateInitialeMaroc.year;
+const moisInitialApplication = `${anneeInitialeApplication}-${dateInitialeMaroc.month}`;
+const jourInitialApplication = `${moisInitialApplication}-${dateInitialeMaroc.day}`;
 
 const etat = {
   utilisateur: null,
@@ -216,6 +226,7 @@ const etat = {
   },
   calendrier: null,
   filtreCalendrierPersonne: "global",
+  filtreCalendrierForceMoiSansEquipe: false,
   calendrierIndisponibilites: null,
   vueIndisponibilitesActive: "declaration",
   sectionActive: "aujourdhui",
@@ -561,6 +572,7 @@ const elements = {
   adminLogoutCurrentPassword: document.getElementById("admin-logout-current-password"),
   adminDeleteUserForm: document.getElementById("admin-delete-user-form"),
   adminDeleteUserId: document.getElementById("admin-delete-user-id"),
+  adminDeleteUserPreserveCompleted: document.getElementById("admin-delete-user-preserve-completed"),
   adminDeleteUserPassword: document.getElementById("admin-delete-user-password"),
   adminDeleteUserError: document.getElementById("admin-delete-user-error"),
   adminDeleteUserButton: document.getElementById("admin-delete-user-button"),
@@ -576,6 +588,7 @@ const elements = {
   adminMaintenanceSqliteButton: document.getElementById("admin-maintenance-sqlite-button"),
   calendar: document.getElementById("calendar"),
   dashboardPublicLink: document.getElementById("dashboard-public-link"),
+  dashboardPublicLinkLabel: document.getElementById("dashboard-public-link-label"),
   dashboardPublicLinkValue: document.getElementById("dashboard-public-link-value"),
   dashboardPublicLinkCopy: document.getElementById("dashboard-public-link-copy"),
   statsFilterForm: document.getElementById("stats-filter-form"),
@@ -713,9 +726,7 @@ const elements = {
   dureeCheckboxes: Array.from(document.querySelectorAll(".duration-checkbox")),
   statutCheckboxes: Array.from(document.querySelectorAll(".statut-checkbox")),
   essaiCheckboxes: Array.from(document.querySelectorAll(".essai-checkbox")),
-  descriptionSection: document.getElementById("description-section"),
   statusSection: document.getElementById("status-section"),
-  description: document.getElementById("description"),
   seanceChoiceModal: document.getElementById("seance-choice-modal"),
   seanceChoiceList: document.getElementById("seance-choice-list"),
   detailModal: document.getElementById("detail-modal"),
@@ -733,7 +744,6 @@ const elements = {
   detailUpdatedBy: document.getElementById("detail-updated-by"),
   detailCreatedAt: document.getElementById("detail-created-at"),
   detailUpdatedAt: document.getElementById("detail-updated-at"),
-  detailDescription: document.getElementById("detail-description"),
   editSeanceButton: document.getElementById("edit-seance-button"),
   duplicateSeanceButton: document.getElementById("duplicate-seance-button"),
   deleteSeanceButton: document.getElementById("delete-seance-button"),
@@ -903,10 +913,6 @@ function obtenirProfesseursCalendrierCentral() {
 
 function construireDonneesDisponibiliteCalendrierCentral() {
   return {
-    // La vue globale est indisponible seulement si tous les membres actifs de
-    // l'équipe, Handler compris, le sont. `etat.seances` conserve aussi les
-    // séances personnelles du Handler dans une autre équipe : elles servent
-    // uniquement à ce calcul et ne sont jamais dessinées dans la vue globale.
     // La disponibilité globale dépend uniquement des Professeurs de l'équipe.
     // Les indisponibilités personnelles du Handler restent réservées à son
     // calendrier public et à sa propre vue.
@@ -940,14 +946,37 @@ function normaliserFiltreCalendrierCentral(valeur = etat.filtreCalendrierPersonn
   return estMembreActif ? String(idPersonne) : "global";
 }
 
-function obtenirSeancesEquipeCouranteCalendrierCentral() {
+function synchroniserFiltreCalendrierSelonEquipe() {
+  if (!utilisateurEstHandler()) {
+    etat.filtreCalendrierForceMoiSansEquipe = false;
+    return;
+  }
+
+  const handlerId = Number(etat.utilisateur?.id || 0);
+  const possedeProfesseurs = obtenirProfesseursCalendrierCentral().length > 0;
+
+  if (!possedeProfesseurs) {
+    etat.filtreCalendrierPersonne = handlerId ? String(handlerId) : "global";
+    etat.filtreCalendrierForceMoiSansEquipe = true;
+    return;
+  }
+
+  if (etat.filtreCalendrierForceMoiSansEquipe) {
+    etat.filtreCalendrierPersonne = "global";
+    etat.filtreCalendrierForceMoiSansEquipe = false;
+  }
+}
+
+function obtenirSeancesVueGlobaleHandlerCalendrierCentral() {
   const handlerId = Number(etat.utilisateur?.id || 0);
   if (!handlerId) {
     return [];
   }
 
   return (Array.isArray(etat.seances) ? etat.seances : []).filter(
-    (seance) => Number(seance?.handler_id) === handlerId
+    (seance) =>
+      Number(seance?.handler_id) === handlerId ||
+      Number(seance?.intervenant_id) === handlerId
   );
 }
 
@@ -965,7 +994,8 @@ function obtenirIndisponibilitesPersonneCalendrierCentral(personneId) {
 
 function rendreFiltreCalendrierCentral() {
   const select = elements.dashboardPersonFilter;
-  const visible = utilisateurEstHandler();
+  synchroniserFiltreCalendrierSelonEquipe();
+  const visible = utilisateurEstHandler() && obtenirProfesseursCalendrierCentral().length > 0;
   elements.dashboardPersonFilterField?.classList.toggle("hidden", !visible);
   if (!select || !visible) return;
 
@@ -993,11 +1023,18 @@ function appliquerCouleursEquipeAuxSeancesCalendrier(seances = []) {
     const utilisateurId = Number(etat.utilisateur?.id || 0);
     const handlerId = Number(seance?.handler_id || 0);
     const intervenantId = Number(seance?.intervenant_id || 0);
-    const vueMoiHandler =
+
+    // Les séances normales de l'équipe suivent la couleur du réalisateur.
+    // Si le Handler courant intervient comme Professeur dans l'équipe d'un
+    // autre Handler, la couleur de cette équipe d'origine permet de distinguer
+    // immédiatement ces séances, y compris dans la Vue globale.
+    const estSeancePersonnelleExterne =
       utilisateurEstHandler() &&
-      String(etat.filtreCalendrierPersonne) === String(utilisateurId);
+      intervenantId === utilisateurId &&
+      handlerId > 0 &&
+      handlerId !== utilisateurId;
     const identiteCouleur = utilisateurEstHandler()
-      ? vueMoiHandler && handlerId && handlerId !== utilisateurId
+      ? estSeancePersonnelleExterne
         ? handlerId
         : intervenantId
       : handlerId;
@@ -1007,6 +1044,21 @@ function appliquerCouleursEquipeAuxSeancesCalendrier(seances = []) {
           ...seance,
           intervenant_couleur_calendrier: palette.backgroundColor,
           intervenant_palette_calendrier: palette,
+        }
+      : seance;
+  });
+}
+
+// Dans l'agenda personnel, la couleur identifie l'équipe qui a créé la séance.
+// Un même Handler conserve ainsi la même couleur que dans les autres vues.
+function appliquerCouleursHandlersAuxSeancesPersonnelles(seances = []) {
+  return (Array.isArray(seances) ? seances : []).map((seance) => {
+    const paletteHandler = creerPaletteMembrePlateforme(Number(seance?.handler_id || 0));
+    return paletteHandler
+      ? {
+          ...seance,
+          intervenant_couleur_calendrier: paletteHandler.backgroundColor,
+          intervenant_palette_calendrier: paletteHandler,
         }
       : seance;
   });
@@ -1038,18 +1090,20 @@ function obtenirDonneesCalendrierIndisponibilitesPersonnelles() {
 }
 
 function rafraichirEvenementsCalendrier() {
+  synchroniserFiltreCalendrierSelonEquipe();
+
   if (etat.calendrier) {
     const filtre = normaliserFiltreCalendrierCentral();
     etat.filtreCalendrierPersonne = filtre;
     const personneId = filtre === "global" ? null : Number(filtre);
-    // La vue globale est l'équipe du Handler, pas l'agenda personnel global
-    // du Handler. Ses propres séances dans une autre équipe restent visibles
-    // seulement avec le filtre « Moi » et servent, sans détail rendu, au
-    // calcul de disponibilité collective.
+    // La vue globale réunit l'activité de l'équipe du Handler et toutes les
+    // séances où il intervient lui-même comme Professeur dans une autre équipe.
+    // Le calcul d'indisponibilité collective reste, lui, limité aux Professeurs
+    // actifs de sa propre équipe.
     const seancesFiltrees = personneId
       ? obtenirSeancesPersonneCalendrierCentral(personneId)
       : utilisateurEstHandler()
-        ? obtenirSeancesEquipeCouranteCalendrierCentral()
+        ? obtenirSeancesVueGlobaleHandlerCalendrierCentral()
         : etat.seances;
     const indisponibilitesFiltrees = personneId
       ? obtenirIndisponibilitesPersonneCalendrierCentral(personneId)
@@ -1072,13 +1126,14 @@ function rafraichirEvenementsCalendrier() {
     const donneesPersonnelles = obtenirDonneesCalendrierIndisponibilitesPersonnelles();
     mettreAJourEvenements(
       etat.calendrierIndisponibilites,
-      donneesPersonnelles.seances,
+      appliquerCouleursHandlersAuxSeancesPersonnelles(donneesPersonnelles.seances),
       donneesPersonnelles.indisponibilites
     );
   }
 
   mettreAJourFiltreCalendrierCentral();
   rendreFiltreCalendrierCentral();
+  afficherLienPublicDashboard();
 }
 
 function viderDonneesApplication() {
@@ -1087,6 +1142,7 @@ function viderDonneesApplication() {
   etat.indisponibilites = [];
   etat.equipe = [];
   etat.filtreCalendrierPersonne = "global";
+  etat.filtreCalendrierForceMoiSansEquipe = false;
   etat.tarificationEquipe = { matieres: [], realisateurs: [] };
   etat.demandesEquipe = [];
   etat.demandesAdministration = [];
@@ -2080,10 +2136,6 @@ function mettreAJourEtapesFormulaireSeance() {
   definirChampsSeanceDesactives(elements.essaiCheckboxes, !modifiable);
   definirChampsSeanceDesactives(elements.statutCheckboxes, !modifiable);
 
-  if (elements.description) {
-    elements.description.disabled = !modifiable;
-  }
-
   if (elements.saveSeanceButton) {
     elements.saveSeanceButton.disabled = !(
       modifiable &&
@@ -2282,6 +2334,7 @@ function attacherEcouteurs() {
   elements.loginForm?.addEventListener("submit", gererConnexion);
   elements.dashboardPersonFilter?.addEventListener("change", () => {
     etat.filtreCalendrierPersonne = elements.dashboardPersonFilter.value || "global";
+    etat.filtreCalendrierForceMoiSansEquipe = false;
     rafraichirEvenementsCalendrier();
   });
   // The public lifecycle has its own small, failure-isolated script loaded
@@ -2697,6 +2750,9 @@ function initialiserCalendrierSiNecessaire() {
     onSlotClick: gererClicCreneauCalendrierSeance,
     onSelect: gererSelectionCalendrierSeance,
     onEventClick: ouvrirDetailsOuChoixSeance,
+    onEventDrop: gererDeplacementSeanceCalendrier,
+    onEventResize: (info) => gererDeplacementSeanceCalendrier(info, true),
+    canDragSeance: peutDeplacerSeanceCalendrier,
     onIndisponibiliteClick: gererClicIndisponibilite,
     onDatesSet: () => {
       if (utilisateurEstHandler()) {
@@ -2707,6 +2763,66 @@ function initialiserCalendrierSiNecessaire() {
 
   demarrerHorlogeCalendriers();
   rafraichirEvenementsCalendrier();
+}
+
+function peutDeplacerSeanceCalendrier(seance) {
+  if (!seance || !utilisateurPeutModifierDonnees() || seanceEstMasqueePourConfidentialite(seance)) {
+    return false;
+  }
+  const utilisateurId = Number(etat.utilisateur?.id);
+  return Boolean(utilisateurId) && (
+    (utilisateurEstHandler() && Number(seance.handler_id) === utilisateurId) ||
+    Number(seance.intervenant_id) === utilisateurId
+  );
+}
+
+let deplacementSeanceEnCours = false;
+
+async function gererDeplacementSeanceCalendrier(info, redimensionnement = false) {
+  const seance = info.event.extendedProps?.seance;
+  const debut = info.event.start;
+  const date = debut && `${debut.getUTCFullYear()}-${String(debut.getUTCMonth() + 1).padStart(2, "0")}-${String(debut.getUTCDate()).padStart(2, "0")}`;
+  const heureDebut = debut && `${String(debut.getUTCHours()).padStart(2, "0")}:${String(debut.getUTCMinutes()).padStart(2, "0")}`;
+
+  if (!peutDeplacerSeanceCalendrier(seance) || !date || !heureDebut || deplacementSeanceEnCours) {
+    info.revert();
+    return;
+  }
+  if (!redimensionnement && seance.date === date && seance.heure_debut === heureDebut) {
+    return;
+  }
+
+  deplacementSeanceEnCours = true;
+  let deplacementEnregistre = false;
+  try {
+    const seanceMiseAJour = redimensionnement
+      ? await redimensionnerSeance(seance.id, heureDebut, (info.event.end - debut) / 60000)
+      : await deplacerSeance(seance.id, date, heureDebut);
+    deplacementEnregistre = true;
+    etat.seances = etat.seances.map((item) =>
+      Number(item.id) === Number(seanceMiseAJour.id) ? seanceMiseAJour : item
+    );
+    rafraichirEvenementsCalendrier();
+    mettreAJourResume();
+    afficherToast(redimensionnement ? "Durée de la séance modifiée." : "Séance déplacée.");
+    await Promise.allSettled([
+      chargerSeances(),
+      ...(redimensionnement ? [chargerIndisponibilites()] : []),
+      chargerHistorique(),
+      chargerMonetisationSiAutorise(),
+    ]);
+  } catch (erreur) {
+    if (!deplacementEnregistre) {
+      info.revert();
+    }
+    if (erreur.status === 401) {
+      await gererDeconnexion();
+      return;
+    }
+    afficherToast(erreur.message || "Impossible de déplacer cette séance.", "error");
+  } finally {
+    deplacementSeanceEnCours = false;
+  }
 }
 
 function initialiserCalendrierIndisponibilitesSiNecessaire() {
@@ -3140,7 +3256,23 @@ function rendreCartesCalendrierPersonnel(reglages = {}, lien = "") {
 }
 
 function afficherLienPublicDashboard(reglages = etat.reglagesEspace) {
-  const lien = lienPublicAbsolu(reglages?.calendrier_public?.lien_public);
+  const filtre = utilisateurEstHandler()
+    ? String(etat.filtreCalendrierPersonne || "global")
+    : String(etat.utilisateur?.id || "");
+  const estLienPersonnel =
+    filtre === "global" || Number(filtre) === Number(etat.utilisateur?.id);
+  const membre = estLienPersonnel
+    ? null
+    : (Array.isArray(reglages?.liens_publics_equipe) ? reglages.liens_publics_equipe : [])
+        .find((personne) => Number(personne.id) === Number(filtre));
+  const lien = lienPublicAbsolu(
+    estLienPersonnel ? reglages?.calendrier_public?.lien_public : membre?.lien_public
+  );
+  if (elements.dashboardPublicLinkLabel) {
+    elements.dashboardPublicLinkLabel.textContent = estLienPersonnel
+      ? "Votre lien public :"
+      : `Lien public de ${membre?.nom || membre?.public_id || "ce professeur"} :`;
+  }
   elements.dashboardPublicLink?.classList.toggle("hidden", !lien);
   if (elements.dashboardPublicLinkValue) {
     elements.dashboardPublicLinkValue.textContent = lien;
@@ -3448,12 +3580,24 @@ async function copierLienPublic(lien, elementSecours = null) {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(lien);
-    } else if (elementSecours) {
-      elementSecours.focus();
-      elementSecours.select();
-      document.execCommand("copy");
     } else {
-      return false;
+      const champ = elementSecours && typeof elementSecours.select === "function"
+        ? elementSecours
+        : document.createElement("input");
+      const champTemporaire = champ !== elementSecours;
+      if (champTemporaire) {
+        champ.value = lien;
+        champ.style.position = "fixed";
+        champ.style.opacity = "0";
+        document.body.appendChild(champ);
+      }
+      try {
+        champ.focus();
+        champ.select();
+        if (!document.execCommand("copy")) return false;
+      } finally {
+        if (champTemporaire) champ.remove();
+      }
     }
     return true;
   } catch (erreur) {
@@ -5212,10 +5356,18 @@ async function gererSuppressionCompteAdministration(event) {
   const utilisateurId = Number(elements.adminDeleteUserId?.value || 0);
   const compte = obtenirCompteAdministrationParId(utilisateurId);
   if (!compte || !elements.adminDeleteUserPassword?.value) return;
-  if (!window.confirm(`Supprimer définitivement le compte ${compte.nom} ?`)) return;
+  const preserverSeancesFaites = Boolean(elements.adminDeleteUserPreserveCompleted?.checked);
+  const confirmation = preserverSeancesFaites
+    ? `Supprimer le compte ${compte.nom} ? Les séances déjà faites seront préservées, mais toutes les séances prévues seront supprimées.`
+    : `Supprimer définitivement le compte ${compte.nom} et toutes ses séances ?`;
+  if (!window.confirm(confirmation)) return;
   elements.adminDeleteUserButton.disabled = true;
   try {
-    const resultat = await supprimerCompteAdmin(utilisateurId, elements.adminDeleteUserPassword.value);
+    const resultat = await supprimerCompteAdmin(
+      utilisateurId,
+      elements.adminDeleteUserPassword.value,
+      preserverSeancesFaites
+    );
     elements.adminDeleteUserForm.reset();
     await chargerAdministrationSiAutorise();
     afficherToast(resultat.message || "Compte supprimé.", "success");
@@ -6450,7 +6602,10 @@ function obtenirFuseauHoraireCalendrierCentral() {
   // La référence horaire centrale est fournie en lecture seule par le serveur.
   // Le fuseau choisi pour le calendrier public ne doit jamais traverser cette
   // frontière et modifier les dates, sélecteurs ou horloges authentifiés.
-  return String(etat.reglagesEspace?.calendrier?.reference_timezone || "").trim();
+  return String(
+    etat.reglagesEspace?.calendrier?.reference_timezone ||
+      FUSEAU_CALENDRIER_CENTRAL_PAR_DEFAUT
+  ).trim();
 }
 
 function actualiserHorlogeCalendriers() {
@@ -6832,12 +6987,6 @@ function creerCarteSeanceAujourdhui(seance) {
 
   carte.append(entete, meta);
 
-  if (seance.description) {
-    const description = document.createElement("span");
-    description.className = "today-item-note";
-    description.textContent = seance.description;
-    carte.append(description);
-  }
 
   ligne.append(heure, carte);
   return ligne;
@@ -9403,14 +9552,6 @@ function obtenirNatureModificationHistorique(entree) {
     };
   }
 
-  if (champs.has("description")) {
-    return {
-      label: "Modification de la séance - Modifier la description",
-      badgeLabel: "Description",
-      tone: "update",
-    };
-  }
-
   return {
     label: "Modification de la séance - Mise à jour multiple",
     badgeLabel: "Mise à jour",
@@ -9741,10 +9882,6 @@ function formaterValeurCreationHistorique(champ, valeur, seanceCreation) {
     return formaterDureeHistorique(dureeMinutes);
   }
 
-  if (champ === "description") {
-    return String(valeur || "").trim() || "Aucune description";
-  }
-
   if (champ === "compte") {
     return normaliserNomCompte(valeur);
   }
@@ -9793,10 +9930,6 @@ function creerCarteInformationHistorique(ligne) {
 
   carte.append(titre, valeur);
   return carte;
-}
-
-function mettreAJourVisibiliteDescriptionSeance(mode) {
-  elements.descriptionSection?.classList.remove("hidden");
 }
 
 function mettreAJourVisibiliteStatutSeance(mode) {
@@ -9869,7 +10002,6 @@ function ouvrirFormulaireCreation(selection = {}) {
     dateConfirmee: selectionNormalisee.dateExplicitementSelectionnee,
     horaireConfirme: selectionNormalisee.horaireExplicitementSelectionne,
   });
-  mettreAJourVisibiliteDescriptionSeance("creation");
   mettreAJourVisibiliteStatutSeance("creation");
   rendreOptionsCatalogueSeance();
   configurerOptionsStatut("creation");
@@ -9909,7 +10041,6 @@ function ouvrirFormulaireModification() {
   fermerModal(elements.detailModal);
   elements.seanceForm.dataset.mode = "modification";
   definirProgressionCreationSeance({ dateConfirmee: true, horaireConfirme: true });
-  mettreAJourVisibiliteDescriptionSeance("modification");
   mettreAJourVisibiliteStatutSeance("modification");
   rendreOptionsCatalogueSeance();
   configurerOptionsStatut("modification");
@@ -9945,7 +10076,6 @@ function ouvrirFormulaireDuplication() {
   masquerErreur(elements.seanceFormError);
   elements.seanceForm.dataset.mode = "creation";
   definirProgressionCreationSeance();
-  mettreAJourVisibiliteDescriptionSeance("creation");
   mettreAJourVisibiliteStatutSeance("creation");
   rendreOptionsCatalogueSeance();
   configurerOptionsStatut("creation");
@@ -9992,7 +10122,6 @@ function ouvrirFormulaireReport() {
   fermerModal(elements.detailModal);
   elements.seanceForm.dataset.mode = "modification";
   definirProgressionCreationSeance({ dateConfirmee: true, horaireConfirme: true });
-  mettreAJourVisibiliteDescriptionSeance("modification");
   mettreAJourVisibiliteStatutSeance("modification");
   rendreOptionsCatalogueSeance();
   configurerOptionsStatut("modification");
@@ -10030,7 +10159,6 @@ function remplirFormulaire(seance) {
   definirHeureDebutSelectionnee(seance.heure_debut);
   definirValeurSelectionnee(elements.essaiCheckboxes, seance.est_essai ? "1" : "0");
   definirIntervenantSeanceSelectionne(seance.intervenant_id, { obligatoire: true });
-  elements.description.value = seance.description || "";
   masquerErreur(elements.seanceFormError);
   mettreAJourHeureFinCalculee();
   mettreAJourEtapesFormulaireSeance();
@@ -10075,8 +10203,14 @@ async function gererSoumissionSeance(event) {
     date: elements.date.value,
     heure_debut: elements.heureDebut.value,
     duree_minutes: dureeMinutes,
+    // Le statut n'est plus éditable depuis les formulaires. Une création est
+    // planifiée et une modification conserve strictement le statut existant.
     statut_seance:
-      mode === "creation" ? "planifiee" : recupererValeurSelectionnee(elements.statutCheckboxes),
+      mode === "creation"
+        ? "planifiee"
+        : etat.seanceSelectionnee?.statut_manuel ||
+          etat.seanceSelectionnee?.statut_seance ||
+          "planifiee",
   };
 
   if (utilisateurEstHandler()) {
@@ -10090,9 +10224,6 @@ async function gererSoumissionSeance(event) {
     donneesSeance.intervenant_id = intervenantId;
   }
 
-  if (mode === "modification") {
-    donneesSeance.description = elements.description.value.trim();
-  }
   const heureFinCalculee = calculerHeureFin(donneesSeance.heure_debut, dureeMinutes);
 
   if (!donneesSeance.etudiant) {
@@ -10112,11 +10243,6 @@ async function gererSoumissionSeance(event) {
 
   if (!dureeMinutes) {
     afficherErreur(elements.seanceFormError, "Sélectionnez une durée.");
-    return;
-  }
-
-  if (mode === "modification" && !donneesSeance.statut_seance) {
-    afficherErreur(elements.seanceFormError, "Sélectionnez un statut.");
     return;
   }
 
@@ -10554,9 +10680,6 @@ async function ouvrirDetailSeance(seance) {
   elements.detailUpdatedBy.textContent = seance.modifie_par_nom || "Inconnu";
   elements.detailCreatedAt.textContent = formatDateHeure(seance.created_at);
   elements.detailUpdatedAt.textContent = formatDateHeure(seance.updated_at);
-  elements.detailDescription.textContent =
-    seance.description || "Aucune description.";
-
   definirBadge(
     elements.detailStatusBadge,
     seance.statut_seance,

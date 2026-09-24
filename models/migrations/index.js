@@ -16,6 +16,8 @@ const normalizeHandlerSubjectKeys = require("./2026090902-normalize-handler-subj
 const backupEmailDeliveries = require("./2026091001-backup-email-deliveries");
 const professorMultiTeam = require("./2026091101-professor-multi-team");
 const personalGlobalAvailability = require("./2026091102-personal-global-availability");
+const removeSessionDescription = require("./2026092001-remove-session-description");
+const publicCalendarsEnabledByDefault = require("./2026092002-public-calendars-enabled-by-default");
 
 // Les migrations sont volontairement append-only. Une migration deja appliquee ne
 // doit jamais etre modifiee : une evolution ulterieure ajoute une nouvelle entree.
@@ -38,6 +40,8 @@ const migrations = [
   backupEmailDeliveries,
   professorMultiTeam,
   personalGlobalAvailability,
+  removeSessionDescription,
+  publicCalendarsEnabledByDefault,
 ];
 
 function verifierDefinitionMigrations() {

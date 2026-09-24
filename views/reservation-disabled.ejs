@@ -4,17 +4,34 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Indisponible pour le moment</title>
-    <link rel="stylesheet" href="/css/style.css?v=20260913-public-disabled" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/style.css?v=20260920-public-brand-optical-alignment" />
   </head>
   <body class="reservation-public-body">
     <main class="reservation-disabled-main">
       <section class="panel reservation-disabled-card">
+        <div class="reservation-public-brand reservation-disabled-brand" aria-label="Superprof">
+          <span class="reservation-public-brand-signature">
+            <img
+              class="reservation-public-logo-mark"
+              src="/superprof-official-mark.svg?v=20260920-refined"
+              alt=""
+              aria-hidden="true"
+            />
+            <span class="reservation-public-wordmark">superprof</span>
+          </span>
+          <span class="reservation-public-brand-separator" aria-hidden="true"></span>
+          <span class="reservation-public-brand-context">Planning</span>
+        </div>
         <span class="reservation-disabled-icon" aria-hidden="true">—</span>
         <h1>Je ne prends pas de séances pour le moment</h1>
         <p>
-          Ce calendrier public est temporairement désactivé.<% if (nom) { %>
-          Vous pouvez contacter <strong><%= nom %></strong> directement pour plus d’informations.<% } else { %>
-          Veuillez contacter cette personne directement pour plus d’informations.<% } %>
+          Ce calendrier public est temporairement désactivé. Veuillez me contacter directement.
         </p>
       </section>
     </main>

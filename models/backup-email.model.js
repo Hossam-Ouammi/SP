@@ -30,6 +30,10 @@ function creerJetonTentative() {
 }
 
 const projectionSeancesBackup = `
+  seances.id AS seance_id,
+  seances.handler_id,
+  seances.intervenant_id,
+  seances.utilisateur_id,
   seances.date,
   seances.heure_debut,
   seances.heure_fin,
@@ -43,10 +47,23 @@ const projectionSeancesBackup = `
   seances.prix,
   seances.statut_paiement,
   seances.tarif_horaire_applique,
+  seances.cree_par,
+  seances.modifie_par,
+  seances.created_at,
+  seances.updated_at,
+  seances.revision,
+  seances.deleted_at,
+  seances.deleted_by,
   intervenant.nom AS intervenant_nom,
   intervenant.public_id AS intervenant_public_id,
   handler.nom AS handler_nom,
-  handler.public_id AS handler_public_id
+  handler.public_id AS handler_public_id,
+  createur.nom AS createur_nom,
+  createur.public_id AS createur_public_id,
+  modificateur.nom AS modificateur_nom,
+  modificateur.public_id AS modificateur_public_id,
+  suppresseur.nom AS suppresseur_nom,
+  suppresseur.public_id AS suppresseur_public_id
 `;
 
 async function listerHandlersActifsPourBackup() {
@@ -96,6 +113,9 @@ async function listerSeancesBackupHandler(handlerId) {
       FROM seances
       LEFT JOIN utilisateurs AS intervenant ON intervenant.id = seances.intervenant_id
       LEFT JOIN utilisateurs AS handler ON handler.id = seances.handler_id
+      LEFT JOIN utilisateurs AS createur ON createur.id = seances.cree_par
+      LEFT JOIN utilisateurs AS modificateur ON modificateur.id = seances.modifie_par
+      LEFT JOIN utilisateurs AS suppresseur ON suppresseur.id = seances.deleted_by
       WHERE seances.handler_id = ?
       ORDER BY seances.date ASC, seances.heure_debut ASC, seances.id ASC
     `,
@@ -109,6 +129,9 @@ async function listerSeancesBackupGlobal() {
     FROM seances
     LEFT JOIN utilisateurs AS intervenant ON intervenant.id = seances.intervenant_id
     LEFT JOIN utilisateurs AS handler ON handler.id = seances.handler_id
+    LEFT JOIN utilisateurs AS createur ON createur.id = seances.cree_par
+    LEFT JOIN utilisateurs AS modificateur ON modificateur.id = seances.modifie_par
+    LEFT JOIN utilisateurs AS suppresseur ON suppresseur.id = seances.deleted_by
     ORDER BY seances.date ASC, seances.heure_debut ASC, seances.id ASC
   `);
 }

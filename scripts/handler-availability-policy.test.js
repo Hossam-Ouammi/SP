@@ -97,7 +97,7 @@ async function arreterServeur(serveur) {
 }
 
 async function attendreServeur(baseUrl) {
-  for (let tentative = 0; tentative < 100; tentative += 1) {
+  for (let tentative = 0; tentative < 300; tentative += 1) {
     try {
       const response = await fetch(`${baseUrl}/health`);
       if (response.ok) {
@@ -403,6 +403,35 @@ async function run() {
     assertStatus(response, 201, "Handler creates a session without choosing legacy account");
     assert.equal(response.json?.seance?.compte, "Handler Availability");
     assert.equal(Number(response.json?.seance?.intervenant_id), handlerId);
+    const seanceADeplacerId = Number(response.json?.seance?.id);
+    response = await handler.request("PATCH", `/api/seances/${seanceADeplacerId}/horaire`, {
+      date: "2034-06-04",
+      heure_debut: "10:00",
+      etudiant: "DO NOT OVERWRITE",
+    });
+    assertStatus(response, 200, "Handler drags a session to a free slot");
+    assert.equal(response.json?.seance?.heure_debut, "10:00");
+    assert.equal(response.json?.seance?.heure_fin, "11:00");
+    assert.equal(response.json?.seance?.etudiant, "Student derived-realisateur");
+
+    response = await professeurB.request("PATCH", `/api/seances/${seanceADeplacerId}/horaire`, {
+      date: "2034-06-04", heure_debut: "11:00",
+    });
+    assertStatus(response, 404, "Unrelated Professor cannot drag Handler session");
+
+    response = await handler.request("PATCH", `/api/seances/${seanceADeplacerId}/horaire`, {
+      date: "2034-06-04", heure_debut: "10:15",
+    });
+    assertStatus(response, 400, "Drag must obey the 30-minute booking step");
+
+    response = await handler.request("POST", "/api/seances", donneesSeance(
+      "drag-conflict", "2034-06-04", "11:00", handlerId
+    ));
+    assertStatus(response, 201, "Create a session in the target drag slot");
+    response = await handler.request("PATCH", `/api/seances/${seanceADeplacerId}/horaire`, {
+      date: "2034-06-04", heure_debut: "11:00",
+    });
+    assertStatus(response, 400, "Drag rejects a booked target slot");
 
     const seanceProfesseurSansCompte = donneesSeance(
       "derived-professor",
@@ -410,6 +439,43 @@ async function run() {
       "08:00",
       professeurAId
     );
+
+    response = await professeurA.request("POST", "/api/indisponibilites", donneesIndisponibilite("2034-07-01", "08:00", "12:30"));
+    assertStatus(response, 201, "Declare unavailability before resize");
+    const blocAvantId = response.json.indisponibilite.id;
+    response = await handler.request("POST", "/api/seances", donneesSeance("resize", "2034-07-01", "12:30", professeurAId));
+    assertStatus(response, 201, "Create session to resize");
+    const resizeId = response.json.seance.id;
+    response = await handler.request("PATCH", `/api/seances/${resizeId}/duree`, { heure_debut: "12:00", duree_minutes: 90 });
+    assertStatus(response, 200, "Extend upper edge into personal unavailability");
+    assert.equal(response.json.seance.heure_fin, "13:30");
+    response = await professeurA.request("GET", "/api/indisponibilites");
+    assert.equal(response.json.indisponibilites.find((item) => item.id === blocAvantId).heure_fin, "12:00");
+    response = await professeurA.request("POST", "/api/indisponibilites", donneesIndisponibilite("2034-07-01", "13:30", "15:00"));
+    assertStatus(response, 201, "Declare unavailability after resize");
+    const blocApresId = response.json.indisponibilite.id;
+    response = await handler.request("PATCH", `/api/seances/${resizeId}/duree`, { heure_debut: "12:00", duree_minutes: 120 });
+    assertStatus(response, 200, "Extend lower edge into personal unavailability");
+    response = await professeurA.request("GET", "/api/indisponibilites");
+    assert.equal(response.json.indisponibilites.find((item) => item.id === blocApresId).heure_debut, "14:00");
+    response = await handler.request("PATCH", `/api/seances/${resizeId}/duree`, { heure_debut: "12:00", duree_minutes: 150 });
+    assertStatus(response, 400, "Two-hour limit enforced by server");
+    response = await professeurB.request("PATCH", `/api/seances/${resizeId}/duree`, { heure_debut: "12:00", duree_minutes: 90 });
+    assertStatus(response, 404, "Unrelated professor cannot resize");
+
+    response = await handler.request("POST", "/api/seances", donneesSeance("resize-rollback", "2034-07-02", "10:00", professeurAId));
+    assertStatus(response, 201, "Create resize rollback session");
+    const rollbackId = response.json.seance.id;
+    response = await handler.request("POST", "/api/seances", donneesSeance("resize-conflict", "2034-07-02", "11:30", professeurAId));
+    assertStatus(response, 201, "Create session blocking extension");
+    response = await professeurA.request("POST", "/api/indisponibilites", donneesIndisponibilite("2034-07-02", "11:00", "11:30"));
+    assertStatus(response, 201, "Create block before conflicting session");
+    const rollbackBlocId = response.json.indisponibilite.id;
+    response = await handler.request("PATCH", `/api/seances/${rollbackId}/duree`, { heure_debut: "10:00", duree_minutes: 120 });
+    assertStatus(response, 400, "Extension cannot overwrite another session");
+    response = await professeurA.request("GET", "/api/indisponibilites");
+    assert.equal(response.json.indisponibilites.find((item) => item.id === rollbackBlocId).heure_debut, "11:00", "Rejected resize rolls back availability removal");
+
     delete seanceProfesseurSansCompte.compte;
     delete seanceProfesseurSansCompte.intervenant_id;
     response = await professeurA.request("POST", "/api/seances", seanceProfesseurSansCompte);
@@ -589,7 +655,6 @@ async function run() {
           heure_fin,
           duree_minutes,
           statut_seance,
-          description,
           indisponibilite_date_originale,
           indisponibilite_heure_debut_originale,
           indisponibilite_heure_fin_originale,
@@ -601,7 +666,7 @@ async function run() {
           handler_id,
           intervenant_id
         )
-        VALUES (?, '', ?, ?, 0, ?, ?, ?, 60, 'planifiee', '', ?, ?, ?, 0, 'acceptee', ?, ?, ?, ?, ?)
+        VALUES (?, '', ?, ?, 0, ?, ?, ?, 60, 'planifiee', ?, ?, ?, 0, 'acceptee', ?, ?, ?, ?, ?)
       `,
       [
         "Student legacy proposal delete",

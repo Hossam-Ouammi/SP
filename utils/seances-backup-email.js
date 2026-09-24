@@ -53,9 +53,41 @@ const colonnesBackupHandler = Object.freeze([
 ]);
 
 const colonnesBackupAdmin = Object.freeze([
+  ["seance_id", (seance) => seance.seance_id],
+  ["handler_id", (seance) => seance.handler_id],
   ["handler", (seance) => seance.handler_nom || "Non attribué"],
   ["handler_public", (seance) => seance.handler_public_id],
-  ...colonnesBackupHandler,
+  ["intervenant_id", (seance) => seance.intervenant_id],
+  ["realisateur", (seance) => seance.intervenant_nom || "Non attribué"],
+  ["realisateur_public", (seance) => seance.intervenant_public_id],
+  ["utilisateur_legacy_id", (seance) => seance.utilisateur_id],
+  ["date", (seance) => seance.date],
+  ["heure_debut", (seance) => seance.heure_debut],
+  ["heure_fin", (seance) => seance.heure_fin],
+  ["duree_minutes", (seance) => seance.duree_minutes],
+  ["statut", (seance) => seance.statut_seance],
+  ["eleve", (seance) => seance.etudiant],
+  ["parent", (seance) => seance.parent],
+  ["matiere", (seance) => seance.matiere],
+  ["titre", (seance) => seance.titre],
+  ["compte_legacy", (seance) => seance.compte],
+  ["essai", (seance) => (Number(seance.est_essai) === 1 ? "oui" : "non")],
+  ["prix", (seance) => seance.prix],
+  ["statut_paiement", (seance) => seance.statut_paiement],
+  ["tarif_horaire_applique", (seance) => seance.tarif_horaire_applique],
+  ["cree_par_id", (seance) => seance.cree_par],
+  ["cree_par", (seance) => seance.createur_nom],
+  ["cree_par_public", (seance) => seance.createur_public_id],
+  ["modifie_par_id", (seance) => seance.modifie_par],
+  ["modifie_par", (seance) => seance.modificateur_nom],
+  ["modifie_par_public", (seance) => seance.modificateur_public_id],
+  ["cree_le", (seance) => seance.created_at],
+  ["modifie_le", (seance) => seance.updated_at],
+  ["revision", (seance) => seance.revision],
+  ["supprime_le", (seance) => seance.deleted_at],
+  ["supprime_par_id", (seance) => seance.deleted_by],
+  ["supprime_par", (seance) => seance.suppresseur_nom],
+  ["supprime_par_public", (seance) => seance.suppresseur_public_id],
 ]);
 
 function echapperCsv(valeur) {
@@ -514,14 +546,6 @@ async function executerBackupsPlanifies(options = {}) {
   const locale = obtenirLocaleBackup(date);
   const occurrence = construireCleOccurrencePlanifiee(date);
   const resultat = { occurrenceKey: occurrence, handlers: null, admin: null };
-
-  if (locale.heure === "00:00") {
-    resultat.handlers = await executerBackupsHandlersEmail({
-      ...options,
-      date,
-      occurrenceKey: `handlers:${occurrence}`,
-    });
-  }
 
   if (["00:00", "12:00"].includes(locale.heure)) {
     resultat.admin = await executerBackupAdminEmail({

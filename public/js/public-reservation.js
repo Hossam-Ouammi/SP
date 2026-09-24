@@ -15,6 +15,7 @@ const planningEventsUrl = String(
 const elements = {
   calendar: document.getElementById("reservation-public-calendar"),
   error: document.getElementById("reservation-public-error"),
+  slotNotice: document.getElementById("reservation-public-slot-notice"),
   updatedAt: document.getElementById("reservation-public-updated-at"),
 };
 
@@ -35,15 +36,46 @@ const etat = {
     week_start: "",
     creneaux: [],
   },
+  planningCache: new Map(),
+  planningRequests: new Map(),
   requetePlanningId: 0,
   maintenantTimer: null,
   synchronisationTimer: null,
   synchronisationProgrammee: null,
   sourceTempsReel: null,
   calendrierIndisponible: false,
+  slotNoticeTimer: null,
 };
 
 const RESERVATION_ACTUALISATION_MAINTENANT_MS = 60 * 1000;
+
+function protegerContenuPublic() {
+  ["copy", "cut", "dragstart", "selectstart", "contextmenu"].forEach((typeEvenement) => {
+    document.addEventListener(typeEvenement, (event) => event.preventDefault());
+  });
+}
+
+function afficherNotificationCreneauIndisponible() {
+  if (!elements.slotNotice) {
+    return;
+  }
+
+  if (etat.slotNoticeTimer) {
+    window.clearTimeout(etat.slotNoticeTimer);
+  }
+
+  elements.slotNotice.classList.remove("hidden");
+  elements.slotNotice.classList.remove("is-visible");
+  window.requestAnimationFrame(() => {
+    elements.slotNotice.classList.add("is-visible");
+  });
+
+  etat.slotNoticeTimer = window.setTimeout(() => {
+    elements.slotNotice.classList.remove("is-visible");
+    window.setTimeout(() => elements.slotNotice?.classList.add("hidden"), 180);
+    etat.slotNoticeTimer = null;
+  }, 2600);
+}
 
 function obtenirOffsetPublicMinutes() {
   const offset = Number(
@@ -305,6 +337,7 @@ function mettreAJourCalendrier() {
     etat.calendrier.removeAllEvents();
     etat.calendrier.addEventSource(construireEvenementsPublics(creneaux));
   });
+
 }
 
 function mettreAJourHorodatageSynchronisation() {
@@ -357,7 +390,43 @@ async function recupererPlanning(weekStart = "") {
   return envoyerRequete(`${url.pathname}${url.search}`);
 }
 
+function memoriserPlanning(resultat) {
+  const weekStart = String(resultat?.planning?.week_start || "").trim();
+  if (weekStart) {
+    etat.planningCache.set(weekStart, resultat);
+  }
+  return resultat;
+}
+
+async function recupererPlanningPartage(weekStart) {
+  const cle = String(weekStart || "").trim();
+  if (!cle) {
+    return memoriserPlanning(await recupererPlanning());
+  }
+
+  if (etat.planningRequests.has(cle)) {
+    return etat.planningRequests.get(cle);
+  }
+
+  const requete = recupererPlanning(cle)
+    .then(memoriserPlanning)
+    .finally(() => {
+      etat.planningRequests.delete(cle);
+    });
+  etat.planningRequests.set(cle, requete);
+  return requete;
+}
+
+function prechargerPlanning(weekStart) {
+  const cle = String(weekStart || "").trim();
+  if (!cle || etat.planningCache.has(cle)) {
+    return Promise.resolve(etat.planningCache.get(cle) || null);
+  }
+  return recupererPlanningPartage(cle);
+}
+
 async function appliquerResultatPlanning(resultat) {
+  memoriserPlanning(resultat);
   etat.config = {
     ...etat.config,
     ...(resultat.config || {}),
@@ -380,7 +449,15 @@ async function chargerPlanning(weekStart = etat.planning.week_start, options = {
   const requeteId = ++etat.requetePlanningId;
 
   try {
-    const resultat = await recupererPlanning(weekStart);
+    const cle = String(weekStart || "").trim();
+    const resultatCache = options.utiliserCache ? etat.planningCache.get(cle) : null;
+
+    if (resultatCache) {
+      await appliquerResultatPlanning(resultatCache);
+      masquerErreur();
+    }
+
+    const resultat = await recupererPlanningPartage(cle);
 
     if (requeteId !== etat.requetePlanningId) {
       return;
@@ -606,7 +683,7 @@ function initialiserCalendrier(initialWeekStart) {
       const weekStart = String(info.startStr || "").slice(0, 10);
 
       if (weekStart && weekStart !== etat.planning.week_start) {
-        chargerPlanning(weekStart, { silencieux: true }).catch((erreur) => {
+        chargerPlanning(weekStart, { silencieux: true, utiliserCache: true }).catch((erreur) => {
           afficherErreur(erreur.message || "Impossible de charger le calendrier.");
         });
       }
@@ -619,9 +696,23 @@ function initialiserCalendrier(initialWeekStart) {
         info.event.extendedProps?.etat === "disponible"
           ? "Disponible"
           : "Non disponible";
+      if (info.event.extendedProps?.etat !== "disponible") {
+        info.el.setAttribute("role", "button");
+        info.el.setAttribute("tabindex", "0");
+        info.el.setAttribute("aria-label", "Créneau non disponible");
+        info.el.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            afficherNotificationCreneauIndisponible();
+          }
+        });
+      }
     },
     eventClick(info) {
       info.jsEvent?.preventDefault();
+      if (info.event.extendedProps?.etat !== "disponible") {
+        afficherNotificationCreneauIndisponible();
+      }
     },
     events: [],
   });
@@ -638,6 +729,7 @@ async function initialiserPage() {
     const resultatInitial = await recupererPlanning();
     await appliquerResultatPlanning(resultatInitial);
     initialiserCalendrier(resultatInitial.planning.week_start);
+    prechargerPlanning(ajouterJoursIso(resultatInitial.planning.week_start, 7)).catch(() => {});
     lancerActualisationMaintenant();
     lancerSynchronisationAutomatique();
     lancerSynchronisationTempsReel();
@@ -646,4 +738,5 @@ async function initialiserPage() {
   }
 }
 
+protegerContenuPublic();
 initialiserPage();

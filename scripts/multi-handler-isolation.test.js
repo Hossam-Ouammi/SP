@@ -252,11 +252,11 @@ async function creerSeanceMonetisation({
       INSERT INTO seances (
         titre, etudiant, parent, matiere, compte, est_essai, date,
         heure_debut, heure_fin, duree_minutes, statut_seance, prix,
-        statut_paiement, description, cree_par, modifie_par, utilisateur_id,
+        statut_paiement, cree_par, modifie_par, utilisateur_id,
         handler_id, intervenant_id, tarif_horaire_applique
       )
       VALUES (?, ?, '', 'Maths', 'Cours', ?, ?, '09:00', '10:00',
-        60, ?, 0, 'non_payee', '', ?, ?, ?, ?, ?, ?)
+        60, ?, 0, 'non_payee', ?, ?, ?, ?, ?, ?)
     `,
     [
       `Maths - ${marqueur}`,

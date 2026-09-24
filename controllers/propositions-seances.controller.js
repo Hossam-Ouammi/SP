@@ -121,7 +121,6 @@ function preparerDonneesDepuisProposition(proposition, corps = {}) {
     heure_debut: corps.heure_debut ?? proposition.heure_debut,
     duree_minutes: corps.duree_minutes ?? proposition.duree_minutes,
       statut_seance: corps.statut_seance ?? proposition.statut_seance,
-      description: corps.description ?? proposition.description,
     }),
     handler_id: corps.handler_id ?? corps.handlerId ?? proposition.handler_id,
     intervenant_id:

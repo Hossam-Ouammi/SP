@@ -202,9 +202,16 @@ export async function revoquerAppareilAutoLoginAdmin(appareilId, motDePasseActue
   });
 }
 
-export async function supprimerCompteAdmin(utilisateurId, motDePasseActuel) {
+export async function supprimerCompteAdmin(
+  utilisateurId,
+  motDePasseActuel,
+  preserverSeancesFaites = false
+) {
   return envoyerRequete(`/api/admin/users/${Number(utilisateurId)}`, {
     method: "DELETE",
-    body: JSON.stringify({ mot_de_passe_actuel: motDePasseActuel }),
+    body: JSON.stringify({
+      mot_de_passe_actuel: motDePasseActuel,
+      preserver_seances_faites: Boolean(preserverSeancesFaites),
+    }),
   });
 }

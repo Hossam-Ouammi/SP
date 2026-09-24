@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Calendrier public</title>
+    <title>Disponibilités | Superprof</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;500;600;700;800;900&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260920-calendar-toolbar-unified" />
+    <link rel="stylesheet" href="/css/style.css?v=20260920-public-protected-content" />
   </head>
   <body
     class="reservation-public-body"
@@ -21,36 +21,43 @@
     data-public-calendar-events-url="<%= planningEventsPath %>"
   >
     <main class="reservation-public-main">
+      <div
+        id="reservation-public-slot-notice"
+        class="reservation-public-slot-notice hidden"
+        role="status"
+        aria-live="polite"
+      >
+        Ce créneau est non disponible.
+      </div>
+
       <section class="reservation-public-shell">
         <header class="panel reservation-public-toolbar">
-          <div>
-            <h1>Disponibilités</h1>
-          </div>
-
-          <div class="reservation-public-actions">
-            <span
-              id="reservation-public-updated-at"
-              class="reservation-public-sync"
-              aria-live="polite"
-            >
-              Synchronisation active
-            </span>
+          <div class="reservation-public-heading">
+            <div class="reservation-public-brand" aria-label="Superprof">
+              <span class="reservation-public-brand-signature">
+                <img
+                  class="reservation-public-logo-mark"
+                  src="/superprof-official-mark.svg?v=20260920-refined"
+                  alt=""
+                  aria-hidden="true"
+                />
+                <span class="reservation-public-wordmark">superprof</span>
+              </span>
+              <span class="reservation-public-brand-separator" aria-hidden="true"></span>
+              <span class="reservation-public-brand-context">Planning</span>
+            </div>
+            <p>Découvrez les créneaux disponibles et choisissez le moment qui vous convient.</p>
           </div>
         </header>
 
         <section class="panel reservation-public-calendar-panel">
-          <div class="reservation-public-calendar-head">
-            <div class="reservation-public-legend" aria-label="Légende">
-              <span class="reservation-public-legend-item">
-                <span class="reservation-public-legend-swatch reservation-public-legend-swatch-blocked"></span>
-                Non disponible
-              </span>
-            </div>
-          </div>
-
           <div id="reservation-public-error" class="form-error hidden"></div>
           <div id="reservation-public-calendar" class="reservation-public-calendar"></div>
         </section>
+
+        <footer class="reservation-public-footer">
+          Planning de disponibilités · Superprof
+        </footer>
       </section>
     </main>
 
@@ -60,6 +67,6 @@
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
     <script src="/js/service-worker-recovery.js?v=20260919-auto-refresh"></script>
-    <script type="module" src="/js/public-reservation.js?v=20260919-calendar-navigation"></script>
+    <script type="module" src="/js/public-reservation.js?v=20260920-public-protected-content"></script>
   </body>
 </html>

@@ -19,6 +19,7 @@ const {
 const {
   trouverIndisponibiliteChevauchante,
   trouverIndisponibiliteIntervenantChevauchante,
+  retirerPlageIndisponibilitesPersonnelles,
 } = require("../models/indisponibilite.model");
 const {
   construireFiltreLectureSeances,
@@ -61,7 +62,6 @@ const libellesChampHistorique = {
   heure_fin: "Heure de fin",
   duree_minutes: "Durée",
   statut_seance: "Statut",
-  description: "Description",
 };
 const libellesStatutHistorique = {
   planifiee: "Planifiée",
@@ -540,10 +540,6 @@ function normaliserValeurHistorique(champ, valeur) {
     return libellesStatutHistorique[valeur] || String(valeur || "-");
   }
 
-  if (champ === "description") {
-    return normaliserTexte(valeur) || "Aucune description";
-  }
-
   return normaliserTexte(String(valeur ?? "")) || "-";
 }
 
@@ -554,10 +550,6 @@ function valeurComparableHistorique(champ, valeur) {
 
   if (champ === "duree_minutes") {
     return Number(valeur) || 0;
-  }
-
-  if (champ === "description") {
-    return normaliserTexte(valeur);
   }
 
   return normaliserTexte(String(valeur ?? ""));
@@ -582,7 +574,6 @@ function extraireEtatAuditSeance(seance) {
     heure_fin: seance.heure_fin,
     duree_minutes: dureeMinutes,
     statut_seance: seance.statut_seance,
-    description: seance.description || "",
   };
 }
 
@@ -718,7 +709,6 @@ async function validerDonneesSeance(donneesSeance, utilisateur, options = {}) {
   const dureeValide = dureesValides.includes(dureeMinutes);
   const nomÉtudiant = normaliserTexte(donneesSeance.etudiant);
   const nomParent = normaliserTexte(donneesSeance.parent);
-  const description = normaliserTexte(donneesSeance.description);
   const catalogue = await recupererCatalogueSeances(donneesSeance?.handler_id);
   const seanceExistante = options.seanceExistante || null;
   const matiereExisteAuCatalogue = catalogue.matieres.includes(donneesSeance.matiere);
@@ -801,10 +791,6 @@ async function validerDonneesSeance(donneesSeance, utilisateur, options = {}) {
     erreurs.push("Le statut de la séance est invalide.");
   }
 
-  if (description.length > 2000) {
-    erreurs.push("La description ne peut pas dépasser 2000 caractères.");
-  }
-
   return erreurs;
 }
 
@@ -829,7 +815,6 @@ function preparerDonneesSeance(donneesSeance) {
     duree_minutes: dureeMinutes,
     heure_fin: heureDebut && dureeMinutes ? calculerHeureFin(heureDebut, dureeMinutes) : "",
     statut_seance: normaliserTexte(donneesSeance.statut_seance),
-    description: normaliserTexte(donneesSeance.description),
   };
 
   return {
@@ -846,7 +831,6 @@ function preparerDonneesSeance(donneesSeance) {
     statut_seance: donneesPreparees.statut_seance,
     prix: 0,
     statut_paiement: "non_payee",
-    description: donneesPreparees.description,
   };
 }
 
@@ -1195,6 +1179,108 @@ async function modifierSeance(req, res) {
   });
 }
 
+async function redimensionnerSeance(req, res) {
+  if (!estIdentifiantValide(req.params.id)) {
+    return res.status(400).json({ message: "Identifiant de séance invalide." });
+  }
+  const seance = await executerTransactionImmediate(async () => {
+    const existante = await trouverSeanceParIdScopee(req.params.id, construireScopeLectureSeances(req));
+    if (!existante) throw creerErreurRessourceInaccessible();
+    const affectation = await resoudreAffectationSeance({
+      scope: req.scope, acteur: req.utilisateur, donneesSeance: existante, seanceExistante: existante,
+    });
+    const donnees = await ajouterTarifSnapshotIntervenant({
+      ...preparerDonneesSeance({
+        ...existante,
+        heure_debut: req.body?.heure_debut,
+        duree_minutes: req.body?.duree_minutes,
+      }),
+      ...affectation,
+    }, { seanceExistante: existante });
+    const erreurs = await validerDonneesSeance(donnees, req.utilisateur, { seanceExistante: existante });
+    if (erreurs.length) throw creerErreurHttp(400, erreurs.join(" "));
+    if (seanceEstAnnulee(existante)) {
+      throw creerErreurHttp(400, "Une séance annulée ne peut pas être redimensionnée.");
+    }
+    if (donnees.heure_debut !== existante.heure_debut && donnees.heure_fin !== existante.heure_fin) {
+      throw creerErreurHttp(400, "Déplacez un seul bord de la séance à la fois.");
+    }
+    const extensions = [];
+    if (donnees.heure_debut < existante.heure_debut) extensions.push([donnees.heure_debut, existante.heure_debut]);
+    if (donnees.heure_fin > existante.heure_fin) extensions.push([existante.heure_fin, donnees.heure_fin]);
+    for (const [heureDebut, heureFin] of extensions) {
+      const ajustements = await retirerPlageIndisponibilitesPersonnelles({
+        intervenantId: affectation.intervenant_id, date: existante.date, heureDebut, heureFin,
+      });
+      for (const ajustement of ajustements) {
+        await creerEntreeHistorique({
+          seanceId: existante.id, seanceLibelle: construireLibelleSeance(existante),
+          actionType: "indisponibilite_modifiee", actionLabel: "Indisponibilité ajustée après extension de séance",
+          acteurId: req.utilisateur.id, acteurNom: req.utilisateur.nom,
+          handlerId: affectation.handler_id, intervenantId: affectation.intervenant_id,
+          details: { type: "modification", changements: [{ champ: "creneau", label: "Créneau indisponible", avant: ajustement.avant, apres: ajustement.apres }] },
+        });
+      }
+    }
+    // Un conflit avec une autre séance annule aussi les ajustements ci-dessus.
+    return modifierSeanceDepuisDonneesValidees({
+      seanceExistante: existante, donneesSeance: donnees, acteur: req.utilisateur,
+      utiliserTransaction: false,
+    });
+  });
+  res.locals.realtimeScope = { handlerId: seance.handler_id, intervenantId: seance.intervenant_id };
+  return res.json({ message: "Durée de la séance modifiée.", seance: transformerSeancePourClient(seance) });
+}
+
+async function deplacerSeance(req, res) {
+  if (!estIdentifiantValide(req.params.id)) {
+    return res.status(400).json({ message: "Identifiant de séance invalide." });
+  }
+
+  const seanceExistante = await trouverSeanceParIdScopee(
+    req.params.id,
+    construireScopeLectureSeances(req)
+  );
+  if (!seanceExistante) {
+    return res.status(404).json({ message: "Séance introuvable." });
+  }
+
+  const date = normaliserTexte(req.body?.date);
+  const heureDebut = normaliserTexte(req.body?.heure_debut);
+  // Les autres champs proviennent exclusivement de la base : déplacer une
+  // séance ne doit pas réécrire ses détails depuis un client potentiellement périmé.
+  const affectation = await resoudreAffectationSeance({
+    scope: req.scope,
+    acteur: req.utilisateur,
+    donneesSeance: seanceExistante,
+    seanceExistante,
+  });
+  const donneesSeance = await ajouterTarifSnapshotIntervenant({
+    ...preparerDonneesSeance({ ...seanceExistante, date, heure_debut: heureDebut }),
+    ...affectation,
+  }, { seanceExistante });
+  const erreurs = await validerDonneesSeance(donneesSeance, req.utilisateur, {
+    seanceExistante,
+  });
+  if (erreurs.length > 0) {
+    return res.status(400).json({ message: erreurs.join(" ") });
+  }
+
+  const seanceMiseAJour = await modifierSeanceDepuisDonneesValidees({
+    seanceExistante,
+    donneesSeance,
+    acteur: req.utilisateur,
+  });
+  res.locals.realtimeScope = {
+    handlerId: seanceMiseAJour.handler_id,
+    intervenantId: seanceMiseAJour.intervenant_id,
+  };
+  return res.json({
+    message: "Séance déplacée avec succès.",
+    seance: transformerSeancePourClient(seanceMiseAJour),
+  });
+}
+
 async function changerStatutSeance(req, res) {
   if (!estIdentifiantValide(req.params.id)) {
     return res.status(400).json({ message: "Identifiant de séance invalide." });
@@ -1333,6 +1419,8 @@ module.exports = {
   recupererUneSeance,
   ajouterSeance,
   modifierSeance,
+  deplacerSeance,
+  redimensionnerSeance,
   changerStatutSeance,
   supprimerUneSeance,
   preparerDonneesSeance,

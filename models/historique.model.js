@@ -236,7 +236,6 @@ function construireSnapshotSeanceHistorique(seance) {
     heure_fin: String(seance?.heure_fin || ""),
     duree_minutes: dureeMinutes,
     statut_seance: String(seance?.statut_seance || ""),
-    description: String(seance?.description || ""),
   };
 }
 

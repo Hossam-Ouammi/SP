@@ -412,7 +412,11 @@ async function creerUtilisateurAdministration(req, res) {
 
 async function supprimerUtilisateurAdministration(req, res) {
   const utilisateurId = Number(req.params.id);
-  const { mot_de_passe_actuel: motDePasseActuel } = req.body;
+  const {
+    mot_de_passe_actuel: motDePasseActuel,
+    preserver_seances_faites: preserverSeancesFaitesBrut,
+  } = req.body;
+  const preserverSeancesFaites = preserverSeancesFaitesBrut === true;
 
   if (!Number.isInteger(utilisateurId) || utilisateurId <= 0 || !motDePasseActuel) {
     return res.status(400).json({
@@ -450,7 +454,8 @@ async function supprimerUtilisateurAdministration(req, res) {
 
   const resumeSuppression = await supprimerUtilisateurAdministrationModele(
     compteCible.id,
-    req.utilisateur.id
+    req.utilisateur.id,
+    { preserverSeancesFaites }
   );
 
   await journaliserActionAdmin(req, "admin_delete_user", "success", {
@@ -461,10 +466,15 @@ async function supprimerUtilisateurAdministration(req, res) {
     total_seances_creees_reattribuees: resumeSuppression.totalSeancesCreeesReattribuees,
     total_seances_modifiees_reattribuees: resumeSuppression.totalSeancesModifieesReattribuees,
     total_seances_legacy_detachees: resumeSuppression.totalSeancesLegacyDetachees,
+    total_seances_supprimees: resumeSuppression.totalSeancesSupprimees,
+    total_seances_faites_conservees: resumeSuppression.totalSeancesFaitesConservees,
+    identite_historique_conservee: resumeSuppression.identiteHistoriqueConservee,
   });
 
   return res.json({
-    message: `Le compte ${compteCible.nom} a été supprimé.`,
+    message: resumeSuppression.totalSeancesFaitesConservees > 0
+      ? `Le compte ${compteCible.nom} a été supprimé. ${resumeSuppression.totalSeancesFaitesConservees} séance(s) faite(s) ont été préservées.`
+      : `Le compte ${compteCible.nom} a été supprimé avec ses séances.`,
   });
 }
 

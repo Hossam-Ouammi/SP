@@ -30,7 +30,7 @@ function estDateIsoValide(date) {
     return false;
   }
 
-  const dateObjet = new Date(`${date}T12:00:00`);
+  const dateObjet = new Date(`${date}T12:00:00Z`);
   return !Number.isNaN(dateObjet.getTime()) && dateObjet.toISOString().startsWith(date);
 }
 
@@ -284,21 +284,16 @@ function extrairePartiesHorlogeCalendrier(dateObjet, fuseauHoraire = "") {
   };
 }
 
-// FullCalendar chargé côté privé n'embarque pas de plugin de fuseaux nommés.
-// On lui fournit donc une date locale dont l'horloge correspond à la référence
-// centrale : les événements sans offset restent des heures civiles inchangées,
-// tandis que le bouton « Aujourd'hui » et l'indicateur de l'instant suivent ce
-// fuseau. Le fuseau du calendrier public ne doit jamais être passé ici.
+// FullCalendar v6 représente les heures civiles d'un fuseau nommé par des
+// dates UTC lorsqu'aucun plugin de fuseau n'est chargé. Le texte sans offset
+// est interprété dans le fuseau de la grille, quel que soit celui du navigateur.
 function construireMaintenantCalendrier(fuseauHoraire = "", dateObjet = new Date()) {
   const parties = extrairePartiesHorlogeCalendrier(dateObjet, fuseauHoraire);
-  return new Date(
-    parties.year,
-    parties.month - 1,
-    parties.day,
-    parties.hour,
-    parties.minute,
-    parties.second
-  );
+  const date = `${parties.year}-${String(parties.month).padStart(2, "0")}-${String(parties.day).padStart(2, "0")}`;
+  const heure = [parties.hour, parties.minute, parties.second]
+    .map((valeur) => String(valeur).padStart(2, "0"))
+    .join(":");
+  return `${date}T${heure}`;
 }
 
 function convertirHeureOptionEnMinutes(heure, { finDeJour = false } = {}) {
@@ -413,20 +408,20 @@ function formaterDateIsoCalendrier(dateObjet) {
     return "";
   }
 
-  const annee = dateObjet.getFullYear();
-  const mois = String(dateObjet.getMonth() + 1).padStart(2, "0");
-  const jour = String(dateObjet.getDate()).padStart(2, "0");
+  const annee = dateObjet.getUTCFullYear();
+  const mois = String(dateObjet.getUTCMonth() + 1).padStart(2, "0");
+  const jour = String(dateObjet.getUTCDate()).padStart(2, "0");
   return `${annee}-${mois}-${jour}`;
 }
 
 function ajouterJoursDateIsoCalendrier(dateIso, nombreJours = 1) {
-  const date = new Date(`${dateIso}T12:00:00`);
+  const date = new Date(`${dateIso}T12:00:00Z`);
 
   if (Number.isNaN(date.getTime())) {
     return dateIso;
   }
 
-  date.setDate(date.getDate() + Number(nombreJours || 0));
+  date.setUTCDate(date.getUTCDate() + Number(nombreJours || 0));
   return formaterDateIsoCalendrier(date);
 }
 
@@ -489,11 +484,10 @@ function indisponibiliteChevaucheCreneauProfesseur(
 function creerEvenementCreneauIndisponibleCollectif({ dateIso, debut, fin, professeurs }) {
   const heureDebut = convertirMinutesEnHeureOption(debut).slice(0, 5);
   const heureFin = convertirMinutesEnHeureOption(fin).slice(0, 5);
-  const libelle = "Indisponible";
 
   return {
     id: `availability-unavailable-${dateIso}-${heureDebut}`,
-    title: libelle,
+    title: "",
     start: `${dateIso}T${heureDebut}`,
     end: construireDateHeureFinCalendrier(dateIso, heureFin),
     display: "background",
@@ -641,7 +635,7 @@ function creerElementCalendrier(tagName, className, texte) {
 }
 
 function formaterLibelleJourCalendrier(date, options) {
-  return new Intl.DateTimeFormat("fr-FR", options).format(date);
+  return new Intl.DateTimeFormat("fr-FR", { ...options, timeZone: "UTC" }).format(date);
 }
 
 function obtenirAbreviationJourMobile(date) {
@@ -682,9 +676,9 @@ function formaterDateIsoLocale(dateObjet) {
     return "";
   }
 
-  const annee = dateObjet.getFullYear();
-  const mois = String(dateObjet.getMonth() + 1).padStart(2, "0");
-  const jour = String(dateObjet.getDate()).padStart(2, "0");
+  const annee = dateObjet.getUTCFullYear();
+  const mois = String(dateObjet.getUTCMonth() + 1).padStart(2, "0");
+  const jour = String(dateObjet.getUTCDate()).padStart(2, "0");
   return `${annee}-${mois}-${jour}`;
 }
 
@@ -700,8 +694,8 @@ function formaterHeureLocale(dateObjet) {
     return "";
   }
 
-  const heures = String(dateObjet.getHours()).padStart(2, "0");
-  const minutes = String(dateObjet.getMinutes()).padStart(2, "0");
+  const heures = String(dateObjet.getUTCHours()).padStart(2, "0");
+  const minutes = String(dateObjet.getUTCMinutes()).padStart(2, "0");
   return `${heures}:${minutes}`;
 }
 
@@ -760,13 +754,13 @@ function extraireSelectionCalendrier(info) {
 }
 
 function calculerDateSuivante(dateIso) {
-  const dateObjet = new Date(`${dateIso}T12:00:00`);
+  const dateObjet = new Date(`${dateIso}T12:00:00Z`);
 
   if (Number.isNaN(dateObjet.getTime())) {
     return dateIso;
   }
 
-  dateObjet.setDate(dateObjet.getDate() + 1);
+  dateObjet.setUTCDate(dateObjet.getUTCDate() + 1);
   return dateObjet.toISOString().slice(0, 10);
 }
 
@@ -1030,6 +1024,40 @@ function transformerIndisponibiliteEnEvenement(indisponibilite) {
   };
 }
 
+function masquerPrenomsSeancesChevauchantes(evenements = []) {
+  const seances = evenements.filter(
+    (evenement) => evenement?.extendedProps?.type === "seance"
+  );
+  const seancesChevauchantes = new Set();
+
+  for (let index = 0; index < seances.length; index += 1) {
+    const seanceCourante = seances[index];
+    const debutCourant = new Date(seanceCourante.start).getTime();
+    const finCourante = new Date(seanceCourante.end).getTime();
+
+    for (let autreIndex = index + 1; autreIndex < seances.length; autreIndex += 1) {
+      const autreSeance = seances[autreIndex];
+      const debutAutre = new Date(autreSeance.start).getTime();
+      const finAutre = new Date(autreSeance.end).getTime();
+
+      if (debutCourant < finAutre && debutAutre < finCourante) {
+        seancesChevauchantes.add(seanceCourante);
+        seancesChevauchantes.add(autreSeance);
+      }
+    }
+  }
+
+  seancesChevauchantes.forEach((evenement) => {
+    evenement.title = "";
+    evenement.classNames = [
+      ...(Array.isArray(evenement.classNames) ? evenement.classNames : []),
+      "calendar-overlapping-session",
+    ];
+  });
+
+  return evenements;
+}
+
 function genererContenuLienPlusEvenements(arg) {
   if (!estCalendrierMobile()) {
     return arg.text;
@@ -1101,6 +1129,71 @@ function adapterPresentationEvenement(info) {
   }
 }
 
+function creerRepereHeureDeplacement(element) {
+  let actif = false;
+  let apercu = null;
+  let debutApercu = null;
+  let repere = null;
+  let animation = null;
+
+  function actualiser() {
+    if (!actif) return;
+    const axe = element.querySelector(".fc-timegrid-slot-label");
+    if (apercu?.el?.isConnected && axe && apercu.event.start) {
+      const position = apercu.el.getBoundingClientRect();
+      const colonne = axe.getBoundingClientRect();
+      const grille = element.querySelector(".fc-timegrid-body")?.getBoundingClientRect();
+      if (!repere) {
+        repere = document.createElement("div");
+        repere.className = "calendar-drag-time-indicator";
+        repere.setAttribute("aria-hidden", "true");
+        element.appendChild(repere);
+      }
+      const debut = debutApercu || apercu.event.start;
+      // FullCalendar utilise l'heure civile UTC-coercée pour Africa/Casablanca.
+      repere.textContent = `${String(debut.getUTCHours()).padStart(2, "0")}:${String(debut.getUTCMinutes()).padStart(2, "0")}`;
+      repere.style.left = `${colonne.left}px`;
+      repere.style.top = `${position.top}px`;
+      repere.style.width = `${colonne.width}px`;
+      repere.hidden = !grille || position.top < Math.max(0, grille.top) || position.top > Math.min(window.innerHeight, grille.bottom);
+    } else if (repere) {
+      repere.hidden = true;
+    }
+    animation = requestAnimationFrame(actualiser);
+  }
+
+  function arreter() {
+    actif = false;
+    apercu = null;
+    debutApercu = null;
+    cancelAnimationFrame(animation);
+    animation = null;
+    repere?.remove();
+    repere = null;
+  }
+
+  return {
+    demarrer(info) {
+      arreter();
+      if (info.view.type !== "timeGridWeek") return;
+      actif = true;
+      apercu = info;
+      actualiser();
+    },
+    monter(info) {
+      if (actif && info.isMirror) apercu = info;
+    },
+    actualiserEvenement(info) {
+      if (actif && info.isMirror) debutApercu = info.event.start;
+      return [];
+    },
+    demonter(info) {
+      if (apercu?.el === info.el) apercu = null;
+    },
+    arreter,
+  };
+}
+
 export function initialiserCalendrier(
   element,
   {
@@ -1108,6 +1201,9 @@ export function initialiserCalendrier(
     onSlotClick,
     onSelect,
     onEventClick,
+    onEventDrop,
+    onEventResize,
+    canDragSeance,
     onIndisponibiliteClick,
     onDatesSet,
     selectionMobileRapide = false,
@@ -1129,19 +1225,40 @@ export function initialiserCalendrier(
   const plageHoraireInitiale = normaliserPlageHoraireCalendrier(plageHoraire);
   const pasCreneauInitial = normaliserPasCreneauCalendrier(pasCreneauMinutes);
   const dureeCreneauInitiale = convertirPasCreneauEnDuree(pasCreneauInitial);
+  const repereDeplacement = creerRepereHeureDeplacement(element);
+  let redimensionnementEnCours = false;
 
   const calendrier = new FullCalendar.Calendar(element, {
     plugins,
     locale: "fr",
+    timeZone: timezoneCentrale || "Africa/Casablanca",
     initialView: optionsResponsive.initialView,
     firstDay: 1,
     height: "auto",
     expandRows: true,
     selectable: true,
+    editable: typeof onEventDrop === "function",
+    eventDurationEditable: typeof onEventResize === "function" && !estCalendrierMobile(),
+    eventResizableFromStart: true,
+    eventDataTransform(evenement) {
+      const modifiable = typeof onEventDrop === "function" &&
+        evenement.extendedProps?.type === "seance" &&
+        (typeof canDragSeance !== "function" || canDragSeance(evenement.extendedProps.seance));
+      return {
+        ...evenement,
+        startEditable: modifiable,
+        ...(!modifiable || evenement.extendedProps?.seance?.statut_seance === "annulee" ? { durationEditable: false } : {}),
+      };
+    },
+    eventAllow(plage) {
+      if (!redimensionnementEnCours) return true;
+      const duree = (plage.end - plage.start) / 60000;
+      return !estCalendrierMobile() && [60, 90, 120].includes(duree);
+    },
     selectMirror: true,
     unselectAuto: true,
     selectLongPressDelay: selectionMobileRapide ? 120 : 1000,
-    eventLongPressDelay: selectionMobileRapide ? 360 : 1000,
+    eventLongPressDelay: selectionMobileRapide || onEventDrop ? 360 : 1000,
     longPressDelay: selectionMobileRapide ? 120 : 1000,
     selectMinDistance: selectionMobileRapide ? 0 : 5,
     slotDuration: dureeCreneauInitiale,
@@ -1172,7 +1289,26 @@ export function initialiserCalendrier(
       minute: "2-digit",
       meridiem: false,
     },
-    eventDidMount: adapterPresentationEvenement,
+    eventDidMount(info) {
+      adapterPresentationEvenement(info);
+      repereDeplacement.monter(info);
+    },
+    eventWillUnmount: repereDeplacement.demonter,
+    eventClassNames: repereDeplacement.actualiserEvenement,
+    eventDragStart: repereDeplacement.demarrer,
+    eventDragStop: repereDeplacement.arreter,
+    eventResizeStart(info) {
+      redimensionnementEnCours = true;
+      repereDeplacement.demarrer(info);
+    },
+    eventResizeStop() {
+      redimensionnementEnCours = false;
+      repereDeplacement.arreter();
+    },
+    eventResize(info) {
+      onEventResize?.(info);
+    },
+    viewWillUnmount: repereDeplacement.arreter,
     datesSet(info) {
       synchroniserEtatVisuelCalendrier(element, info.view.type);
       onDatesSet?.(info);
@@ -1180,6 +1316,7 @@ export function initialiserCalendrier(
     windowResize() {
       const vueActive = calendrier.view?.type;
       appliquerOptionsResponsive(calendrier);
+      calendrier.setOption("eventDurationEditable", typeof onEventResize === "function" && !estCalendrierMobile());
 
       if (estCalendrierMobile()) {
         if (vueActive !== "timeGridWeek" && vueActive !== "dayGridMonth") {
@@ -1224,12 +1361,20 @@ export function initialiserCalendrier(
 
       onEventClick(info.event.extendedProps.seance);
     },
+    eventDrop(info) {
+      if (info.event.extendedProps?.type !== "seance") {
+        info.revert();
+        return;
+      }
+      onEventDrop?.(info);
+    },
     events: [],
   });
 
   calendrier.render();
   calendrier.__plageHoraire = plageHoraireInitiale;
   calendrier.__pasCreneauMinutes = pasCreneauInitial;
+  calendrier.__timezoneCalendrier = timezoneCentrale || "Africa/Casablanca";
   synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
   return calendrier;
 }
@@ -1268,9 +1413,13 @@ export function mettreAJourHorlogeCalendrier(calendrier, timezoneCentrale = "") 
     return null;
   }
 
-  const maintenant = construireMaintenantCalendrier(timezoneCentrale);
+  const fuseau = timezoneCentrale || "Africa/Casablanca";
+  if (calendrier.__timezoneCalendrier !== fuseau) {
+    calendrier.setOption("timeZone", fuseau);
+  }
+  const maintenant = construireMaintenantCalendrier(fuseau);
   calendrier.setOption("now", maintenant);
-  calendrier.__timezoneCalendrier = String(timezoneCentrale || "").trim();
+  calendrier.__timezoneCalendrier = fuseau;
   return maintenant;
 }
 
@@ -1309,7 +1458,7 @@ export function mettreAJourEvenements(
   }
 
   calendrier.removeAllEvents();
-  calendrier.addEventSource(evenements);
+  calendrier.addEventSource(masquerPrenomsSeancesChevauchantes(evenements));
 }
 
 export const __test__ = {
@@ -1319,4 +1468,8 @@ export const __test__ = {
   indisponibiliteChevaucheCreneauProfesseur,
   creerPalettesDisponibiliteProfesseurs,
   creerEvenementsIndisponibiliteCollective,
+  masquerPrenomsSeancesChevauchantes,
+  construireMaintenantCalendrier,
+  extraireCreneauDepuisClicCalendrier,
+  extraireSelectionCalendrier,
 };

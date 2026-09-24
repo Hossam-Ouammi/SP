@@ -247,12 +247,6 @@ function construireListeCreationHistorique(seance) {
       avant: "-",
       apres: seance.statut_seance,
     },
-    {
-      champ: "description",
-      label: "Description",
-      avant: "-",
-      apres: seance.description || "Aucune description",
-    },
   ];
 }
 
@@ -978,9 +972,10 @@ async function initialiserUtilisateursInitiaux() {
         nom, email, mot_de_passe, est_admin, acces_active,
         mode_lecture_seule, peut_voir_monetisation, peut_voir_aujourdhui,
         peut_voir_indisponibilites, session_version, doit_changer_mot_de_passe,
-        mot_de_passe_change_at, echecs_connexion, tarif_horaire, created_at
+        calendrier_public_actif, mot_de_passe_change_at, echecs_connexion,
+        tarif_horaire, created_at
       )
-      VALUES (?, ?, ?, 1, 1, 0, 1, 1, 1, 1, 1, NULL, 0, 90, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, 1, 1, 0, 1, 1, 1, 1, 1, 1, NULL, 0, 90, CURRENT_TIMESTAMP)
     `,
     [nom, email, motDePasseHash]
   );
@@ -1045,7 +1040,6 @@ async function initialiserBaseDeDonneesInterne() {
       statut_seance TEXT NOT NULL DEFAULT 'planifiee',
       prix REAL DEFAULT 0,
       statut_paiement TEXT DEFAULT 'non_payee',
-      description TEXT,
       cree_par INTEGER REFERENCES utilisateurs(id),
       modifie_par INTEGER REFERENCES utilisateurs(id),
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -1100,7 +1094,6 @@ async function initialiserBaseDeDonneesInterne() {
       statut_seance TEXT NOT NULL DEFAULT 'planifiee',
       prix REAL DEFAULT 0,
       statut_paiement TEXT DEFAULT 'non_payee',
-      description TEXT,
       indisponibilite_id INTEGER REFERENCES indisponibilites(id) ON DELETE SET NULL,
       indisponibilite_date_originale TEXT,
       indisponibilite_heure_debut_originale TEXT,
