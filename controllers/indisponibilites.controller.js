@@ -27,7 +27,7 @@ const {
 const { estDateHeureZonneeCivileExistante } = require("../utils/timezone");
 const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
 const { creerEntreeHistorique } = require("../models/historique.model");
-const { executerTransactionImmediate } = require("../models/db");
+const { executerTransactionImmediate, run } = require("../models/db");
 
 const HEURE_DEBUT_JOUR_COMPLET = "00:00";
 const HEURE_FIN_JOUR_COMPLET = "23:59";
@@ -514,6 +514,7 @@ async function verifierPlageCalendrierIndisponibilite({
   heureDebut,
   heureFin,
   indisponibiliteExistante = null,
+  conserverBornesExistantes = false,
 }) {
   const idHandler = normaliserIdentifiant(handlerId);
   if (!idHandler) {
@@ -540,6 +541,18 @@ async function verifierPlageCalendrierIndisponibilite({
   }
 
   const plage = normaliserPlageDepuisReglages(reglages || {});
+  // The grid is only a visible window: full-day fragments and older
+  // declarations can legitimately start/end outside it. Preserve those
+  // existing bounds during copy/resize, without allowing new hidden hours.
+  if (conserverBornesExistantes && indisponibiliteExistante) {
+    const debutExistant = convertirHeureEnMinutes(indisponibiliteExistante.heure_debut);
+    const finExistante = Number(indisponibiliteExistante.jour_complet) === 1
+      ? 1440 : convertirHeureEnMinutes(indisponibiliteExistante.heure_fin);
+    if (convertirHeureEnMinutes(heureDebut) >= Math.min(plage.startMinutes, debutExistant) &&
+        convertirHeureEnMinutes(heureFin) <= Math.max(plage.endMinutes, finExistante)) {
+      return "";
+    }
+  }
   if (
     !intervalleEstDansPlageCalendrier({
       heureDebut,
@@ -1013,7 +1026,93 @@ async function supprimerUneIndisponibilite(req, res) {
   });
 }
 
+// Subtract both personal bookings (across teams) and existing declarations.
+// Running inside an IMMEDIATE transaction also makes repeated copy requests safe.
+async function remplirPlageLibre({ source, date, heureDebut, heureFin, affectation, acteur, remplacer = false }) {
+  if (!estDateIsoValide(date) || !estHeureCreneauValide(heureDebut) ||
+      !estHeureFinIndisponibiliteValide(heureFin) || heureFin <= heureDebut) {
+    throw creerErreurHttp(400, "Plage invalide : choisissez des horaires par demi-heure.");
+  }
+  const erreur = await verifierPlageCalendrierIndisponibilite({
+    ...affectation, date, heureDebut, heureFin, indisponibiliteExistante: source,
+    conserverBornesExistantes: true,
+  });
+  if (erreur) throw creerErreurHttp(400, erreur);
+  const occupations = await listerOccupationsIntervenant(affectation.intervenantId);
+  const declarations = await listerIndisponibilitesScopees({ intervenantId: affectation.intervenantId });
+  const obstacles = [...occupations.filter(s => s.statut_seance !== "annulee"),
+    ...declarations.filter(i => !remplacer || Number(i.id) !== Number(source.id))]
+    .filter(i => i.date === date)
+    .map(i => ({ debut: convertirHeureEnMinutes(i.heure_debut), fin: Number(i.jour_complet) === 1 ? 1440 : convertirHeureEnMinutes(i.heure_fin) }));
+  let plages = [{ debut: convertirHeureEnMinutes(heureDebut), fin: convertirHeureEnMinutes(heureFin) }];
+  for (const obstacle of obstacles) {
+    plages = plages.flatMap(p => obstacle.fin <= p.debut || obstacle.debut >= p.fin ? [p] :
+      [{ debut: p.debut, fin: Math.min(p.fin, obstacle.debut) },
+       { debut: Math.max(p.debut, obstacle.fin), fin: p.fin }].filter(p => p.fin > p.debut));
+  }
+  if (remplacer && !plages.length) throw creerErreurHttp(400, "Cette plage ne contient aucun créneau libre.");
+  const resultats = [];
+  for (const [index, plage] of plages.entries()) {
+    const donnees = { date, heureDebut: convertirMinutesEnHeure(plage.debut),
+      heureFin: plage.fin === 1440 ? "24:00" : convertirMinutesEnHeure(plage.fin),
+      jourComplet: 0, raison: source.raison || "", ...affectation, creePar: acteur.id };
+    resultats.push(remplacer && index === 0
+      ? await modifierIndisponibilite(source.id, donnees)
+      : await creerIndisponibilite(donnees));
+  }
+  if (resultats.length) await creerEntreeHistorique({
+    seanceId: null, seanceLibelle: construireLibelleIndisponibilite(resultats[0]),
+    actionType: remplacer ? "indisponibilite_modifiee" : "indisponibilite_creee",
+    actionLabel: remplacer ? "Redimensionnement d'une indisponibilité" : "Duplication d'une indisponibilité",
+    acteurId: acteur.id, acteurNom: acteur.nom, ...affectation,
+    details: construireDetailsModificationJourneeFragmentee(source, date, resultats),
+  });
+  return resultats;
+}
+
+async function redimensionnerIndisponibilite(req, res) {
+  const resultats = await executerTransactionImmediate(async () => {
+    const source = await trouverIndisponibiliteParIdScopee(Number(req.params.id), construireScopeLectureIndisponibilites(req));
+    if (!source) throw creerErreurRessourceInaccessible();
+    const affectation = await resoudreAffectationIndisponibilite({ scope: req.scope, acteur: req.utilisateur, donnees: {}, indisponibiliteExistante: source });
+    res.locals.realtimeScope = affectation;
+    return remplirPlageLibre({ source, date: source.date, heureDebut: req.body.heure_debut,
+      heureFin: req.body.heure_fin, affectation, acteur: req.utilisateur, remplacer: true });
+  });
+  return res.json({ message: "Indisponibilité modifiée ; les séances sont préservées.", indisponibilites: resultats.map(transformerIndisponibilitePourClient) });
+}
+
+async function dupliquerSemaineIndisponibilites(req, res) {
+  let nombreSources = 0;
+  const lundi = req.body.semaine;
+  if (!estDateIsoValide(lundi) || new Date(`${lundi}T00:00:00Z`).getUTCDay() !== 1) {
+    throw creerErreurHttp(400, "La semaine doit commencer un lundi.");
+  }
+  const decaler = (date, jours) => new Date(Date.parse(`${date}T00:00:00Z`) + jours * 86400000).toISOString().slice(0, 10);
+  const resultats = await executerTransactionImmediate(async () => {
+    const affectation = await resoudreAffectationIndisponibilite({ scope: req.scope, acteur: req.utilisateur, donnees: {} });
+    res.locals.realtimeScope = affectation;
+    // The historical receipt is not a lock: source or destination may have
+    // changed since the first copy. Subtract current occupations atomically.
+    const sources = (await listerIndisponibilitesScopees({ intervenantId: affectation.intervenantId }))
+      .filter(i => i.date >= lundi && i.date < decaler(lundi, 7));
+    nombreSources = sources.length;
+    const copies = [];
+    for (const source of sources) copies.push(...await remplirPlageLibre({ source,
+      date: decaler(source.date, 7), heureDebut: source.heure_debut, heureFin: source.heure_fin,
+      affectation, acteur: req.utilisateur }));
+    if (sources.length) await run("INSERT OR IGNORE INTO availability_week_copies (intervenant_id, source_week) VALUES (?, ?)", [affectation.intervenantId, lundi]);
+    return copies;
+  });
+  return res.json({ message: resultats.length ? "Indisponibilités dupliquées vers la semaine prochaine." : nombreSources
+    ? "La semaine suivante contient déjà ces plages ou des séances à ces horaires. Aucun doublon créé."
+    : "Aucune indisponibilité personnelle à dupliquer dans la semaine affichée.",
+    indisponibilites: resultats.map(transformerIndisponibilitePourClient) });
+}
+
 module.exports = {
+  dupliquerSemaineIndisponibilites,
+  redimensionnerIndisponibilite,
   recupererIndisponibilites,
   recupererIndisponibilitesCalendrierCentral,
   ajouterIndisponibilite,

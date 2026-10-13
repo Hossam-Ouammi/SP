@@ -87,6 +87,18 @@ export async function modifierIndisponibilite(indisponibiliteId, donneesIndispon
   });
 }
 
+export function dupliquerSemaineIndisponibilites(semaine) {
+  return envoyerRequete("/api/indisponibilites/dupliquer-semaine", {
+    method: "POST", body: JSON.stringify({ semaine }),
+  });
+}
+
+export function redimensionnerIndisponibilite(id, heure_debut, heure_fin) {
+  return envoyerRequete(`/api/indisponibilites/${id}/plage`, {
+    method: "PATCH", body: JSON.stringify({ heure_debut, heure_fin }),
+  });
+}
+
 export async function supprimerIndisponibilite(indisponibiliteId) {
   return envoyerRequete(`/api/indisponibilites/${indisponibiliteId}`, {
     method: "DELETE",

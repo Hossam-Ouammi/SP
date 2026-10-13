@@ -169,6 +169,8 @@ async function listerToutesLesSeancesPourMonetisation() {
     SELECT
       seances.id,
       seances.handler_id,
+      handler.nom AS handler_nom,
+      handler.public_id AS handler_public_id,
       seances.intervenant_id,
       seances.tarif_horaire_applique,
       intervenant.nom AS intervenant_nom,
@@ -184,6 +186,7 @@ async function listerToutesLesSeancesPourMonetisation() {
       seances.duree_minutes,
       seances.statut_seance
     FROM seances
+    LEFT JOIN utilisateurs AS handler ON handler.id = seances.handler_id
     LEFT JOIN utilisateurs AS intervenant ON intervenant.id = seances.intervenant_id
     ORDER BY seances.date ASC, seances.heure_debut ASC, seances.id ASC
   `);
@@ -197,6 +200,8 @@ async function listerSeancesPourMonetisationScopees(scope = {}) {
       SELECT
         seances.id,
         seances.handler_id,
+        handler.nom AS handler_nom,
+        handler.public_id AS handler_public_id,
         seances.intervenant_id,
         seances.tarif_horaire_applique,
         intervenant.nom AS intervenant_nom,
@@ -212,6 +217,7 @@ async function listerSeancesPourMonetisationScopees(scope = {}) {
         seances.duree_minutes,
         seances.statut_seance
       FROM seances
+      LEFT JOIN utilisateurs AS handler ON handler.id = seances.handler_id
       LEFT JOIN utilisateurs AS intervenant ON intervenant.id = seances.intervenant_id
       WHERE ${filtre.clause}
       ORDER BY seances.date ASC, seances.heure_debut ASC, seances.id ASC

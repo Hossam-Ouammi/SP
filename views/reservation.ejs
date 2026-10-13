@@ -10,7 +10,8 @@
       href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;500;600;700;800;900&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260920-public-protected-content" />
+    <link rel="stylesheet" href="/css/style.css?v=20261011-public-toolbar-spacing" />
+    <script defer src="/js/interaction-guards.js?v=20261010-gestures"></script>
   </head>
   <body
     class="reservation-public-body"
@@ -50,8 +51,22 @@
           </div>
         </header>
 
-        <section class="panel reservation-public-calendar-panel">
-          <div id="reservation-public-error" class="form-error hidden"></div>
+        <div id="reservation-public-error" class="form-error hidden" role="alert"></div>
+        <section id="reservation-public-week-choice" class="panel reservation-public-week-choice" aria-labelledby="public-week-choice-title">
+          <h1 id="public-week-choice-title">Quelle semaine souhaitez-vous consulter ?</h1>
+          <div class="reservation-public-week-options">
+            <button class="reservation-public-week-option" type="button" data-public-week="0" disabled>
+              <span class="reservation-public-week-option-title">Semaine actuelle <span aria-hidden="true">→</span></span>
+              <span class="reservation-public-week-option-dates" id="public-current-week-dates">Chargement…</span>
+            </button>
+            <button class="reservation-public-week-option" type="button" data-public-week="1" disabled>
+              <span class="reservation-public-week-option-title">Semaine prochaine <span aria-hidden="true">→</span></span>
+              <span class="reservation-public-week-option-dates" id="public-next-week-dates">Chargement…</span>
+            </button>
+          </div>
+        </section>
+        <section id="reservation-public-calendar-screen" class="panel reservation-public-calendar-panel hidden">
+          <button id="reservation-public-back" class="reservation-public-back" type="button"><span aria-hidden="true">‹</span> Retour</button>
           <div id="reservation-public-calendar" class="reservation-public-calendar"></div>
         </section>
 
@@ -67,6 +82,6 @@
     <script src="/vendor/@fullcalendar/timegrid/index.global.js"></script>
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
     <script src="/js/service-worker-recovery.js?v=20260919-auto-refresh"></script>
-    <script type="module" src="/js/public-reservation.js?v=20260920-public-protected-content"></script>
+    <script type="module" src="/js/public-reservation.js?v=20261013-touch-cleanup"></script>
   </body>
 </html>

@@ -1194,6 +1194,185 @@ function creerRepereHeureDeplacement(element) {
   };
 }
 
+function creerNavigationPendantDeplacement(element, obtenirCalendrier) {
+  let actif = false;
+  let minuterie = null;
+  let direction = 0;
+  function annulerAttente() {
+    clearTimeout(minuterie);
+    minuterie = null;
+    direction = 0;
+    delete element.dataset.dragNavigation;
+  }
+  function mouvement(event) {
+    if (!actif) return;
+    const point = event.touches?.[0] || event;
+    const grille = element.querySelector('.fc-timegrid-body');
+    if (!grille) return;
+    const rect = grille.getBoundingClientRect();
+    const bord = Math.min(36, rect.width * 0.09);
+    const dansGrille = point.clientY >= rect.top && point.clientY <= Math.min(rect.bottom, innerHeight);
+    const sens = !dansGrille ? 0 : point.clientX <= rect.left + bord && point.clientX >= rect.left - 20 ? -1
+      : point.clientX >= rect.right - bord && point.clientX <= rect.right + 20 ? 1 : 0;
+    if (sens === direction) return;
+    annulerAttente();
+    if (!sens) return;
+    direction = sens;
+    element.dataset.dragNavigation = sens < 0 ? 'previous' : 'next';
+    minuterie = setTimeout(() => {
+      if (!actif) return;
+      const calendrier = obtenirCalendrier();
+      if (calendrier?.view.type === 'timeGridWeek') calendrier[sens < 0 ? 'prev' : 'next']();
+      // Require leaving the edge before another week change.
+      delete element.dataset.dragNavigation;
+    }, 750);
+  }
+  function arreter() {
+    actif = false;
+    annulerAttente();
+    document.removeEventListener('mousemove', mouvement);
+    document.removeEventListener('touchmove', mouvement);
+    document.removeEventListener('mouseup', arreter);
+    document.removeEventListener('touchend', arreter);
+    document.removeEventListener('touchcancel', arreter);
+    window.removeEventListener('blur', arreter);
+  }
+  return {
+    demarrer() {
+      arreter(); actif = true;
+      document.addEventListener('mousemove', mouvement);
+      document.addEventListener('touchmove', mouvement, { passive: true });
+      document.addEventListener('mouseup', arreter);
+      document.addEventListener('touchend', arreter);
+      document.addEventListener('touchcancel', arreter);
+      window.addEventListener('blur', arreter);
+    },
+    arreter,
+  };
+}
+
+// Horizontal gestures navigate weeks; vertical scrolling and session gestures
+// remain owned by the browser / FullCalendar. Public validRange is respected
+// through the same disabled navigation buttons as an ordinary click.
+export function attacherNavigationSemaines(element, calendrier) {
+  let toucher = null;
+  let navigationFrame = null;
+  let clicIgnoreJusqua = 0;
+  let dernierWheel = 0;
+  let sommeWheel = 0;
+  let wheelTraite = false;
+  let directionWheel = 0;
+  const edition = (cible) => cible instanceof Element &&
+    cible.closest('input, select, textarea, button, [contenteditable="true"]');
+  const interactionActive = () => Boolean(element.querySelector(".fc-event-dragging, .fc-event-resizing, .fc-event-mirror"));
+  const actif = () => calendrier.view?.type === "timeGridWeek" && element.getClientRects().length > 0;
+
+  function naviguer(direction) {
+    if (!actif() || interactionActive()) return;
+    const bouton = element.querySelector(direction > 0 ? ".fc-next-button" : ".fc-prev-button");
+    if (!bouton || bouton.disabled) return;
+    calendrier.unselect();
+    if (direction > 0) calendrier.next();
+    else calendrier.prev();
+  }
+
+  function wheel(event) {
+    if (!actif() || edition(event.target) || interactionActive() || event.ctrlKey ||
+      Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+    event.preventDefault();
+    const maintenant = performance.now();
+    const delta = event.deltaX * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientWidth : 1);
+    const direction = Math.sign(delta);
+    if (maintenant - dernierWheel > 500 || (direction !== directionWheel && Math.abs(delta) >= 12)) {
+      sommeWheel = 0;
+      wheelTraite = false;
+    }
+    dernierWheel = maintenant;
+    directionWheel = direction;
+    if (wheelTraite) return;
+    sommeWheel += delta;
+    if (Math.abs(sommeWheel) >= 45) {
+      wheelTraite = true;
+      naviguer(Math.sign(sommeWheel));
+    }
+  }
+
+  function debut(event) {
+    toucher = null;
+    if (!actif() || event.touches.length !== 1 || edition(event.target) ||
+      event.target.closest(".fc-event-draggable, .fc-event-resizer") || interactionActive()) return;
+    const point = event.touches[0];
+    toucher = { id: point.identifier, x: point.clientX, y: point.clientY, temps: performance.now(), direction: 0 };
+  }
+
+  function mouvement(event) {
+    if (!toucher) return;
+    if (event.touches.length !== 1) { annuler(); return; }
+    const point = event.touches[0];
+    if (point.identifier !== toucher.id) return;
+    const dx = point.clientX - toucher.x;
+    const dy = point.clientY - toucher.y;
+    if (!toucher.direction) {
+      // A deliberate press is reserved for selecting/resizing/dragging.
+      if (performance.now() - toucher.temps > 250 || Math.abs(dy) > 20 && Math.abs(dy) >= Math.abs(dx)) {
+        toucher = null; return;
+      }
+      if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
+      toucher.direction = dx < 0 ? 1 : -1;
+      calendrier.__navigationTactileEnCours = true;
+      calendrier.unselect();
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function fin(event) {
+    const direction = toucher?.direction;
+    toucher = null;
+    if (!direction) return;
+    event.preventDefault();
+    clicIgnoreJusqua = performance.now() + 350;
+    calendrier.__navigationTactileIgnoreJusqua = clicIgnoreJusqua;
+    calendrier.unselect();
+    // FullCalendar must receive the real touchend to stop its long-press
+    // timers and pointer/scroll tracking. Navigate only after that cleanup.
+    navigationFrame = requestAnimationFrame(() => {
+      navigationFrame = null;
+      calendrier.unselect();
+      naviguer(direction);
+      calendrier.__navigationTactileEnCours = false;
+    });
+  }
+
+  function annuler() {
+    if (toucher?.direction) calendrier.unselect();
+    toucher = null;
+    calendrier.__navigationTactileEnCours = false;
+  }
+  function clic(event) {
+    if (performance.now() < clicIgnoreJusqua && element.contains(event.target)) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      clicIgnoreJusqua = 0;
+    }
+  }
+  element.addEventListener("wheel", wheel, { passive: false });
+  element.addEventListener("touchstart", debut, { passive: true, capture: true });
+  document.addEventListener("touchmove", mouvement, { passive: false, capture: true });
+  document.addEventListener("touchend", fin, { passive: false, capture: true });
+  document.addEventListener("touchcancel", annuler, true);
+  document.addEventListener("click", clic, true);
+  return () => {
+    cancelAnimationFrame(navigationFrame);
+    calendrier.__navigationTactileEnCours = false;
+    element.removeEventListener("wheel", wheel);
+    element.removeEventListener("touchstart", debut, true);
+    document.removeEventListener("touchmove", mouvement, true);
+    document.removeEventListener("touchend", fin, true);
+    document.removeEventListener("touchcancel", annuler, true);
+    document.removeEventListener("click", clic, true);
+  };
+}
+
 export function initialiserCalendrier(
   element,
   {
@@ -1203,6 +1382,8 @@ export function initialiserCalendrier(
     onEventClick,
     onEventDrop,
     onEventResize,
+    onIndisponibiliteResize,
+    canResizeIndisponibilite,
     canDragSeance,
     onIndisponibiliteClick,
     onDatesSet,
@@ -1227,6 +1408,7 @@ export function initialiserCalendrier(
   const dureeCreneauInitiale = convertirPasCreneauEnDuree(pasCreneauInitial);
   const repereDeplacement = creerRepereHeureDeplacement(element);
   let redimensionnementEnCours = false;
+  const navigationDeplacement = creerNavigationPendantDeplacement(element, () => calendrier);
 
   const calendrier = new FullCalendar.Calendar(element, {
     plugins,
@@ -1238,9 +1420,16 @@ export function initialiserCalendrier(
     expandRows: true,
     selectable: true,
     editable: typeof onEventDrop === "function",
-    eventDurationEditable: typeof onEventResize === "function" && !estCalendrierMobile(),
+    eventDurationEditable: typeof onEventResize === "function",
     eventResizableFromStart: true,
     eventDataTransform(evenement) {
+      if (evenement.extendedProps?.type === "indisponibilite") {
+        const modifiable = Boolean(onIndisponibiliteResize && canResizeIndisponibilite?.(evenement.extendedProps.indisponibilite));
+        const date = evenement.extendedProps.indisponibilite.date;
+        return { ...evenement, startEditable: false,
+          ...(modifiable && evenement.allDay ? { allDay: false, display: "auto", start: `${date}T00:00:00`, end: `${calculerDateSuivante(date)}T00:00:00` } : {}),
+          durationEditable: modifiable };
+      }
       const modifiable = typeof onEventDrop === "function" &&
         evenement.extendedProps?.type === "seance" &&
         (typeof canDragSeance !== "function" || canDragSeance(evenement.extendedProps.seance));
@@ -1250,12 +1439,18 @@ export function initialiserCalendrier(
         ...(!modifiable || evenement.extendedProps?.seance?.statut_seance === "annulee" ? { durationEditable: false } : {}),
       };
     },
-    eventAllow(plage) {
+    eventAllow(plage, evenement) {
       if (!redimensionnementEnCours) return true;
       const duree = (plage.end - plage.start) / 60000;
-      return !estCalendrierMobile() && [60, 90, 120].includes(duree);
+      if (evenement?.extendedProps?.type === "indisponibilite") {
+        const date = evenement.extendedProps.indisponibilite.date;
+        return duree >= 30 && plage.start.toISOString().slice(0, 10) === date &&
+          new Date(plage.end.getTime() - 1).toISOString().slice(0, 10) === date;
+      }
+      return [60, 90, 120].includes(duree);
     },
     selectMirror: true,
+    selectAllow: () => !calendrier.__navigationTactileEnCours,
     unselectAuto: true,
     selectLongPressDelay: selectionMobileRapide ? 120 : 1000,
     eventLongPressDelay: selectionMobileRapide || onEventDrop ? 360 : 1000,
@@ -1291,12 +1486,28 @@ export function initialiserCalendrier(
     },
     eventDidMount(info) {
       adapterPresentationEvenement(info);
+      if (info.event.extendedProps?.type === "seance") {
+        info.el.dataset.seanceId = String(info.event.extendedProps.seance.id);
+      }
+      if (info.event.extendedProps?.type === "indisponibilite") {
+        info.el.dataset.indisponibiliteId = String(info.event.extendedProps.indisponibilite.id);
+        if (typeof onIndisponibiliteClick !== "function") {
+          info.el.classList.add("indisponibilite-display-only");
+          info.el.removeAttribute("href");
+          info.el.setAttribute("tabindex", "-1");
+        }
+      }
+      if (info.event.extendedProps?.type === "seance" && typeof onEventClick !== "function") {
+        info.el.classList.add("seance-display-only");
+        info.el.removeAttribute("href");
+        info.el.setAttribute("tabindex", "-1");
+      }
       repereDeplacement.monter(info);
     },
     eventWillUnmount: repereDeplacement.demonter,
     eventClassNames: repereDeplacement.actualiserEvenement,
-    eventDragStart: repereDeplacement.demarrer,
-    eventDragStop: repereDeplacement.arreter,
+    eventDragStart(info) { repereDeplacement.demarrer(info); navigationDeplacement.demarrer(); },
+    eventDragStop() { repereDeplacement.arreter(); navigationDeplacement.arreter(); },
     eventResizeStart(info) {
       redimensionnementEnCours = true;
       repereDeplacement.demarrer(info);
@@ -1306,6 +1517,10 @@ export function initialiserCalendrier(
       repereDeplacement.arreter();
     },
     eventResize(info) {
+      if (info.event.extendedProps?.type === "indisponibilite") {
+        onIndisponibiliteResize?.(info);
+        return;
+      }
       onEventResize?.(info);
     },
     viewWillUnmount: repereDeplacement.arreter,
@@ -1316,7 +1531,6 @@ export function initialiserCalendrier(
     windowResize() {
       const vueActive = calendrier.view?.type;
       appliquerOptionsResponsive(calendrier);
-      calendrier.setOption("eventDurationEditable", typeof onEventResize === "function" && !estCalendrierMobile());
 
       if (estCalendrierMobile()) {
         if (vueActive !== "timeGridWeek" && vueActive !== "dayGridMonth") {
@@ -1327,6 +1541,8 @@ export function initialiserCalendrier(
       synchroniserEtatVisuelCalendrier(element, calendrier.view?.type);
     },
     dateClick(info) {
+      if (calendrier.__navigationTactileEnCours ||
+        performance.now() < (calendrier.__navigationTactileIgnoreJusqua || 0)) return;
       if (typeof onSlotClick === "function") {
         onSlotClick(extraireCreneauDepuisClicCalendrier(info));
         return;
@@ -1335,14 +1551,17 @@ export function initialiserCalendrier(
       onDateClick?.(extraireDateIsoDepuisClicCalendrier(info));
     },
     select(info) {
-      onSelect?.(extraireSelectionCalendrier(info));
+      if (!calendrier.__navigationTactileEnCours &&
+        performance.now() >= (calendrier.__navigationTactileIgnoreJusqua || 0)) {
+        onSelect?.(extraireSelectionCalendrier(info));
+      }
       info.view?.calendar?.unselect?.();
     },
     eventClick(info) {
       const typeEvenement = info.event.extendedProps?.type;
 
       if (typeEvenement === "indisponibilite") {
-        onIndisponibiliteClick?.(info.event.extendedProps.indisponibilite);
+        onIndisponibiliteClick?.(info.event.extendedProps.indisponibilite, info);
         return;
       }
 
@@ -1359,7 +1578,7 @@ export function initialiserCalendrier(
         return;
       }
 
-      onEventClick(info.event.extendedProps.seance);
+      onEventClick?.(info.event.extendedProps.seance, info);
     },
     eventDrop(info) {
       if (info.event.extendedProps?.type !== "seance") {
@@ -1372,6 +1591,14 @@ export function initialiserCalendrier(
   });
 
   calendrier.render();
+  const detacherNavigationSemaines = attacherNavigationSemaines(element, calendrier);
+  const detruireCalendrier = calendrier.destroy.bind(calendrier);
+  calendrier.destroy = () => {
+    detacherNavigationSemaines();
+    navigationDeplacement.arreter();
+    repereDeplacement.arreter();
+    detruireCalendrier();
+  };
   calendrier.__plageHoraire = plageHoraireInitiale;
   calendrier.__pasCreneauMinutes = pasCreneauInitial;
   calendrier.__timezoneCalendrier = timezoneCentrale || "Africa/Casablanca";

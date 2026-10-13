@@ -1056,6 +1056,93 @@ async function run() {
     });
     assertStatus(response, 404, "Professor cannot declare unavailability for Handler");
 
+    response = await professeurA.request("POST", "/api/indisponibilites", donneesIndisponibilite("2034-09-25", "08:00", "09:00"));
+    assertStatus(response, 201, "Create source week block");
+    const sourceResizeId = response.json.indisponibilite.id;
+    response = await handler.request("POST", "/api/seances", donneesSeance("availability-resize", "2034-09-25", "12:00", professeurAId));
+    assertStatus(response, 201, "Create session preserved by unavailable resize");
+    const preservedSession = response.json.seance;
+    response = await professeurB.request("PATCH", `/api/indisponibilites/${sourceResizeId}/plage`, { heure_debut: "08:00", heure_fin: "22:00" });
+    assertStatus(response, 404, "Another person cannot resize the declaration");
+    response = await professeurA.request("PATCH", `/api/indisponibilites/${sourceResizeId}/plage`, { heure_debut: "08:00", heure_fin: "22:00" });
+    assertStatus(response, 200, "Resize fills free portions around a session");
+    assert.deepEqual(response.json.indisponibilites.map(i => [i.heure_debut, i.heure_fin]), [["08:00", "12:00"], [preservedSession.heure_fin, "22:00"]]);
+    response = await professeurA.request("GET", "/api/seances");
+    assert.deepEqual(response.json.seances.find(s => s.id === preservedSession.id), preservedSession, "Resize leaves session untouched");
+    const copies = await Promise.all([1, 2].map(() => professeurA.request("POST", "/api/indisponibilites/dupliquer-semaine", { semaine: "2034-09-25" })));
+    copies.forEach(r => assertStatus(r, 200, "Concurrent duplication succeeds without duplicate records"));
+    assert.deepEqual(copies.map(r => r.json.indisponibilites.length).sort(), [0, 2]);
+    const createdCopies = copies.flatMap(r => r.json.indisponibilites);
+    assert.ok(createdCopies.every(i => i.date === "2034-10-02"), "Week crosses month boundary correctly");
+    await professeurA.request("DELETE", `/api/indisponibilites/${createdCopies[0].id}`);
+    response = await professeurA.request("POST", "/api/indisponibilites/dupliquer-semaine", { semaine: "2034-09-25" });
+    assertStatus(response, 200, "Copy fills missing destination intervals despite historical receipt");
+    assert.equal(response.json.indisponibilites.length, 1);
+    assert.equal(response.json.indisponibilites[0].heure_debut, createdCopies[0].heure_debut);
+    assert.equal(response.json.indisponibilites[0].heure_fin, createdCopies[0].heure_fin);
+    response = await professeurA.request("POST", "/api/indisponibilites/dupliquer-semaine", { semaine: "2034-09-25" });
+    assertStatus(response, 200, "Unchanged retry creates no duplicates");
+    assert.equal(response.json.indisponibilites.length, 0);
+    response = await professeurA.request("POST", "/api/indisponibilites", donneesIndisponibilite("2034-09-26", "08:00", "09:00"));
+    assertStatus(response, 201, "Add a source interval after first copy");
+    response = await professeurA.request("POST", "/api/indisponibilites/dupliquer-semaine", { semaine: "2034-09-25" });
+    assertStatus(response, 200, "New source intervals can be copied later");
+    assert.equal(response.json.indisponibilites.length, 1);
+    assert.equal(response.json.indisponibilites[0].date, "2034-10-03");
+    response = await professeurA.request("POST", "/api/indisponibilites/dupliquer-semaine", { semaine: "2034-09-26" });
+    assertStatus(response, 400, "Reject non-Monday week boundary");
+    response = await handler.request("POST", "/api/indisponibilites", donneesIndisponibilite("2034-12-25", "08:00", "12:00"));
+    assertStatus(response, 201, "Handler declares own source week");
+    response = await handler.request("POST", "/api/seances", donneesSeance("copy-blocker", "2035-01-01", "09:00", handlerId));
+    assertStatus(response, 201, "Create session in copy destination");
+    const copyBlockerEnd = response.json.seance.heure_fin;
+    response = await handler.request("POST", "/api/indisponibilites/dupliquer-semaine", { semaine: "2034-12-25" });
+    assertStatus(response, 200, "Handler copies own week across year boundary");
+    assert.deepEqual(response.json.indisponibilites.map(i => [i.date, i.heure_debut, i.heure_fin]),
+      [["2035-01-01", "08:00", "09:00"], ["2035-01-01", copyBlockerEnd, "12:00"]]);
+    response = await professeurB.request("POST", "/api/indisponibilites", { date: "2034-11-06", jour_complet: 1 });
+    assertStatus(response, 201, "Declare full day before copy");
+    response = await professeurB.request("POST", "/api/indisponibilites/dupliquer-semaine", { semaine: "2034-11-06" });
+    assertStatus(response, 200, "Full-day declaration can also be copied");
+    assert.equal(response.json.indisponibilites[0].date, "2034-11-13");
+
+    // A whole-day declaration split around a session retains hidden hours
+    // (00:00 and 23:59), even when the grid only displays 08:00 onward.
+    response = await handler.request("POST", "/api/seances", donneesSeance("hidden-hours", "2034-11-20", "12:00", professeurBId));
+    assertStatus(response, 201, "Create booking splitting a full-day declaration");
+    response = await professeurB.request("POST", "/api/indisponibilites", { date: "2034-11-20", jour_complet: 1 });
+    assertStatus(response, 201, "Create fragmented full day with hidden boundaries");
+    const hiddenHoursId = response.json.indisponibilites[0].id;
+    response = await professeurB.request("POST", "/api/indisponibilites/dupliquer-semaine", { semaine: "2034-11-20" });
+    assertStatus(response, 200, "Copy hidden hours without imposing the visible grid window");
+    assert.equal(response.json.indisponibilites[0].heure_debut, "00:00");
+    response = await professeurB.request("PATCH", `/api/indisponibilites/${hiddenHoursId}/plage`, { heure_debut: "00:00", heure_fin: "11:30" });
+    assertStatus(response, 200, "Resize visible bottom while preserving hidden start");
+    response = await professeurA.request("POST", "/api/indisponibilites", donneesIndisponibilite("2034-11-20", "08:00", "09:00"));
+    assertStatus(response, 201, "Create ordinary in-window block");
+    const ordinaryId = response.json.indisponibilite.id;
+    response = await professeurA.request("PATCH", `/api/indisponibilites/${ordinaryId}/plage`, { heure_debut: "07:30", heure_fin: "09:00" });
+    assertStatus(response, 400, "New extensions outside the permitted window remain rejected");
+
+    response = await handler.request("POST", "/api/seances", {
+      ...donneesSeance("weekly-three", "2035-01-02", "16:00", professeurAId), nombre_semaines: 3,
+    });
+    assertStatus(response, 201, "Create three weekly copies atomically");
+    assert.deepEqual(response.json.seances.map(s => s.date), ["2035-01-02", "2035-01-09", "2035-01-16"]);
+    assert.ok(response.json.seances.every(s => s.heure_debut === "16:00" && s.intervenant_id === professeurAId));
+    response = await handler.request("POST", "/api/seances", {
+      ...donneesSeance("weekly-rollback", "2034-12-26", "16:00", professeurAId), nombre_semaines: 3,
+    });
+    assertStatus(response, 400, "Later weekly conflict rejects entire series");
+    assert.match(response.json.message, /2035-01-02/);
+    response = await handler.request("GET", "/api/seances");
+    assert.ok(!response.json.seances.some(s => s.etudiant === "Student weekly-rollback"), "Earlier copies rolled back");
+    for (const nombre_semaines of [0, -1, 1.5, 53, "invalid"]) {
+      response = await handler.request("POST", "/api/seances", {
+        ...donneesSeance("weekly-invalid", "2035-03-06", "16:00", professeurAId), nombre_semaines,
+      });
+      assertStatus(response, 400, "Reject invalid week count");
+    }
     console.log("handler availability policy test: PASS");
   } catch (error) {
     console.error("handler availability policy test: FAIL");

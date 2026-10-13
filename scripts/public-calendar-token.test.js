@@ -31,18 +31,18 @@ function verifierFenetreVisibleCoteClient() {
   );
   assert.match(
     source,
-    /left:\s*"prev,next"/,
+    /right:\s*"prev,next"/,
     "Le calendrier public doit conserver uniquement les deux flèches de navigation."
   );
   assert.match(
     source,
-    /const nextWeekStart = ajouterJoursIso\(initialWeekStart, 7\)/,
+    /const endExclusive = ajouterJoursIso\(initialWeekStart, 14\)/,
     "La navigation publique doit être bornée à la semaine suivante."
   );
   assert.match(
     source,
-    /boutonSuivant\.disabled = futurLointainInterdit/,
-    "La flèche suivante doit être désactivée sur la deuxième semaine."
+    /validRange:\s*\{\s*start: initialWeekStart,\s*end: endExclusive/,
+    "Les deux flèches doivent respecter les bornes de la fenêtre publique de deux semaines."
   );
   assert.doesNotMatch(
     source,

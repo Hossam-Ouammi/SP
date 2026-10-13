@@ -87,6 +87,7 @@ const racine = path.join(__dirname, "..");
     assert.equal(await page.evaluate(() => window.deplacements[0]), "2034-06-06T12:30:00.000Z");
     const pas = await page.$eval('.fc-timegrid-slot[data-time="12:30:00"]', (el) => el.getBoundingClientRect().height);
     async function tirerBord(bord, delta) {
+      await page.hover('#calendar .fc-event-draggable');
       const position = await page.$eval(`#calendar .fc-timegrid-event:not(.fc-event-mirror) .fc-event-resizer-${bord}`, (el) => {
         const r = el.getBoundingClientRect();
         return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -106,7 +107,34 @@ const racine = path.join(__dirname, "..");
     await page.waitForFunction(() => !document.querySelector(".fc-event-mirror"));
     assert.equal(await page.evaluate(() => window.redimensionnements.length), 2, "Cannot resize beyond two hours");
     await page.setViewport({ width: 375, height: 850 });
-    await page.waitForFunction(() => !document.querySelector("#calendar .fc-event-resizer"));
+    await page.waitForFunction(() => document.querySelector('#calendar[data-calendar-mobile="true"]'));
+    const touch = await page.createCDPSession();
+    await touch.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+    const centre = await page.$eval("#calendar .fc-event-draggable", (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [centre] });
+    await page.waitForFunction(() => document.querySelector("#calendar .fc-event-selected"));
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    async function tirerBordTactile(bord, direction) {
+      const position = await page.$eval(`#calendar .fc-event-selected .fc-event-resizer-${bord}`, (el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      const hauteur = await page.$eval('.fc-timegrid-slot[data-time="12:30:00"]', (el) => el.getBoundingClientRect().height);
+      await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [position] });
+      for (let i = 1; i <= 8; i += 1) {
+        await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: position.x, y: position.y + direction * hauteur * i / 8 }] });
+      }
+      await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    }
+    await tirerBordTactile("start", 1);
+    await page.waitForFunction(() => window.redimensionnements.length === 3);
+    assert.equal(await page.evaluate(() => window.redimensionnements[2].duree), 90);
+    await tirerBordTactile("end", -1);
+    await page.waitForFunction(() => window.redimensionnements.length === 4);
+    assert.equal(await page.evaluate(() => window.redimensionnements[3].duree), 60);
     console.log("session drag browser test: PASS");
   } finally {
     await browser.close();

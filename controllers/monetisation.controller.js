@@ -1627,9 +1627,16 @@ async function recupererMonetisation(req, res) {
         handler_public_id: ligne.handler_public_id,
         handler_nom: ligne.handler_nom,
         nombre_seances: 0,
+        seances_facturables: 0,
+        seances_essai_faites: 0,
         montant_total: 0,
       };
       equipe.nombre_seances += 1;
+      if (ligne.est_gratuite) {
+        equipe.seances_essai_faites += 1;
+      } else {
+        equipe.seances_facturables += 1;
+      }
       equipe.montant_total = Number((equipe.montant_total + Number(ligne.montant || 0)).toFixed(2));
       equipesParId.set(id, equipe);
     });

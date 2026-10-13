@@ -20,7 +20,8 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/css/style.css?v=20260920-account-deletion-policy" />
+    <link rel="stylesheet" href="/css/style.css?v=20261012-duplicate-planning" />
+    <script defer src="/js/interaction-guards.js?v=20261010-gestures"></script>
   </head>
   <body>
     <main>
@@ -268,6 +269,7 @@
           >
             <div class="section-heading">
               <h2>Indisponibilités</h2>
+              <button id="duplicate-unavailability-week" class="button secondary" type="button">Dupliquer vers la semaine prochaine</button>
             </div>
 
             <div id="unavailability-calendar"></div>
@@ -1252,7 +1254,7 @@
 
               <label class="monetisation-global-toggle" for="monetisation-global-toggle">
                 <input id="monetisation-global-toggle" type="checkbox" />
-                <span>Monétisation globale</span>
+                <span>Toutes les périodes</span>
               </label>
 
               <section
@@ -1307,6 +1309,16 @@
                 <span class="stat-overview-label">Monétisation totale</span>
                 <strong id="monetisation-total-amount" class="stat-overview-value">0 dh</strong>
               </article>
+            </section>
+
+            <section class="panel stats-compare-panel monetisation-details-panel">
+              <div class="section-heading section-heading-stack">
+                <div>
+                  <h2>Totaux par équipe</h2>
+                  <p class="field-help">Séances réalisées uniquement. Les essais ne génèrent aucun revenu.</p>
+                </div>
+              </div>
+              <div id="monetisation-totals-by-team" class="account-stats-grid monetisation-details-grid"></div>
             </section>
 
             <section class="panel stats-compare-panel monetisation-details-panel">
@@ -1600,9 +1612,18 @@
 
         <form id="seance-form" class="seance-form">
           <input id="seance-id" name="id" type="hidden" />
+          <section id="duplicate-summary" class="form-section hidden" aria-labelledby="duplicate-summary-title">
+            <h4 id="duplicate-summary-title">Récapitulatif</h4>
+            <div id="duplicate-summary-details" class="detail-list"></div>
+          </section>
+          <label id="duplicate-weeks-field" class="field hidden">
+            <span>Nombre de semaines</span>
+            <input id="duplicate-weeks" type="number" min="1" max="52" step="1" value="1" inputmode="numeric" />
+            <small>Nombre de séances à créer : <output id="duplicate-session-count" for="duplicate-weeks" aria-live="polite">1</output></small>
+          </label>
 
           <div class="seance-form-layout">
-            <section class="form-section">
+            <section id="seance-information-section" class="form-section">
               <div class="form-section-header">
                 <div>
                   <h4>Informations</h4>
@@ -1628,7 +1649,7 @@
                   </label>
                 </div>
 
-                <fieldset class="field checkbox-field subject-fieldset">
+                <fieldset id="seance-subject-field" class="field checkbox-field subject-fieldset">
                   <span>Matière</span>
                   <div id="matiere-options" class="checkbox-options checkbox-options-2"></div>
                 </fieldset>
@@ -1644,6 +1665,7 @@
               </div>
 
               <div class="form-grid">
+                <div id="duplicate-subject-slot" class="field-full hidden"></div>
 
             <label id="seance-handler-field" class="field hidden">
               <span>Équipe</span>
@@ -1734,33 +1756,6 @@
             </button>
           </div>
         </form>
-      </div>
-    </div>
-
-    <div
-      id="seance-choice-modal"
-      class="modal hidden"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="seance-choice-modal-title"
-      aria-hidden="true"
-      tabindex="-1"
-    >
-      <div class="modal-backdrop" data-close-modal="seance-choice-modal"></div>
-      <div class="modal-panel">
-        <div class="modal-header">
-          <h3 id="seance-choice-modal-title">Choisir une séance</h3>
-          <button
-            class="icon-button"
-            type="button"
-            data-close-modal="seance-choice-modal"
-            aria-label="Fermer"
-          >
-            x
-          </button>
-        </div>
-
-        <div id="seance-choice-list" class="seance-choice-list"></div>
       </div>
     </div>
 
@@ -2009,6 +2004,6 @@
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
     <script src="/js/service-worker-recovery.js?v=20260919-auto-refresh"></script>
     <script src="/js/login-lifecycle.js?v=20260911-account-request-dialog"></script>
-    <script type="module" src="/js/ui.js?v=20260924-session-resize"></script>
+    <script type="module" src="/js/ui.js?v=20261013-touch-cleanup"></script>
   </body>
 </html>

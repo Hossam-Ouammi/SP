@@ -1088,6 +1088,10 @@ async function modifierSeanceDepuisDonneesValidees({
 }
 
 async function ajouterSeance(req, res) {
+  const nombreSemaines = req.body.nombre_semaines === undefined ? 1 : Number(req.body.nombre_semaines);
+  if (!Number.isInteger(nombreSemaines) || nombreSemaines < 1 || nombreSemaines > 52) {
+    return res.status(400).json({ message: "Le nombre de semaines doit être compris entre 1 et 52." });
+  }
   let donneesSeance = preparerDonneesSeance(req.body);
   const affectation = await resoudreAffectationSeance({
     scope: req.scope,
@@ -1110,14 +1114,29 @@ async function ajouterSeance(req, res) {
     });
   }
 
-  const nouvelleSeance = await creerSeanceDepuisDonneesValidees({
-    donneesSeance,
-    acteur: req.utilisateur,
-    verifierIndisponibilite: true,
-    // Collective availability is a Dashboard visualization, not a booking
-    // authorization rule.  A Professor target is still validated individually.
-    verifierDisponibiliteCollective: false,
+  const nouvellesSeances = await executerTransactionImmediate(async () => {
+    const copies = [];
+    for (let semaine = 0; semaine < nombreSemaines; semaine++) {
+      const date = new Date(Date.parse(`${donneesSeance.date}T12:00:00Z`) + semaine * 7 * 86400000).toISOString().slice(0, 10);
+      const occurrence = { ...donneesSeance, date };
+      try {
+        const erreursOccurrence = await validerDonneesSeance(occurrence, req.utilisateur);
+        if (erreursOccurrence.length) throw creerErreurHttp(400, erreursOccurrence.join(" "));
+        copies.push(await creerSeanceDepuisDonneesValidees({
+          donneesSeance: occurrence, acteur: req.utilisateur,
+          verifierIndisponibilite: true, verifierDisponibiliteCollective: false,
+          utiliserTransaction: false,
+        }));
+      } catch (erreur) {
+        if (nombreSemaines > 1 && erreur.status === 400) {
+          erreur.message = `${date} : ${erreur.message} Aucune copie créée.`;
+        }
+        throw erreur;
+      }
+    }
+    return copies;
   });
+  const nouvelleSeance = nouvellesSeances[0];
   res.locals.realtimeScope = {
     handlerId: nouvelleSeance.handler_id,
     intervenantId: nouvelleSeance.intervenant_id,
@@ -1126,6 +1145,7 @@ async function ajouterSeance(req, res) {
   return res.status(201).json({
     message: "Séance créée avec succès.",
     seance: transformerSeancePourClient(nouvelleSeance),
+    seances: nouvellesSeances.map(transformerSeancePourClient),
   });
 }
 

@@ -42,6 +42,7 @@ const migrations = [
   personalGlobalAvailability,
   removeSessionDescription,
   publicCalendarsEnabledByDefault,
+  require("./2026092601-availability-week-copy"),
 ];
 
 function verifierDefinitionMigrations() {

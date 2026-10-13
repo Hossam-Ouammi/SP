@@ -2,6 +2,8 @@ const express = require("express");
 
 const {
   recupererIndisponibilites,
+  dupliquerSemaineIndisponibilites,
+  redimensionnerIndisponibilite,
   ajouterIndisponibilite,
   modifierUneIndisponibilite,
   supprimerUneIndisponibilite,
@@ -28,6 +30,10 @@ router.use(
 );
 
 router.get("/", recupererIndisponibilites);
+router.post("/dupliquer-semaine", verifierModeEcritureAutorise, verifierDeclarationDisponibiliteProfesseur,
+  notifierMiseAJourApplication(dupliquerSemaineIndisponibilites, "indisponibilites"));
+router.patch("/:id/plage", verifierModeEcritureAutorise, verifierDeclarationDisponibiliteProfesseur,
+  notifierMiseAJourApplication(redimensionnerIndisponibilite, "indisponibilites"));
 router.post(
   "/",
   verifierModeEcritureAutorise,

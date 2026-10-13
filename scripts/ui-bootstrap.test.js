@@ -108,7 +108,7 @@ const soumissionSeance = source.slice(debutSoumissionSeance, finSoumissionSeance
 assert.match(
   soumissionSeance,
   /const intervenantId\s*=\s*obtenirIntervenantCibleSeance\(\);/,
-  "La soumission doit résoudre l'intervenant réellement choisi."
+  "La soumission doit utiliser le réalisateur sélectionné, y compris lors d'une duplication."
 );
 assert.match(
   soumissionSeance,
@@ -370,8 +370,8 @@ assert.doesNotMatch(
 );
 assert.match(
   source,
-  /onSlotClick:\s*gererClicCreneauCalendrierSeance,[\s\S]*?onSelect:\s*gererSelectionCalendrierSeance,[\s\S]*?onEventClick:\s*ouvrirDetailsOuChoixSeance/,
-  "Le Dashboard doit créer au clic/glissement et résoudre les séances qui se chevauchent au clic."
+  /onSlotClick:\s*gererClicCreneauCalendrierSeance,[\s\S]*?onSelect:\s*gererSelectionCalendrierSeance,[\s\S]*?onEventClick:\s*ouvrirMenuActionsSeance/,
+  "Le Dashboard doit créer au clic/glissement et afficher le menu contextuel au clic sur une séance."
 );
 assert.match(
   calendrierSource,
@@ -440,13 +440,13 @@ assert.match(
 );
 assert.match(
   source,
-  /function ouvrirDetailsOuChoixSeance\(seance\)[\s\S]*?obtenirSeancesChevauchantesVisibles\(seance\)[\s\S]*?seancesChevauchantes\.length <= 1[\s\S]*?ouvrirChoixSeancesChevauchantes\(seancesChevauchantes\)/,
-  "Un clic sur plusieurs séances qui se chevauchent doit ouvrir un choix avant le détail."
+  /function ouvrirMenuActionsSeance\(seance, info\)[\s\S]*?obtenirSeancesChevauchantesVisibles\(seance\)[\s\S]*?menuActionsSeance\.ouvrir/,
+  "Les séances concurrentes doivent être choisies dans le menu contextuel."
 );
-assert.match(
+assert.doesNotMatch(
   vueSource,
-  /id="seance-choice-modal"[\s\S]*?id="seance-choice-list"/,
-  "Le choix entre les séances concurrentes doit disposer de sa propre modale."
+  /id="seance-choice-modal"/,
+  "Le clic sur une séance ne doit plus ouvrir une modale de choix."
 );
 
 const debutEtapesFormulaireSeance = source.indexOf("function mettreAJourEtapesFormulaireSeance()");
@@ -632,7 +632,7 @@ assert.notEqual(finSectionMonetisation, -1, "La fin de la section Monétisation 
 const sectionMonetisation = vueSource.slice(debutSectionMonetisation, finSectionMonetisation);
 assert.match(
   sectionMonetisation,
-  /id="monetisation-filter-form"[\s\S]*?Date de début[\s\S]*?Date de fin[\s\S]*?id="monetisation-global-toggle"[\s\S]*?Monétisation globale[\s\S]*?Réalisateurs/,
+  /id="monetisation-filter-form"[\s\S]*?Date de début[\s\S]*?Date de fin[\s\S]*?id="monetisation-global-toggle"[\s\S]*?Toutes les périodes[\s\S]*?Réalisateurs/,
   "La Monétisation doit fournir une période ou le mode global, avec une sélection multiple de réalisateurs."
 );
 assert.match(
@@ -717,7 +717,6 @@ const modalesAccessibles = [
   ["audit-log-modal", "audit-log-modal-title"],
   ["history-detail-modal", "history-detail-modal-title"],
   ["seance-modal", "seance-modal-title"],
-  ["seance-choice-modal", "seance-choice-modal-title"],
   ["detail-modal", "detail-title"],
   ["unavailability-detail-modal", "unavailability-detail-title"],
 ];

@@ -36,6 +36,8 @@ import {
   recupererIndisponibilitesCalendrierCentral,
   creerIndisponibilite,
   modifierIndisponibilite,
+  dupliquerSemaineIndisponibilites,
+  redimensionnerIndisponibilite,
   supprimerIndisponibilite,
   recupererHistoriqueActions,
   recupererDetailHistorique,
@@ -43,7 +45,7 @@ import {
   recupererStatistiques,
   recupererMonetisation,
   telechargerReleveMonetisation,
-} from "./seances.js?v=20260924-session-resize";
+} from "./seances.js?v=20260926-availability";
 import {
   initialiserCalendrier,
   mettreAJourEvenements,
@@ -51,7 +53,8 @@ import {
   mettreAJourPlageHoraireCalendrier,
   creerPalettesDisponibiliteProfesseurs,
   creerPaletteMembrePlateforme,
-} from "./calendrier.js?v=20260924-session-resize";
+} from "./calendrier.js?v=20261013-touch-cleanup";
+import { creerMenuContextuelSeance } from "./seance-context-menu.js?v=20261011-unavailability-menu";
 import {
   recupererEtatNotificationsPush,
   synchroniserNotificationsPushActuelles,
@@ -136,7 +139,6 @@ const minutesDebutDisponibles = ["00", "30"];
 const minutesFinIndisponibiliteDisponibles = ["00", "30", "59"];
 let comptesMonetisationPrincipaux = [];
 const cleConnexionMemorisee = "gestion-seances-connexion-memorisee";
-const delaiTripleClicIndisponibiliteMs = 1200;
 const selecteurElementsFocusablesModal = [
   "a[href]",
   "area[href]",
@@ -185,6 +187,7 @@ const etat = {
   utilisateur: null,
   cycleCompte: null,
   seances: [],
+  seanceSourceDuplication: null,
   indisponibilites: [],
   equipe: [],
   tarificationEquipe: { matieres: [], realisateurs: [] },
@@ -219,11 +222,6 @@ const etat = {
   historiqueSelection: null,
   seanceSelectionnee: null,
   indisponibiliteSelectionnee: null,
-  clicIndisponibilite: {
-    id: null,
-    count: 0,
-    lastAt: 0,
-  },
   calendrier: null,
   filtreCalendrierPersonne: "global",
   filtreCalendrierForceMoiSansEquipe: false,
@@ -608,6 +606,7 @@ const elements = {
   monetisationCalculateButton: document.getElementById("monetisation-calculate-button"),
   monetisationFilterError: document.getElementById("monetisation-filter-error"),
   monetisationResults: document.getElementById("monetisation-results"),
+  monetisationTotalsByTeam: document.getElementById("monetisation-totals-by-team"),
   monetisationTotalsByIntervenant: document.getElementById(
     "monetisation-totals-by-intervenant"
   ),
@@ -727,8 +726,6 @@ const elements = {
   statutCheckboxes: Array.from(document.querySelectorAll(".statut-checkbox")),
   essaiCheckboxes: Array.from(document.querySelectorAll(".essai-checkbox")),
   statusSection: document.getElementById("status-section"),
-  seanceChoiceModal: document.getElementById("seance-choice-modal"),
-  seanceChoiceList: document.getElementById("seance-choice-list"),
   detailModal: document.getElementById("detail-modal"),
   detailTitle: document.getElementById("detail-title"),
   detailStatusBadge: document.getElementById("detail-status-badge"),
@@ -2104,6 +2101,15 @@ function mettreAJourEtapesFormulaireSeance() {
     return;
   }
 
+  const estDuplication = elements.seanceForm.dataset.duplication === "true";
+  let nombreSemainesValide = true;
+  if (estDuplication) {
+    const semaines = Number(document.getElementById("duplicate-weeks")?.value);
+    nombreSemainesValide = Number.isInteger(semaines) && semaines >= 1 && semaines <= 52;
+    const compteur = document.getElementById("duplicate-session-count");
+    if (compteur) compteur.textContent = nombreSemainesValide ? String(semaines) : "—";
+  }
+
   const mode = elements.seanceForm.dataset.mode || "creation";
   const estModification = mode === "modification";
   const modifiable = utilisateurPeutModifierDonnees();
@@ -2139,6 +2145,7 @@ function mettreAJourEtapesFormulaireSeance() {
   if (elements.saveSeanceButton) {
     elements.saveSeanceButton.disabled = !(
       modifiable &&
+      nombreSemainesValide &&
       informationsValides &&
       dateValide &&
       creneauValide &&
@@ -2523,6 +2530,7 @@ function attacherEcouteurs() {
     ouvrirFormulaireCreation();
   });
   elements.seanceForm?.addEventListener("submit", gererSoumissionSeance);
+  document.getElementById("duplicate-weeks")?.addEventListener("input", mettreAJourEtapesFormulaireSeance);
   elements.etudiant?.addEventListener("input", mettreAJourEtapesFormulaireSeance);
   elements.date?.addEventListener("change", marquerDateSeanceCommeChoisie);
   elements.seanceIntervenant?.addEventListener("change", mettreAJourEtapesFormulaireSeance);
@@ -2749,12 +2757,12 @@ function initialiserCalendrierSiNecessaire() {
     timezoneCentrale: obtenirFuseauHoraireCalendrierCentral(),
     onSlotClick: gererClicCreneauCalendrierSeance,
     onSelect: gererSelectionCalendrierSeance,
-    onEventClick: ouvrirDetailsOuChoixSeance,
+    onEventClick: ouvrirMenuActionsSeance,
     onEventDrop: gererDeplacementSeanceCalendrier,
     onEventResize: (info) => gererDeplacementSeanceCalendrier(info, true),
     canDragSeance: peutDeplacerSeanceCalendrier,
-    onIndisponibiliteClick: gererClicIndisponibilite,
     onDatesSet: () => {
+      fermerMenusCalendrier();
       if (utilisateurEstHandler()) {
         rafraichirEvenementsCalendrier();
       }
@@ -2763,6 +2771,46 @@ function initialiserCalendrierSiNecessaire() {
 
   demarrerHorlogeCalendriers();
   rafraichirEvenementsCalendrier();
+}
+
+function peutRedimensionnerIndisponibilite(indisponibilite) {
+  return utilisateurPeutGererIndisponibilites() && !utilisateurEstEnLectureSeule() && !indisponibilite?.est_seance_confidentielle &&
+    indisponibiliteAppartientAuRealisateurCourant(indisponibilite);
+}
+
+let modificationIndisponibiliteEnCours = false;
+async function gererRedimensionnementIndisponibilite(info) {
+  const indisponibilite = info.event.extendedProps.indisponibilite;
+  if (etat.sectionActive !== "indisponibilites" || modificationIndisponibiliteEnCours || !peutRedimensionnerIndisponibilite(indisponibilite)) {
+    info.revert(); return;
+  }
+  modificationIndisponibiliteEnCours = true;
+  let enregistre = false;
+  try {
+    const debut = info.event.start.toISOString().slice(11, 16);
+    const fin = info.event.end.toISOString().slice(0, 10) !== indisponibilite.date
+      ? "24:00" : info.event.end.toISOString().slice(11, 16);
+    const resultat = await redimensionnerIndisponibilite(indisponibilite.id, debut, fin);
+    enregistre = true;
+    await chargerIndisponibilites();
+    afficherToast(resultat.message, "success");
+  } catch (erreur) {
+    if (!enregistre) info.revert();
+    afficherToast(erreur.message, "error");
+  } finally { modificationIndisponibiliteEnCours = false; }
+}
+
+async function gererDuplicationSemaine() {
+  const bouton = document.getElementById("duplicate-unavailability-week");
+  const vue = etat.calendrierIndisponibilites?.view;
+  if (!vue || vue.type !== "timeGridWeek" || bouton.disabled || !utilisateurPeutGererIndisponibilites() || utilisateurEstEnLectureSeule()) return;
+  bouton.disabled = true;
+  try {
+    const resultat = await dupliquerSemaineIndisponibilites(vue.currentStart.toISOString().slice(0, 10));
+    await chargerIndisponibilites();
+    afficherToast(resultat.message, "success");
+  } catch (erreur) { afficherToast(erreur.message, "error"); }
+  finally { bouton.disabled = etat.calendrierIndisponibilites?.view.type !== "timeGridWeek"; }
 }
 
 function peutDeplacerSeanceCalendrier(seance) {
@@ -2835,19 +2883,22 @@ function initialiserCalendrierIndisponibilitesSiNecessaire() {
   }
 
   etat.calendrierIndisponibilites = initialiserCalendrier(elements.unavailabilityCalendar, {
+    onIndisponibiliteResize: gererRedimensionnementIndisponibilite,
+    canResizeIndisponibilite: peutRedimensionnerIndisponibilite,
+    onDatesSet: ({ view }) => {
+      fermerMenusCalendrier();
+      const bouton = document.getElementById("duplicate-unavailability-week");
+      if (bouton) {
+        bouton.disabled = view.type !== "timeGridWeek" || !utilisateurPeutGererIndisponibilites() || utilisateurEstEnLectureSeule();
+        bouton.title = view.type !== "timeGridWeek" ? "Passez en vue Semaine pour dupliquer." : "Copier la semaine affichée, sans doublons.";
+        bouton.onclick = gererDuplicationSemaine;
+      }
+    },
     plageHoraire: obtenirPlageCalendrierEffective(),
     timezoneCentrale: obtenirFuseauHoraireCalendrierCentral(),
     onSlotClick: gererClicCreneauCalendrierIndisponibilite,
     onSelect: gererSelectionCalendrierIndisponibilite,
-    onEventClick: ouvrirDetailSeance,
-    onIndisponibiliteClick: (indisponibilite) => {
-      if (utilisateurPeutGererIndisponibilites()) {
-        ouvrirDetailIndisponibilite(indisponibilite);
-        return;
-      }
-
-      gererClicIndisponibilite(indisponibilite);
-    },
+    onIndisponibiliteClick: gererClicIndisponibilite,
     selectionMobileRapide: true,
   });
 
@@ -2916,6 +2967,7 @@ function synchroniserNavigationSecondaire() {
 }
 
 function afficherSectionApplication(section) {
+  fermerMenusCalendrier();
   let sectionDemandee = section;
 
   if (utilisateurDoitChangerMotDePasse()) {
@@ -4024,6 +4076,7 @@ async function gererConnexion(event) {
 }
 
 async function gererDeconnexion() {
+  fermerMenusCalendrier();
   try {
     await deconnecterUtilisateur();
     etat.utilisateur = null;
@@ -4202,6 +4255,7 @@ async function gererCreationIndisponibilite(event) {
 }
 
 async function gererSuppressionIndisponibilite(indisponibiliteId) {
+  if (etat.sectionActive !== "indisponibilites") return;
   if (!utilisateurPeutGererIndisponibilites()) {
     afficherSectionApplication("dashboard");
     return;
@@ -4547,7 +4601,7 @@ function ouvrirDetailIndisponibilite(indisponibilite, options = {}) {
 
 function ouvrirFormulaireModificationIndisponibilite() {
   if (
-    !etat.indisponibiliteSelectionnee ||
+    etat.sectionActive !== "indisponibilites" || !etat.indisponibiliteSelectionnee ||
     !utilisateurPeutGererIndisponibilites() ||
     !indisponibiliteAppartientAuRealisateurCourant(etat.indisponibiliteSelectionnee)
   ) {
@@ -4570,7 +4624,7 @@ function ouvrirFormulaireModificationIndisponibilite() {
 
 function ouvrirFormulaireDuplicationIndisponibilite() {
   if (
-    !etat.indisponibiliteSelectionnee ||
+    etat.sectionActive !== "indisponibilites" || !etat.indisponibiliteSelectionnee ||
     !utilisateurPeutGererIndisponibilites() ||
     !indisponibiliteAppartientAuRealisateurCourant(etat.indisponibiliteSelectionnee)
   ) {
@@ -4604,6 +4658,10 @@ async function gererSoumissionIndisponibiliteModal(event) {
 
   const controles = obtenirControlesIndisponibiliteModal();
   const mode = controles.form?.dataset.mode || "modification";
+  if (mode !== "creation" && etat.sectionActive !== "indisponibilites") {
+    fermerModal(elements.unavailabilityDetailModal);
+    return;
+  }
   const indisponibiliteId = Number(controles.form?.dataset.indisponibiliteId || 0);
 
   if (
@@ -6351,7 +6409,12 @@ async function chargerAdministrationSiAutorise() {
     etat.demandesAdministration = demandesAdministration;
     if (etat.administration?.catalogue) {
       etat.catalogue = {
-        matieres: normaliserListeCatalogue(etat.administration.catalogue.matieres),
+        ...etat.catalogue,
+        // Administration must not erase the operational team selector or
+        // replace the currently selected team's subjects with global ones.
+        matieres: etat.catalogue?.equipes?.length
+          ? etat.catalogue.matieres
+          : normaliserListeCatalogue(etat.administration.catalogue.matieres),
         comptes: normaliserListeCatalogue(etat.administration.catalogue.comptes),
         intervenants: etat.catalogue?.intervenants || [],
       };
@@ -8058,6 +8121,52 @@ function afficherTotauxIntervenantsMonetisation() {
   });
 }
 
+function libelleEquipeMonetisation(equipe) {
+  const nom = String(equipe?.handler_nom || equipe?.handler_public_id || "").trim();
+  if (nom) return `Équipe de ${nom}`;
+  return equipe?.handler_id ? `Équipe n° ${equipe.handler_id}` : "Équipe historique";
+}
+
+function afficherTotauxEquipesMonetisation() {
+  const conteneur = elements.monetisationTotalsByTeam;
+  if (!conteneur) return;
+  conteneur.replaceChildren();
+  const equipes = Array.isArray(etat.monetisation?.equipes) ? etat.monetisation.equipes : [];
+  if (!equipes.length) {
+    conteneur.appendChild(creerEmptyState("Aucune séance réalisée pour cette sélection."));
+    return;
+  }
+  equipes.forEach((equipe) => {
+    const carte = document.createElement("article");
+    carte.className = "account-stats-card monetisation-account-card";
+    const enTete = document.createElement("div");
+    enTete.className = "account-stats-header";
+    const titre = document.createElement("h3");
+    titre.textContent = libelleEquipeMonetisation(equipe);
+    const total = document.createElement("strong");
+    total.className = "account-stats-total";
+    total.textContent = formaterMontantDh(equipe.montant_total);
+    enTete.append(titre, total);
+    const liste = document.createElement("div");
+    liste.className = "account-stats-list";
+    [
+      ["Séances payantes réalisées", equipe.seances_facturables],
+      ["Essais réalisés", equipe.seances_essai_faites],
+    ].forEach(([libelle, valeur]) => {
+      const ligne = document.createElement("div");
+      ligne.className = "stats-list-row";
+      const label = document.createElement("span");
+      label.textContent = libelle;
+      const nombre = document.createElement("strong");
+      nombre.textContent = String(Number(valeur) || 0);
+      ligne.append(label, nombre);
+      liste.appendChild(ligne);
+    });
+    carte.append(enTete, liste);
+    conteneur.appendChild(carte);
+  });
+}
+
 function afficherDetailsMonetisation() {
   if (!elements.monetisationDetails) {
     return;
@@ -8075,6 +8184,7 @@ function afficherDetailsMonetisation() {
 
   const enTetes = [
     "Date",
+    "Équipe",
     "Réalisateur",
     "Étudiant",
     "Matière",
@@ -8099,6 +8209,7 @@ function afficherDetailsMonetisation() {
     const ligneTableau = document.createElement("tr");
     [
       formatDate(ligne?.date),
+      libelleEquipeMonetisation(ligne),
       ligne?.intervenant || ligne?.compte || "-",
       ligne?.etudiant || "-",
       ligne?.matiere || "-",
@@ -8133,6 +8244,7 @@ function viderMonetisation() {
   }
   mettreAJourFormulaireMonetisation();
   elements.monetisationTotalsByIntervenant?.replaceChildren();
+  elements.monetisationTotalsByTeam?.replaceChildren();
   elements.monetisationDetails?.replaceChildren();
   elements.monetisationReportAccounts?.replaceChildren();
   mettreAJourEtatExportMonetisationPersonnalise();
@@ -8156,6 +8268,7 @@ function mettreAJourMonetisation() {
   mettreAJourFormulaireMonetisation();
   afficherSelectionIntervenantsMonetisation();
   afficherTotauxIntervenantsMonetisation();
+  afficherTotauxEquipesMonetisation();
   afficherDetailsMonetisation();
   mettreAJourVisibiliteResultatsMonetisation();
 }
@@ -9933,12 +10046,45 @@ function creerCarteInformationHistorique(ligne) {
 }
 
 function mettreAJourVisibiliteStatutSeance(mode) {
+  elements.seanceForm.dataset.duplication = "false";
+  elements.seanceModal.classList.remove("is-seance-duplication");
+  etat.seanceSourceDuplication = null;
+  elements.seanceForm.querySelector(".seance-form-layout")?.classList.remove("hidden");
+  document.getElementById("seance-information-section")?.classList.remove("hidden");
+  document.getElementById("seance-trial-field")?.classList.remove("hidden");
+  const matiere = document.getElementById("seance-subject-field");
+  if (matiere) elements.seanceForm.querySelector(".form-grid-profile")?.appendChild(matiere);
+  document.getElementById("duplicate-subject-slot")?.classList.add("hidden");
+  document.getElementById("duplicate-summary")?.classList.add("hidden");
+  document.getElementById("duplicate-weeks-field")?.classList.add("hidden");
+  const compteur = document.getElementById("duplicate-weeks");
+  if (compteur) compteur.value = "1";
   const afficherStatut = mode === "modification";
   elements.statusSection?.classList.toggle("hidden", !afficherStatut);
 
   if (!afficherStatut) {
     definirValeurSelectionnee(elements.statutCheckboxes, "planifiee");
   }
+}
+
+function rendreRecapitulatifDuplicationSeance() {
+  const conteneur = document.getElementById("duplicate-summary-details");
+  const seance = etat.seanceSourceDuplication;
+  if (!conteneur || !seance) return;
+  conteneur.replaceChildren();
+  [
+    ["Étudiant", seance.etudiant],
+    ["Type", seance.est_essai ? "Essai" : "Payante"],
+  ].forEach(([libelle, valeur]) => {
+    const ligne = document.createElement("div");
+    ligne.className = "detail-row";
+    const label = document.createElement("span");
+    label.textContent = libelle;
+    const texte = document.createElement("strong");
+    texte.textContent = valeur || "—";
+    ligne.append(label, texte);
+    conteneur.appendChild(ligne);
+  });
 }
 
 function normaliserSelectionCreationSeance(selection = {}) {
@@ -10024,7 +10170,7 @@ function ouvrirFormulaireCreation(selection = {}) {
 }
 
 function ouvrirFormulaireModification() {
-  if (!etat.seanceSelectionnee) {
+  if (!etat.seanceSelectionnee || etat.sectionActive !== "dashboard") {
     return;
   }
 
@@ -10054,7 +10200,7 @@ function ouvrirFormulaireModification() {
 }
 
 function ouvrirFormulaireDuplication() {
-  if (!etat.seanceSelectionnee) {
+  if (!etat.seanceSelectionnee || etat.sectionActive !== "dashboard") {
     return;
   }
 
@@ -10069,7 +10215,6 @@ function ouvrirFormulaireDuplication() {
   }
 
   const seanceSource = etat.seanceSelectionnee;
-  const matieres = obtenirMatieresDisponibles();
 
   fermerModal(elements.detailModal);
   elements.seanceForm.reset();
@@ -10077,14 +10222,14 @@ function ouvrirFormulaireDuplication() {
   elements.seanceForm.dataset.mode = "creation";
   definirProgressionCreationSeance();
   mettreAJourVisibiliteStatutSeance("creation");
+  rendreOptionsEquipesSeance(seanceSource.handler_id);
+  const matieres = obtenirMatieresDisponibles();
   rendreOptionsCatalogueSeance();
   configurerOptionsStatut("creation");
-  definirSousTitreModalSeance(
-    `Copie de ${seanceSource.libelle || seanceSource.etudiant}. Choisissez la date avant d'enregistrer.`
-  );
+  definirSousTitreModalSeance("");
   elements.seanceModalTitle.textContent = "Dupliquer la séance";
-  elements.saveSeanceButton.textContent = "Créer la copie";
-  elements.saveSeanceButton.dataset.defaultLabel = "Créer la copie";
+  elements.saveSeanceButton.textContent = "Dupliquer";
+  elements.saveSeanceButton.dataset.defaultLabel = "Dupliquer";
   elements.seanceId.value = "";
   elements.etudiant.value = seanceSource.etudiant || "";
   elements.parent.value = seanceSource.parent || "";
@@ -10095,13 +10240,29 @@ function ouvrirFormulaireDuplication() {
   definirValeurSelectionnee(elements.statutCheckboxes, "planifiee");
   definirValeurSelectionnee(elements.essaiCheckboxes, seanceSource.est_essai ? "1" : "0");
   definirDureeSelectionnee(seanceSource.duree_minutes || 60);
-  definirIntervenantSeanceSelectionne(seanceSource.intervenant_id, { obligatoire: true });
-  elements.date.value = "";
+  elements.seanceForm.dataset.duplication = "true";
+  elements.seanceModal.classList.add("is-seance-duplication");
+  etat.seanceSourceDuplication = { ...seanceSource };
+  document.getElementById("seance-information-section")?.classList.add("hidden");
+  document.getElementById("seance-trial-field")?.classList.add("hidden");
+  const matiere = document.getElementById("seance-subject-field");
+  const emplacementMatiere = document.getElementById("duplicate-subject-slot");
+  if (matiere && emplacementMatiere) {
+    emplacementMatiere.appendChild(matiere);
+    emplacementMatiere.classList.remove("hidden");
+  }
+  document.getElementById("duplicate-summary")?.classList.remove("hidden");
+  document.getElementById("duplicate-weeks-field")?.classList.remove("hidden");
+  elements.date.value = new Date(Date.parse(`${seanceSource.date}T12:00:00Z`) + 7 * 86400000).toISOString().slice(0, 10);
+  definirProgressionCreationSeance({ dateConfirmee: true, horaireConfirme: true });
   definirHeureDebutSelectionnee(seanceSource.heure_debut || recupererHeureDebutParDefaut());
   mettreAJourHeureFinCalculee();
+  rendreOptionsIntervenantsSeance();
+  definirIntervenantSeanceSelectionne(seanceSource.intervenant_id, { obligatoire: true });
+  rendreRecapitulatifDuplicationSeance();
   mettreAJourEtapesFormulaireSeance();
   ouvrirModal(elements.seanceModal);
-  elements.date.focus();
+  document.getElementById("duplicate-weeks")?.focus();
 }
 
 function ouvrirFormulaireReport() {
@@ -10192,7 +10353,14 @@ async function gererSoumissionSeance(event) {
   }
 
   const mode = elements.seanceForm.dataset.mode || "creation";
+  const sourceDuplication = elements.seanceForm.dataset.duplication === "true" ? etat.seanceSourceDuplication : null;
   const dureeMinutes = recupererDureeSelectionnee();
+  const nombreSemaines = elements.seanceForm.dataset.duplication === "true"
+    ? Number(document.getElementById("duplicate-weeks").value) : 1;
+  if (!Number.isInteger(nombreSemaines) || nombreSemaines < 1 || nombreSemaines > 52) {
+    afficherErreur(elements.seanceFormError, "Choisissez entre 1 et 52 semaines.");
+    return;
+  }
   const intervenantId = obtenirIntervenantCibleSeance();
   const donneesSeance = {
     handler_id: Number(elements.seanceHandler?.value || etat.catalogue?.handler_id || 0) || undefined,
@@ -10212,6 +10380,15 @@ async function gererSoumissionSeance(event) {
           etat.seanceSelectionnee?.statut_seance ||
           "planifiee",
   };
+
+  if (sourceDuplication) {
+    // Identity and type stay fixed; all planning criteria come from the form.
+    Object.assign(donneesSeance, {
+      etudiant: String(sourceDuplication.etudiant || "").trim(),
+      parent: String(sourceDuplication.parent || "").trim(),
+      est_essai: sourceDuplication.est_essai ? "1" : "0",
+    });
+  }
 
   if (utilisateurEstHandler()) {
     if (!intervenantId) {
@@ -10366,7 +10543,7 @@ async function gererSoumissionSeance(event) {
     if (mode === "modification") {
       seance = await modifierSeance(elements.seanceId.value, donneesSeance);
     } else {
-      seance = await ajouterSeance(donneesSeance);
+      seance = await ajouterSeance({ ...donneesSeance, nombre_semaines: nombreSemaines });
     }
 
     fermerModal(elements.seanceModal);
@@ -10376,7 +10553,7 @@ async function gererSoumissionSeance(event) {
       chargerMonetisationSiAutorise(),
     ]);
     afficherToast(
-      mode === "creation" ? "Séance ajoutée." : "Séance mise à jour."
+      mode === "creation" ? (nombreSemaines > 1 ? `${nombreSemaines} séances créées, une par semaine.` : "Séance ajoutée.") : "Séance mise à jour."
     );
   } catch (erreur) {
     if (erreur.status === 401) {
@@ -10400,7 +10577,8 @@ async function gererSoumissionSeance(event) {
   }
 }
 
-function gererClicIndisponibilite(indisponibilite) {
+function gererClicIndisponibilite(indisponibilite, info) {
+  if (etat.sectionActive === "dashboard") return;
   if (indisponibilite?.est_seance_confidentielle) {
     const dateLabel = indisponibilite?.date ? formatDate(indisponibilite.date) : "";
     const messageConfidentiel = estIndisponibiliteJourCompletClient(indisponibilite)
@@ -10416,25 +10594,11 @@ function gererClicIndisponibilite(indisponibilite) {
     return;
   }
 
-  const messagePlage = estIndisponibiliteJourCompletClient(indisponibilite)
-    ? "Jour complet indisponible"
-    : `Créneau indisponible : ${indisponibilite.heure_debut}-${indisponibilite.heure_fin}`;
-
   if (
     utilisateurPeutGererIndisponibilites() &&
     indisponibiliteAppartientAuRealisateurCourant(indisponibilite)
   ) {
-    const progressionTripleClic = enregistrerClicIndisponibilite(indisponibilite);
-
-    if (progressionTripleClic.complete) {
-      ouvrirDetailIndisponibilite(indisponibilite);
-      return;
-    }
-
-    afficherToast(
-      `${messagePlage}. ${progressionTripleClic.restants} clic(s) restant(s) pour gérer.`,
-      "warning"
-    );
+    ouvrirMenuActionsIndisponibilite(indisponibilite, info);
     return;
   }
 
@@ -10444,40 +10608,6 @@ function gererClicIndisponibilite(indisponibilite) {
       : "Ce créneau a été marqué comme indisponible.",
     "warning"
   );
-}
-
-function enregistrerClicIndisponibilite(indisponibilite) {
-  const identifiant = String(indisponibilite?.id || "");
-  const maintenant = Date.now();
-  const memeIndisponibilite = etat.clicIndisponibilite.id === identifiant;
-  const clicRecent =
-    memeIndisponibilite &&
-    maintenant - etat.clicIndisponibilite.lastAt <= delaiTripleClicIndisponibiliteMs;
-  const count = clicRecent ? etat.clicIndisponibilite.count + 1 : 1;
-
-  etat.clicIndisponibilite = {
-    id: identifiant,
-    count,
-    lastAt: maintenant,
-  };
-
-  if (count >= 3) {
-    etat.clicIndisponibilite = {
-      id: null,
-      count: 0,
-      lastAt: 0,
-    };
-
-    return {
-      complete: true,
-      restants: 0,
-    };
-  }
-
-  return {
-    complete: false,
-    restants: 3 - count,
-  };
 }
 
 function gererClicCreneauCalendrierSeance(selection = {}) {
@@ -10535,14 +10665,7 @@ function ouvrirIndisponibiliteDepuisSelectionCalendrier(selection = {}) {
     return false;
   }
 
-  if (
-    utilisateurPeutGererIndisponibilites() &&
-    indisponibiliteAppartientAuRealisateurCourant(indisponibilite)
-  ) {
-    ouvrirDetailIndisponibilite(indisponibilite);
-  } else {
-    gererClicIndisponibilite(indisponibilite);
-  }
+  gererClicIndisponibilite(indisponibilite);
 
   return true;
 }
@@ -10586,7 +10709,10 @@ function seancesSeChevauchent(premiereSeance, secondeSeance) {
 
 function obtenirSeancesChevauchantesVisibles(seance) {
   const idSeanceCliquee = Number(seance?.id || 0);
-  const seances = (Array.isArray(etat.seances) ? etat.seances : []).filter(
+  const seancesAffichees = (etat.calendrier?.getEvents() || [])
+    .filter((event) => event.extendedProps?.type === "seance")
+    .map((event) => event.extendedProps.seance);
+  const seances = seancesAffichees.filter(
     (candidate) =>
       !seanceEstMasqueePourConfidentialite(candidate) &&
       seancesSeChevauchent(candidate, seance)
@@ -10606,58 +10732,72 @@ function obtenirSeancesChevauchantesVisibles(seance) {
   });
 }
 
-function ouvrirChoixSeancesChevauchantes(seances = []) {
-  if (!elements.seanceChoiceModal || !elements.seanceChoiceList) {
-    return;
-  }
-
-  elements.seanceChoiceList.replaceChildren();
-  seances.forEach((seance) => {
-    const bouton = document.createElement("button");
-    bouton.type = "button";
-    bouton.className = "seance-choice-item";
-
-    const titre = document.createElement("span");
-    titre.className = "seance-choice-item-title";
-    titre.textContent = `${seance.etudiant || "Sans étudiant"} · ${seance.matiere || "Sans matière"}`;
-
-    const meta = document.createElement("span");
-    meta.className = "seance-choice-item-meta";
-    meta.textContent = [
-      construirePlageHoraire(seance),
-      seance.intervenant_nom || seance.compte || "Réalisateur",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-
-    bouton.append(titre, meta);
-    bouton.addEventListener("click", () => {
-      fermerModal(elements.seanceChoiceModal);
-      ouvrirDetailSeance(seance);
-    });
-    elements.seanceChoiceList.appendChild(bouton);
-  });
-
-  ouvrirModal(elements.seanceChoiceModal);
+let menuActionsSeance = null;
+let menuActionsIndisponibilite = null;
+function fermerMenusCalendrier() {
+  menuActionsSeance?.fermer();
+  menuActionsIndisponibilite?.fermer();
 }
 
-function ouvrirDetailsOuChoixSeance(seance) {
-  if (!seance) {
-    return;
+function ouvrirMenuActionsIndisponibilite(indisponibilite, info) {
+  if (etat.sectionActive !== "indisponibilites" ||
+    !indisponibilite || indisponibilite.est_seance_confidentielle) return;
+  fermerMenusCalendrier();
+  menuActionsIndisponibilite ||= creerMenuContextuelSeance({
+    id: "unavailability-context-menu", label: "Options de l'indisponibilité",
+  });
+  if (!info) {
+    const calendrier = elements.unavailabilityCalendar;
+    info = { el: calendrier?.querySelector(`[data-indisponibilite-id="${Number(indisponibilite.id)}"]`) };
   }
+  menuActionsIndisponibilite.ouvrir({
+    seance: indisponibilite,
+    info,
+    actions: [["modifier", "Modifier"], ["dupliquer", "Dupliquer"], ["supprimer", "Supprimer"]],
+    libelleSelection: (selection) => construirePlageIndisponibilite(selection),
+    peutModifier: peutRedimensionnerIndisponibilite,
+    onAction: (action, selection) => {
+      if (etat.sectionActive !== "indisponibilites") return;
+      const actuelle = trouverIndisponibiliteLocale(selection.id);
+      if (!actuelle || !peutRedimensionnerIndisponibilite(actuelle)) return;
+      etat.indisponibiliteSelectionnee = actuelle;
+      if (action === "supprimer") {
+        gererSuppressionIndisponibilite(actuelle.id);
+      } else {
+        // Prepare the existing form only after the action has been chosen.
+        ouvrirDetailIndisponibilite(actuelle);
+        if (action === "modifier") ouvrirFormulaireModificationIndisponibilite();
+        if (action === "dupliquer") ouvrirFormulaireDuplicationIndisponibilite();
+      }
+    },
+  });
+}
 
-  if (seanceEstMasqueePourConfidentialite(seance)) {
-    ouvrirDetailSeance(seance);
-    return;
-  }
-
-  const seancesChevauchantes = obtenirSeancesChevauchantesVisibles(seance);
-  if (seancesChevauchantes.length <= 1) {
-    ouvrirDetailSeance(seance);
-    return;
-  }
-
-  ouvrirChoixSeancesChevauchantes(seancesChevauchantes);
+function ouvrirMenuActionsSeance(seance, info) {
+  if (!seance || etat.sectionActive !== "dashboard") return;
+  if (seanceEstMasqueePourConfidentialite(seance)) return;
+  fermerMenusCalendrier();
+  menuActionsSeance ||= creerMenuContextuelSeance();
+  const chevauchantes = obtenirSeancesChevauchantesVisibles(seance);
+  menuActionsSeance.ouvrir({
+    seance,
+    seances: chevauchantes.length ? chevauchantes : [seance],
+    info,
+    peutModifier: peutDeplacerSeanceCalendrier,
+    onAction: (action, selection) => {
+      if (etat.sectionActive !== "dashboard") return;
+      const actuelle = etat.seances.find((candidate) => Number(candidate.id) === Number(selection.id));
+      if (!actuelle || seanceEstMasqueePourConfidentialite(actuelle)) return;
+      etat.seanceSelectionnee = actuelle;
+      if (action === "information") {
+        ouvrirDetailSeance(actuelle);
+      } else if (peutDeplacerSeanceCalendrier(actuelle)) {
+        if (action === "modifier") ouvrirFormulaireModification();
+        if (action === "dupliquer") ouvrirFormulaireDuplication();
+        if (action === "supprimer") gererSuppressionSeance();
+      }
+    },
+  });
 }
 
 async function ouvrirDetailSeance(seance) {
@@ -10696,7 +10836,9 @@ function mettreEnEtatActionsRapides() {
   }
 
   const actionsBloquees =
-    !utilisateurPeutModifierDonnees() || seanceEstMasqueePourConfidentialite(etat.seanceSelectionnee);
+    etat.sectionActive !== "dashboard" || !peutDeplacerSeanceCalendrier(etat.seanceSelectionnee);
+
+  elements.detailModal.querySelector(".detail-actions")?.classList.toggle("hidden", etat.sectionActive !== "dashboard");
 
   elements.editSeanceButton.disabled = actionsBloquees;
   elements.duplicateSeanceButton.disabled = actionsBloquees;
@@ -10744,7 +10886,7 @@ async function gererChangementStatut(nouveauStatut) {
 }
 
 async function gererSuppressionSeance() {
-  if (!etat.seanceSelectionnee) {
+  if (!etat.seanceSelectionnee || etat.sectionActive !== "dashboard") {
     return;
   }
 
@@ -11258,6 +11400,7 @@ function gererNavigationClavierModales(event) {
 }
 
 function ouvrirModal(modal) {
+  fermerMenusCalendrier();
   if (!modal) {
     return;
   }
@@ -11294,6 +11437,7 @@ function fermerModal(modal) {
 
   if (modal === elements.seanceModal) {
     elements.seanceForm.reset();
+    mettreAJourVisibiliteStatutSeance("creation");
     masquerErreur(elements.seanceFormError);
     definirSousTitreModalSeance("");
     elements.heureFinCalculee.value = "";

@@ -1,3 +1,5 @@
+import { attacherNavigationSemaines } from "./calendrier.js?v=20261013-touch-cleanup";
+
 const publicCalendarOffsetMinutes = Number(
   document.body?.dataset?.publicCalendarOffsetMinutes || 0
 );
@@ -13,6 +15,10 @@ const planningEventsUrl = String(
 ).trim();
 
 const elements = {
+  weekChoice: document.getElementById("reservation-public-week-choice"),
+  calendarScreen: document.getElementById("reservation-public-calendar-screen"),
+  back: document.getElementById("reservation-public-back"),
+  weekOptions: [...document.querySelectorAll("[data-public-week]")],
   calendar: document.getElementById("reservation-public-calendar"),
   error: document.getElementById("reservation-public-error"),
   slotNotice: document.getElementById("reservation-public-slot-notice"),
@@ -20,6 +26,7 @@ const elements = {
 };
 
 const etat = {
+  semaineReference: "",
   calendrier: null,
   config: {
     public_calendar_offset_minutes: publicCalendarOffsetMinutes,
@@ -669,9 +676,9 @@ function initialiserCalendrier(initialWeekStart) {
     },
     dayHeaderContent: genererContenuEnteteJour,
     headerToolbar: {
-      left: "prev,next",
+      left: "",
       center: "title",
-      right: "",
+      right: "prev,next",
     },
     buttonIcons: false,
     buttonText: {
@@ -718,10 +725,47 @@ function initialiserCalendrier(initialWeekStart) {
   });
 
   etat.calendrier.render();
+  const detacherNavigationSemaines = attacherNavigationSemaines(elements.calendar, etat.calendrier);
+  const detruireCalendrier = etat.calendrier.destroy.bind(etat.calendrier);
+  etat.calendrier.destroy = () => {
+    detacherNavigationSemaines();
+    detruireCalendrier();
+  };
+  const zoneRetour = elements.calendar.querySelector(".fc-header-toolbar .fc-toolbar-chunk:first-child");
+  if (zoneRetour && elements.back) zoneRetour.append(elements.back);
   appliquerOptionsMaintenantCalendrierPublic();
   synchroniserEtatVisuelCalendrier(elements.calendar, etat.calendrier.view?.type);
   mettreAJourCalendrier();
 }
+
+function configurerChoixSemaines(weekStart) {
+  etat.semaineReference = weekStart;
+  const formatter = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
+  for (const [index, id] of ["public-current-week-dates", "public-next-week-dates"].entries()) {
+    const debut = ajouterJoursIso(weekStart, index * 7);
+    const fin = ajouterJoursIso(debut, 6);
+    const label = document.getElementById(id);
+    if (label) label.textContent = `${formatter.format(new Date(`${debut}T12:00:00Z`))} — ${formatter.format(new Date(`${fin}T12:00:00Z`))}`;
+  }
+  elements.weekOptions.forEach(bouton => { bouton.disabled = false; });
+}
+
+function ouvrirSemainePublique(index) {
+  if (!etat.calendrier || !etat.semaineReference) return;
+  elements.weekChoice?.classList.add("hidden");
+  elements.calendarScreen?.classList.remove("hidden");
+  etat.calendrier.gotoDate(ajouterJoursIso(etat.semaineReference, index * 7));
+  etat.calendrier.updateSize();
+  elements.back?.focus({ preventScroll: true });
+}
+
+elements.weekOptions.forEach(bouton => bouton.addEventListener("click", () => ouvrirSemainePublique(Number(bouton.dataset.publicWeek))));
+elements.back?.addEventListener("click", () => {
+  elements.calendarScreen?.classList.add("hidden");
+  elements.weekChoice?.classList.remove("hidden");
+  elements.slotNotice?.classList.add("hidden");
+  elements.weekOptions[0]?.focus({ preventScroll: true });
+});
 
 async function initialiserPage() {
   try {
@@ -729,6 +773,7 @@ async function initialiserPage() {
     const resultatInitial = await recupererPlanning();
     await appliquerResultatPlanning(resultatInitial);
     initialiserCalendrier(resultatInitial.planning.week_start);
+    if (etat.calendrier) configurerChoixSemaines(resultatInitial.planning.week_start);
     prechargerPlanning(ajouterJoursIso(resultatInitial.planning.week_start, 7)).catch(() => {});
     lancerActualisationMaintenant();
     lancerSynchronisationAutomatique();
