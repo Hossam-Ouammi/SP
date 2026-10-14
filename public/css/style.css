@@ -35,6 +35,27 @@
   --radius-sm: 10px;
 }
 
+.calendar-duplicate-ghost {
+  position: fixed;
+  z-index: 2500;
+  pointer-events: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px dashed var(--ghost-border);
+  border-radius: 5px;
+  background: var(--ghost-background);
+  color: var(--ghost-text);
+  opacity: 0.78;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.12);
+  font-size: 0.78rem;
+}
+.calendar-duplicate-ghost small { font-size: 0.65rem; }
+.calendar-duplicate-ghost.is-forbidden { border-color: #ef4444; border-width: 2px; }
+body.is-copying-session, body.is-copying-session #calendar * { cursor: copy !important; }
+
 * {
   box-sizing: border-box;
 }
@@ -1216,10 +1237,6 @@ button {
   color: var(--accent-strong);
 }
 
-.statistics-panel {
-  padding: 18px 20px;
-}
-
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1496,17 +1513,6 @@ button {
   color: var(--text);
 }
 
-.statistiques-period-panel,
-.stats-results > .statistics-overview-grid,
-.stats-results > .stats-compare-panel {
-  margin-bottom: 16px;
-}
-
-.statistiques-period-panel {
-  padding: 16px;
-}
-
-.stats-global-toggle,
 .monetisation-global-toggle {
   display: inline-flex;
   align-items: center;
@@ -1518,17 +1524,12 @@ button {
   cursor: pointer;
 }
 
-.stats-global-toggle input,
 .monetisation-global-toggle input {
   inline-size: 18px;
   block-size: 18px;
   margin: 0;
   accent-color: var(--accent);
   cursor: pointer;
-}
-
-#stats-results[hidden] {
-  display: none !important;
 }
 
 .monetisation-period-panel {
@@ -5473,7 +5474,6 @@ button {
   }
 
   .calendar-panel,
-  .statistics-panel,
   .stats-panel,
   .today-panel,
   .history-panel,

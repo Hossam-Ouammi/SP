@@ -20,7 +20,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/css/style.css?v=20261012-duplicate-planning" />
+    <link rel="stylesheet" href="/css/style.css?v=20261013-remove-statistics" />
     <script defer src="/js/interaction-guards.js?v=20261010-gestures"></script>
   </head>
   <body>
@@ -215,9 +215,6 @@
           <button class="nav-tab nav-secondary nav-secondary-collapsed hidden" type="button" data-section-target="monetisation">
             Monétisation
           </button>
-          <button class="nav-tab nav-secondary nav-secondary-collapsed" type="button" data-section-target="statistiques">
-            Statistiques
-          </button>
           <button class="nav-tab nav-secondary nav-secondary-collapsed" type="button" data-section-target="utilisateur">
             <span id="user-nav-label">Paramètres</span>
             <span id="admin-request-badge" class="nav-notification-badge hidden">0</span>
@@ -342,67 +339,6 @@
                 </div>
               </form>
             </article>
-          </section>
-        </section>
-
-        <section id="statistiques-section" class="app-section hidden">
-          <section class="panel stats-compare-panel statistiques-period-panel">
-            <div class="section-heading section-heading-stack">
-              <div>
-                <h2>Statistiques</h2>
-              </div>
-            </div>
-
-            <form id="stats-filter-form" class="stack-form" novalidate>
-              <div class="form-grid">
-                <label class="field">
-                  <span>De</span>
-                  <input id="stats-date-start" type="date" required />
-                </label>
-                <label class="field">
-                  <span>À</span>
-                  <input id="stats-date-end" type="date" required />
-                </label>
-              </div>
-
-              <label class="stats-global-toggle" for="stats-global-toggle">
-                <input id="stats-global-toggle" type="checkbox" />
-                <span>Statistiques globales</span>
-              </label>
-
-              <p id="stats-filter-error" class="form-error hidden"></p>
-
-              <div class="form-actions">
-                <button id="stats-calculate-button" class="button primary" type="submit">
-                  Calculer
-                </button>
-              </div>
-            </form>
-          </section>
-
-          <section
-            id="stats-results"
-            class="stats-results hidden"
-            aria-live="polite"
-            hidden
-            inert
-          >
-            <div id="stats-accounts-overview" class="statistics-overview-grid">
-              <article class="panel stat-overview-card stat-overview-card-primary">
-                <span class="stat-overview-label">Total général</span>
-                <strong id="total-count" class="stat-overview-value">0</strong>
-              </article>
-            </div>
-
-            <section class="panel stats-compare-panel">
-              <div class="section-heading section-heading-stack">
-                <div>
-                  <h2>Comparatif par réalisateur</h2>
-                </div>
-              </div>
-
-              <div id="stats-accounts-table" class="stats-table"></div>
-            </section>
           </section>
         </section>
 
@@ -1330,14 +1266,6 @@
               <div id="monetisation-totals-by-intervenant" class="account-stats-grid monetisation-details-grid"></div>
             </section>
 
-            <section class="panel stats-compare-panel monetisation-extra-panel">
-              <div class="section-heading section-heading-stack">
-                <div>
-                  <h2>Détail des séances réalisées</h2>
-                </div>
-              </div>
-              <div id="monetisation-details" class="stats-table"></div>
-            </section>
 
             <div class="form-actions monetisation-results-actions">
               <button
@@ -1843,9 +1771,6 @@
               <button id="edit-seance-button" class="button primary" type="button">
                 Modifier
               </button>
-              <button id="duplicate-seance-button" class="button secondary" type="button">
-                Dupliquer
-              </button>
               <button id="delete-seance-button" class="button danger" type="button">
                 Supprimer
               </button>
@@ -2004,6 +1929,6 @@
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
     <script src="/js/service-worker-recovery.js?v=20260919-auto-refresh"></script>
     <script src="/js/login-lifecycle.js?v=20260911-account-request-dialog"></script>
-    <script type="module" src="/js/ui.js?v=20261013-touch-cleanup"></script>
+    <script type="module" src="/js/ui.js?v=20261014-remove-monetisation-details"></script>
   </body>
 </html>

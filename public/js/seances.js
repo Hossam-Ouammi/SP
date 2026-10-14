@@ -110,30 +110,6 @@ export async function recupererHistoriqueActions() {
   return resultat.historique;
 }
 
-export async function recupererStatistiques(options = {}) {
-  const parametres = new URLSearchParams();
-
-  if (options?.globale === true) {
-    // La vue globale reste toujours limitée au scope opérationnel de la
-    // session. Le serveur rejette volontairement les dates dans ce mode.
-    parametres.set("globale", "1");
-  } else {
-    const du = String(options?.du || "").trim();
-    const au = String(options?.au || "").trim();
-
-    if (du) {
-      parametres.set("du", du);
-    }
-
-    if (au) {
-      parametres.set("au", au);
-    }
-  }
-
-  const suffixe = parametres.toString() ? `?${parametres.toString()}` : "";
-  return envoyerRequete(`/api/statistiques${suffixe}`);
-}
-
 export async function recupererDetailHistorique(entreeId) {
   const resultat = await envoyerRequete(`/api/historique/${entreeId}`);
   return resultat.entree;

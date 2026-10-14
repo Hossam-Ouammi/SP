@@ -2,7 +2,7 @@ const express = require("express");
 
 const {
   recupererStatistiquesGlobalesAdministration,
-} = require("../controllers/statistiques.controller");
+} = require("../controllers/admin-analytics.controller");
 const {
   recupererMonetisationGlobaleAdministration,
   telechargerReleveMonetisationGlobaleAdministration,
@@ -19,8 +19,8 @@ const {
 const router = express.Router();
 
 // This marker is deliberately separate from the normal Handler scope. A
-// dual-role account keeps its operational data boundary on `/api/statistiques`
-// and `/api/monetisation`; only this explicit, SuperAdmin-protected router can
+// dual-role account keeps its operational data boundary on `/api/monetisation`;
+// only this explicit, SuperAdmin-protected router can
 // request platform-wide aggregates.
 function activerContexteAnalyseGlobaleSuperAdmin(req, res, next) {
   req.scope = {

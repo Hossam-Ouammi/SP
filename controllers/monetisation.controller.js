@@ -1614,35 +1614,35 @@ async function recupererMonetisation(req, res) {
         ...stats,
       };
     });
-    const lignes = construireLignesMonetisation(
-      seancesFiltrees,
-      comptesCatalogueParNom,
-      comptesVisiblesParCle
-    );
     const equipesParId = new Map();
-    lignes.forEach((ligne) => {
-      const id = Number(ligne.handler_id || 0);
+    seancesFiltrees.filter(estSeanceFaiteMonetisation).sort(trierSeancesParDateEtHeure).forEach((seance) => {
+      const compteVisible = comptesVisiblesParCle.get(cleIntervenantMonetisation(seance));
+      const tarifUnitaire = compteVisible
+        ? obtenirTarifUnitaireCompte(compteVisible, comptesCatalogueParNom)
+        : 0;
+      const id = Number(seance.handler_id || 0);
       const equipe = equipesParId.get(id) || {
         handler_id: id || null,
-        handler_public_id: ligne.handler_public_id,
-        handler_nom: ligne.handler_nom,
+        handler_public_id: seance.handler_public_id || null,
+        handler_nom: seance.handler_nom || null,
         nombre_seances: 0,
         seances_facturables: 0,
         seances_essai_faites: 0,
         montant_total: 0,
       };
       equipe.nombre_seances += 1;
-      if (ligne.est_gratuite) {
+      if (estSeanceGratuiteMonetisation(seance)) {
         equipe.seances_essai_faites += 1;
       } else {
         equipe.seances_facturables += 1;
       }
-      equipe.montant_total = Number((equipe.montant_total + Number(ligne.montant || 0)).toFixed(2));
+      const montant = estSeanceGratuiteMonetisation(seance) ? 0 : calculerMontantSeance(seance, tarifUnitaire);
+      equipe.montant_total = Number((equipe.montant_total + montant).toFixed(2));
       equipesParId.set(id, equipe);
     });
     // Le sélecteur de l'interface ne doit proposer que des comptes réels.
     // Les anciennes séances sans `intervenant_id` restent présentes dans les
-    // détails et les totaux historiques, mais ne constituent pas un
+    // relevés et les totaux historiques, mais ne constituent pas un
     // Réalisateur sélectionnable.
     const intervenantsDisponibles = catalogueComplet.intervenants.filter((intervenant) =>
       Boolean(normaliserIdentifiantIntervenant(intervenant?.intervenant_id))
@@ -1657,7 +1657,6 @@ async function recupererMonetisation(req, res) {
           nom: intervenant.nom,
         })),
         intervenants,
-        lignes,
         equipes: Array.from(equipesParId.values()).sort((a, b) =>
           String(a.handler_nom || a.handler_public_id || "")
             .localeCompare(String(b.handler_nom || b.handler_public_id || ""), "fr")

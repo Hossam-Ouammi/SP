@@ -572,58 +572,9 @@ assert.doesNotMatch(
   /proposition-event|proposal-item|proposal-inline|toast\.proposal|calendar-mobile-(?:month|week)-proposition/,
   "Les styles du workflow de propositions retire doivent etre supprimes."
 );
-const debutStatistiques = source.indexOf("function mettreAJourStatistiques()");
-const finStatistiques = source.indexOf("function obtenirComptesAdministration", debutStatistiques);
-assert.notEqual(debutStatistiques, -1, "Le rendu des statistiques est introuvable.");
-assert.notEqual(finStatistiques, -1, "La fin du rendu statistiques est introuvable.");
-const statistiquesSource = source.slice(debutStatistiques, finStatistiques);
-assert.match(
-  statistiquesSource,
-  /seances_payantes[\s\S]*?seances_gratuites[\s\S]*?seances_non_faites/,
-  "Les statistiques doivent distinguer les séances payantes, gratuites et non faites."
-);
-assert.doesNotMatch(
-  statistiquesSource,
-  /seances_reportees|seances_annulees/,
-  "Le tableau Statistiques ne doit plus présenter Reportées et Annulées séparément."
-);
-assert.match(
-  statistiquesSource,
-  /"Payantes"[\s\S]*?"Gratuites"[\s\S]*?"Non faites"/,
-  "Les colonnes statistiques doivent porter les libellés métier demandés."
-);
-
-const debutSectionStatistiques = vueSource.indexOf('<section id="statistiques-section"');
-const finSectionStatistiques = vueSource.indexOf('<section id="calendrier-section"', debutSectionStatistiques);
-assert.notEqual(debutSectionStatistiques, -1, "La section Statistiques est introuvable.");
-assert.notEqual(finSectionStatistiques, -1, "La fin de la section Statistiques est introuvable.");
-const sectionStatistiques = vueSource.slice(debutSectionStatistiques, finSectionStatistiques);
-assert.match(
-  sectionStatistiques,
-  /id="stats-filter-form"[\s\S]*?id="stats-date-start"[\s\S]*?id="stats-date-end"[\s\S]*?id="stats-global-toggle"[\s\S]*?Statistiques globales[\s\S]*?id="stats-calculate-button"[\s\S]*?Calculer/,
-  "Les Statistiques doivent demander une période ou le mode global avant le calcul."
-);
-assert.match(
-  sectionStatistiques,
-  /id="stats-results"[\s\S]*?class="stats-results hidden"[\s\S]*?hidden[\s\S]*?inert/,
-  "Les résultats Statistiques doivent être masqués avant le premier calcul."
-);
-assert.doesNotMatch(sectionStatistiques, /Reportées|Annulées/);
-assert.match(
-  source,
-  /async function gererCalculStatistiques\(event\)[\s\S]*?recupererStatistiques\([\s\S]*?globale[\s\S]*?\{ globale: true \}/,
-  "Le calcul Statistiques doit appeler l'API opérationnelle avec le mode global scoped."
-);
-assert.match(
-  source,
-  /function mettreAJourResume\(\)[\s\S]*?mettreAJourVueAujourdhui\(\);[\s\S]*?masquerResultatsStatistiques\(\);/,
-  "Les mises à jour automatiques doivent conserver Aujourd'hui sans recalculer les Statistiques."
-);
-assert.match(
-  source,
-  /function synchroniserModeGlobalStatistiques\(\)[\s\S]*?champ\.disabled = modeGlobal/,
-  "La case Statistiques globales doit désactiver les deux champs de période."
-);
+assert.doesNotMatch(vueSource, /data-section-target="statistiques"|id="statistiques-section"|id="stats-filter-form"/);
+assert.doesNotMatch(source, /recupererStatistiques|gererCalculStatistiques|etat\.statistiques|statsFilterForm/);
+assert.match(source, /function mettreAJourResume\(\) \{\s*mettreAJourVueAujourdhui\(\);/);
 
 const debutSectionMonetisation = vueSource.indexOf('<section id="monetisation-section"');
 const finSectionMonetisation = vueSource.indexOf('<section id="historique-section"', debutSectionMonetisation);
@@ -646,7 +597,8 @@ assert.doesNotMatch(
   "La liste déroulante ne doit pas imposer le raccourci Ctrl/⌘ d'un select multiple natif."
 );
 assert.match(sectionMonetisation, /id="monetisation-calculate-button"[\s\S]*?Calculer/);
-assert.match(sectionMonetisation, /id="monetisation-details"/);
+assert.doesNotMatch(sectionMonetisation, /id="monetisation-details"|Détail des séances réalisées/);
+assert.doesNotMatch(source, /monetisationDetails|afficherDetailsMonetisation/);
 assert.match(
   sectionMonetisation,
   /id="monetisation-results"[\s\S]*?class="monetisation-results hidden"[\s\S]*?hidden[\s\S]*?inert/,
@@ -659,8 +611,8 @@ assert.match(
 );
 assert(
   sectionMonetisation.indexOf('id="monetisation-download-statement-button"') >
-    sectionMonetisation.indexOf('id="monetisation-details"'),
-  "Le bouton de téléchargement doit rester après les détails de monétisation."
+    sectionMonetisation.indexOf('id="monetisation-totals-by-intervenant"'),
+  "Le bouton de téléchargement doit rester après les totaux de monétisation."
 );
 assert.match(
   source,

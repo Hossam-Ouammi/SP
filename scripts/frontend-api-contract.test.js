@@ -43,7 +43,6 @@ const montages = [
   ["/api/dashboard", "dashboardRoutes"],
   ["/api/seances", "seancesRoutes"],
   ["/api/indisponibilites", "indisponibilitesRoutes"],
-  ["/api/statistiques", "statistiquesRoutes"],
   ["/api/settings", "workspaceSettingsRoutes"],
   ["/api/push", "pushRoutes"],
   ["/api/realtime", "realtimeRoutes"],
@@ -129,13 +128,6 @@ const contrats = [
     chemin: "/indisponibilites",
   },
   {
-    client: "public/js/seances.js",
-    appel: /envoyerRequete\(`\/api\/statistiques\$\{suffixe\}`\)/,
-    route: "routes/statistiques.routes.js",
-    methode: "get",
-    chemin: "/",
-  },
-  {
     client: "public/js/workspace-settings.js",
     appel: /\/api\/settings\/calendar[\s\S]{0,250}method:\s*"PATCH"/,
     route: "routes/workspace-settings.routes.js",
@@ -160,6 +152,11 @@ const sourceUi = lire("public/js/ui.js");
 const sourceAdmin = lire("public/js/admin.js");
 const sourceVue = lire("views/index.ejs");
 const sourceWorkspaceSettings = lire("public/js/workspace-settings.js");
+assert.doesNotMatch(sourceUi, /recupererStatistiques|gererCalculStatistiques/);
+assert.doesNotMatch(sourceVue, /data-section-target="statistiques"|id="statistiques-section"/);
+assert.doesNotMatch(lire("app.js"), /statistiquesRoutes|\/api\/statistiques/);
+assert.equal(fs.existsSync(path.join(root, "routes/statistiques.routes.js")), false);
+assert.equal(fs.existsSync(path.join(root, "controllers/statistiques.controller.js")), false);
 
 const endpointsLegacy = [
   "/api/admin/reset-password",

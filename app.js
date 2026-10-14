@@ -26,7 +26,6 @@ const pushRoutes = require("./routes/push.routes");
 const seancesRoutes = require("./routes/seances.routes");
 const photosRoutes = require("./routes/photos.routes");
 const propositionsSeancesRoutes = require("./routes/propositions-seances.routes");
-const statistiquesRoutes = require("./routes/statistiques.routes");
 const workspaceSettingsRoutes = require("./routes/workspace-settings.routes");
 const {
   pageRouter: publicReservationPageRoutes,
@@ -215,7 +214,6 @@ app.use("/api/push", pushRoutes);
 app.use("/api/realtime", realtimeRoutes);
 app.use("/api/reservation-public", publicReservationApiRoutes);
 app.use("/api/propositions-seances", propositionsSeancesRoutes);
-app.use("/api/statistiques", statistiquesRoutes);
 app.use("/api/settings", workspaceSettingsRoutes);
 app.use("/api/seances", seancesRoutes);
 app.use("/api/photos", photosRoutes);

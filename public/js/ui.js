@@ -42,10 +42,9 @@ import {
   recupererHistoriqueActions,
   recupererDetailHistorique,
   supprimerEntreeHistorique as supprimerEntreeHistoriqueApi,
-  recupererStatistiques,
   recupererMonetisation,
   telechargerReleveMonetisation,
-} from "./seances.js?v=20260926-availability";
+} from "./seances.js?v=20261013-remove-statistics";
 import {
   initialiserCalendrier,
   mettreAJourEvenements,
@@ -54,7 +53,8 @@ import {
   creerPalettesDisponibiliteProfesseurs,
   creerPaletteMembrePlateforme,
 } from "./calendrier.js?v=20261013-touch-cleanup";
-import { creerMenuContextuelSeance } from "./seance-context-menu.js?v=20261011-unavailability-menu";
+import { creerMenuContextuelSeance } from "./seance-context-menu.js?v=20261013-session-actions";
+import { commencerDuplicationFantome } from "./session-duplicate-ghost.js?v=20261013-duplicate-ghost";
 import {
   recupererEtatNotificationsPush,
   synchroniserNotificationsPushActuelles,
@@ -188,6 +188,9 @@ const etat = {
   cycleCompte: null,
   seances: [],
   seanceSourceDuplication: null,
+  duplicationFantome: null,
+  copieFantomeEnregistrementEnCours: false,
+  ignorerClicCopieJusqua: 0,
   indisponibilites: [],
   equipe: [],
   tarificationEquipe: { matieres: [], realisateurs: [] },
@@ -209,12 +212,6 @@ const etat = {
   monetisationGlobales: false,
   monetisationIntervenantsSelectionnes: [],
   monetisationResultatsVisibles: false,
-  statistiques: null,
-  statistiquesDateDebut: `${moisInitialApplication}-01`,
-  statistiquesDateFin: jourInitialApplication,
-  statistiquesGlobales: false,
-  statistiquesResultatsVisibles: false,
-  statistiquesRequeteVersion: 0,
   administration: null,
   analysesGlobalesAdministration: null,
   adminVueActive: "accounts",
@@ -321,7 +318,6 @@ const elements = {
   calendarSettingsPanel: document.getElementById("calendar-settings-panel"),
   indisponibilitesSection: document.getElementById("indisponibilites-section"),
   equipeSection: document.getElementById("equipe-section"),
-  statistiquesSection: document.getElementById("statistiques-section"),
   utilisateurSection: document.getElementById("utilisateur-section"),
   monetisationSection: document.getElementById("monetisation-section"),
   historiqueSection: document.getElementById("historique-section"),
@@ -589,16 +585,6 @@ const elements = {
   dashboardPublicLinkLabel: document.getElementById("dashboard-public-link-label"),
   dashboardPublicLinkValue: document.getElementById("dashboard-public-link-value"),
   dashboardPublicLinkCopy: document.getElementById("dashboard-public-link-copy"),
-  statsFilterForm: document.getElementById("stats-filter-form"),
-  statsDateStart: document.getElementById("stats-date-start"),
-  statsDateEnd: document.getElementById("stats-date-end"),
-  statsGlobalToggle: document.getElementById("stats-global-toggle"),
-  statsCalculateButton: document.getElementById("stats-calculate-button"),
-  statsFilterError: document.getElementById("stats-filter-error"),
-  statsResults: document.getElementById("stats-results"),
-  totalCount: document.getElementById("total-count"),
-  statsAccountsOverview: document.getElementById("stats-accounts-overview"),
-  statsAccountsTable: document.getElementById("stats-accounts-table"),
   monetisationFilterForm: document.getElementById("monetisation-filter-form"),
   monetisationDateStart: document.getElementById("monetisation-date-start"),
   monetisationDateEnd: document.getElementById("monetisation-date-end"),
@@ -610,7 +596,6 @@ const elements = {
   monetisationTotalsByIntervenant: document.getElementById(
     "monetisation-totals-by-intervenant"
   ),
-  monetisationDetails: document.getElementById("monetisation-details"),
   monetisationTotalAmount: document.getElementById("monetisation-total-amount"),
   monetisationPeriodTitle: document.getElementById("monetisation-period-title"),
   monetisationPreviousMonthButton: document.getElementById(
@@ -742,7 +727,6 @@ const elements = {
   detailCreatedAt: document.getElementById("detail-created-at"),
   detailUpdatedAt: document.getElementById("detail-updated-at"),
   editSeanceButton: document.getElementById("edit-seance-button"),
-  duplicateSeanceButton: document.getElementById("duplicate-seance-button"),
   deleteSeanceButton: document.getElementById("delete-seance-button"),
   quickStatusButtons: Array.from(document.querySelectorAll(".quick-status-button")),
   toastContainer: document.getElementById("toast-container"),
@@ -1134,6 +1118,7 @@ function rafraichirEvenementsCalendrier() {
 }
 
 function viderDonneesApplication() {
+  etat.duplicationFantome?.annuler();
   arreterHorlogeCalendriers();
   etat.seances = [];
   etat.indisponibilites = [];
@@ -1158,12 +1143,6 @@ function viderDonneesApplication() {
   etat.monetisationGlobales = false;
   etat.monetisationIntervenantsSelectionnes = [];
   etat.monetisationResultatsVisibles = false;
-  etat.statistiques = null;
-  etat.statistiquesDateDebut = `${obtenirMoisCourantIso()}-01`;
-  etat.statistiquesDateFin = obtenirDateLocaleIso();
-  etat.statistiquesGlobales = false;
-  etat.statistiquesResultatsVisibles = false;
-  etat.statistiquesRequeteVersion += 1;
   etat.administration = null;
   etat.catalogue = creerCatalogueVide();
   etat.historiqueSelection = null;
@@ -2461,12 +2440,6 @@ function attacherEcouteurs() {
     "change",
     gererChangementModeMonetisationGlobales
   );
-  elements.statsFilterForm?.addEventListener("submit", gererCalculStatistiques);
-  elements.statsDateStart?.addEventListener("input", gererChangementFiltreStatistiques);
-  elements.statsDateStart?.addEventListener("change", gererChangementFiltreStatistiques);
-  elements.statsDateEnd?.addEventListener("input", gererChangementFiltreStatistiques);
-  elements.statsDateEnd?.addEventListener("change", gererChangementFiltreStatistiques);
-  elements.statsGlobalToggle?.addEventListener("change", gererChangementModeStatistiquesGlobales);
   elements.monetisationDownloadStatementButton?.addEventListener(
     "click",
     gererTelechargementReleveMonetisation
@@ -2547,7 +2520,6 @@ function attacherEcouteurs() {
     }
   );
   elements.editSeanceButton?.addEventListener("click", ouvrirFormulaireModification);
-  elements.duplicateSeanceButton?.addEventListener("click", ouvrirFormulaireDuplication);
   elements.deleteSeanceButton?.addEventListener("click", gererSuppressionSeance);
   elements.adminBlockIpForm?.addEventListener("submit", gererBlocageIpAdmin);
 
@@ -2610,8 +2582,6 @@ function afficherApplication() {
   elements.adminToolsPanel.classList.toggle("hidden", !utilisateurPeutVoirAdministration());
   mettreAJourPanneauAdministration();
   mettreAJourVueAujourdhui();
-  mettreAJourFormulaireStatistiques();
-  mettreAJourVisibiliteResultatsStatistiques();
   mettreAJourNavigationProtegee();
   mettreAJourFiltreCalendrierCentral();
   mettreAJourEspaceIndisponibilites();
@@ -2967,6 +2937,7 @@ function synchroniserNavigationSecondaire() {
 }
 
 function afficherSectionApplication(section) {
+  if (section !== "dashboard") etat.duplicationFantome?.annuler();
   fermerMenusCalendrier();
   let sectionDemandee = section;
 
@@ -3000,7 +2971,6 @@ function afficherSectionApplication(section) {
     calendrier: elements.calendrierSection,
     indisponibilites: elements.indisponibilitesSection,
     equipe: elements.equipeSection,
-    statistiques: elements.statistiquesSection,
     utilisateur: elements.utilisateurSection,
     monetisation: elements.monetisationSection,
     historique: elements.historiqueSection,
@@ -3034,11 +3004,6 @@ function afficherSectionApplication(section) {
 
   if (sectionDemandee === "monetisation" && etat.monetisation) {
     mettreAJourMonetisation();
-  }
-
-  if (sectionDemandee === "statistiques") {
-    mettreAJourFormulaireStatistiques();
-    mettreAJourStatistiques();
   }
 
   if (sectionDemandee === "historique" && etat.historiqueARecharger) {
@@ -4076,6 +4041,7 @@ async function gererConnexion(event) {
 }
 
 async function gererDeconnexion() {
+  etat.duplicationFantome?.annuler();
   fermerMenusCalendrier();
   try {
     await deconnecterUtilisateur();
@@ -8167,68 +8133,6 @@ function afficherTotauxEquipesMonetisation() {
   });
 }
 
-function afficherDetailsMonetisation() {
-  if (!elements.monetisationDetails) {
-    return;
-  }
-
-  const lignes = Array.isArray(etat.monetisation?.lignes) ? etat.monetisation.lignes : [];
-  elements.monetisationDetails.replaceChildren();
-
-  if (lignes.length === 0) {
-    elements.monetisationDetails.appendChild(
-      creerEmptyState("Aucune séance réalisée pour cette période.")
-    );
-    return;
-  }
-
-  const enTetes = [
-    "Date",
-    "Équipe",
-    "Réalisateur",
-    "Étudiant",
-    "Matière",
-    "Durée",
-    "Tarif horaire",
-    "Type",
-    "Montant",
-  ];
-  const table = document.createElement("table");
-  table.className = "stats-comparison-table";
-  const thead = document.createElement("thead");
-  const enTete = document.createElement("tr");
-  enTetes.forEach((libelle) => {
-    const cellule = document.createElement("th");
-    cellule.textContent = libelle;
-    enTete.appendChild(cellule);
-  });
-  thead.appendChild(enTete);
-  const tbody = document.createElement("tbody");
-
-  lignes.forEach((ligne) => {
-    const ligneTableau = document.createElement("tr");
-    [
-      formatDate(ligne?.date),
-      libelleEquipeMonetisation(ligne),
-      ligne?.intervenant || ligne?.compte || "-",
-      ligne?.etudiant || "-",
-      ligne?.matiere || "-",
-      ligne?.duree_label || "-",
-      ligne?.est_gratuite ? "—" : formaterMontantDh(ligne?.tarif_horaire),
-      ligne?.est_gratuite ? "Gratuite" : "Payante",
-      formaterMontantDh(ligne?.montant),
-    ].forEach((valeur, index) => {
-      const cellule = document.createElement("td");
-      cellule.dataset.label = enTetes[index];
-      cellule.textContent = String(valeur);
-      ligneTableau.appendChild(cellule);
-    });
-    tbody.appendChild(ligneTableau);
-  });
-
-  table.append(thead, tbody);
-  elements.monetisationDetails.appendChild(table);
-}
 
 function viderMonetisation() {
   etat.monetisationResultatsVisibles = false;
@@ -8245,7 +8149,6 @@ function viderMonetisation() {
   mettreAJourFormulaireMonetisation();
   elements.monetisationTotalsByIntervenant?.replaceChildren();
   elements.monetisationTotalsByTeam?.replaceChildren();
-  elements.monetisationDetails?.replaceChildren();
   elements.monetisationReportAccounts?.replaceChildren();
   mettreAJourEtatExportMonetisationPersonnalise();
   mettreAJourVisibiliteResultatsMonetisation();
@@ -8269,378 +8172,11 @@ function mettreAJourMonetisation() {
   afficherSelectionIntervenantsMonetisation();
   afficherTotauxIntervenantsMonetisation();
   afficherTotauxEquipesMonetisation();
-  afficherDetailsMonetisation();
   mettreAJourVisibiliteResultatsMonetisation();
 }
 
-function estDateIsoStatistiquesValide(valeur) {
-  const texte = String(valeur || "").trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(texte) && !Number.isNaN(new Date(`${texte}T12:00:00`).getTime());
-}
-
-function normaliserPeriodeStatistiques() {
-  const aujourdHui = obtenirDateLocaleIso();
-  const debutParDefaut = `${obtenirMoisCourantIso()}-01`;
-
-  if (!estDateIsoStatistiquesValide(etat.statistiquesDateDebut)) {
-    etat.statistiquesDateDebut = debutParDefaut;
-  }
-
-  if (!estDateIsoStatistiquesValide(etat.statistiquesDateFin)) {
-    etat.statistiquesDateFin = aujourdHui;
-  }
-
-  if (etat.statistiquesDateDebut > aujourdHui) {
-    etat.statistiquesDateDebut = aujourdHui;
-  }
-
-  if (etat.statistiquesDateFin > aujourdHui) {
-    etat.statistiquesDateFin = aujourdHui;
-  }
-}
-
-function synchroniserModeGlobalStatistiques() {
-  const modeGlobal = etat.statistiquesGlobales === true;
-
-  if (elements.statsGlobalToggle) {
-    elements.statsGlobalToggle.checked = modeGlobal;
-  }
-
-  [elements.statsDateStart, elements.statsDateEnd].forEach((champ) => {
-    if (!champ) {
-      return;
-    }
-
-    champ.disabled = modeGlobal;
-    champ.required = !modeGlobal;
-  });
-}
-
-function mettreAJourFormulaireStatistiques() {
-  normaliserPeriodeStatistiques();
-  const aujourdHui = obtenirDateLocaleIso();
-
-  if (elements.statsDateStart) {
-    elements.statsDateStart.value = etat.statistiquesDateDebut;
-    elements.statsDateStart.max = aujourdHui;
-  }
-
-  if (elements.statsDateEnd) {
-    elements.statsDateEnd.value = etat.statistiquesDateFin;
-    elements.statsDateEnd.max = aujourdHui;
-  }
-
-  synchroniserModeGlobalStatistiques();
-}
-
-function restaurerBoutonCalculStatistiques() {
-  if (!elements.statsCalculateButton) {
-    return;
-  }
-
-  elements.statsCalculateButton.disabled = false;
-  elements.statsCalculateButton.textContent = "Calculer";
-  delete elements.statsCalculateButton.dataset.loading;
-}
-
-function mettreAJourVisibiliteResultatsStatistiques() {
-  const resultatsVisibles =
-    etat.statistiquesResultatsVisibles === true && Boolean(etat.statistiques?.statistiques);
-
-  if (!elements.statsResults) {
-    return;
-  }
-
-  elements.statsResults.classList.toggle("hidden", !resultatsVisibles);
-  elements.statsResults.hidden = !resultatsVisibles;
-  elements.statsResults.toggleAttribute("inert", !resultatsVisibles);
-}
-
-function viderAffichageStatistiques() {
-  if (elements.totalCount) {
-    elements.totalCount.textContent = "0";
-  }
-
-  elements.statsAccountsOverview?.replaceChildren();
-  elements.statsAccountsTable?.replaceChildren();
-}
-
-function masquerResultatsStatistiques({ viderDonnees = true } = {}) {
-  etat.statistiquesRequeteVersion += 1;
-  etat.statistiquesResultatsVisibles = false;
-
-  if (viderDonnees) {
-    etat.statistiques = null;
-    viderAffichageStatistiques();
-  }
-
-  mettreAJourVisibiliteResultatsStatistiques();
-}
-
-function valeurStatistique(ligne, cle) {
-  const valeur = Number(ligne?.[cle]);
-  return Number.isFinite(valeur) && valeur >= 0 ? valeur : 0;
-}
-
-function obtenirNomIntervenantStatistiques(intervenant) {
-  const nom = String(intervenant?.intervenant_nom || intervenant?.nom || "").trim();
-  if (nom) {
-    return nom;
-  }
-
-  // Le serveur conserve un libellé historique avec un identifiant public.
-  // L'interface métier affiche uniquement le nom, jamais cet identifiant.
-  const libelle = String(intervenant?.libelle || "").trim();
-  const separateur = libelle.lastIndexOf("—");
-  return separateur >= 0 ? libelle.slice(separateur + 1).trim() || "Réalisateur" : "Réalisateur";
-}
-
-function creerCarteStatistique({
-  libelle,
-  valeur,
-  note = "",
-  principale = false,
-  identifiantValeur = "",
-}) {
-  const carte = document.createElement("article");
-  carte.className = "panel stat-overview-card";
-  if (principale) {
-    carte.classList.add("stat-overview-card-primary");
-  }
-
-  const titre = document.createElement("span");
-  titre.className = "stat-overview-label";
-  titre.textContent = libelle;
-  const valeurElement = document.createElement("strong");
-  valeurElement.className = "stat-overview-value";
-  if (identifiantValeur) {
-    valeurElement.id = identifiantValeur;
-  }
-  valeurElement.textContent = String(valeur);
-  carte.append(titre, valeurElement);
-
-  if (note) {
-    const noteElement = document.createElement("span");
-    noteElement.className = "stat-overview-note";
-    noteElement.textContent = note;
-    carte.appendChild(noteElement);
-  }
-
-  return carte;
-}
-
-function mettreAJourStatistiques() {
-  const statistiques = etat.statistiques?.statistiques;
-  if (!statistiques) {
-    viderAffichageStatistiques();
-    mettreAJourVisibiliteResultatsStatistiques();
-    return;
-  }
-
-  const intervenants = Array.isArray(statistiques.intervenants)
-    ? statistiques.intervenants
-    : [];
-  const total = valeurStatistique(statistiques, "total_seances");
-
-  if (elements.totalCount) {
-    elements.totalCount.textContent = String(total);
-  }
-
-  if (elements.statsAccountsOverview) {
-    const carteTotale = creerCarteStatistique({
-      libelle: "Total général",
-      valeur: total,
-      principale: true,
-      identifiantValeur: "total-count",
-    });
-    elements.statsAccountsOverview.replaceChildren(carteTotale);
-    elements.totalCount = carteTotale.querySelector("#total-count");
-
-    intervenants.forEach((intervenant) => {
-      const totalIntervenant = valeurStatistique(intervenant, "total_seances");
-      const faites = valeurStatistique(intervenant, "seances_faites");
-      const payantes = valeurStatistique(intervenant, "seances_payantes");
-      const gratuites = valeurStatistique(intervenant, "seances_gratuites");
-      elements.statsAccountsOverview.appendChild(
-        creerCarteStatistique({
-          libelle: obtenirNomIntervenantStatistiques(intervenant),
-          valeur: faites,
-          note: `${totalIntervenant} total · ${payantes} payantes · ${gratuites} gratuites`,
-        })
-      );
-    });
-  }
-
-  if (elements.statsAccountsTable) {
-    elements.statsAccountsTable.replaceChildren();
-
-    if (intervenants.length === 0) {
-      elements.statsAccountsTable.appendChild(
-        creerEmptyState("Aucune donnée statistique disponible pour cette période.")
-      );
-    } else {
-      const enTetes = [
-        "Réalisateur",
-        "Total",
-        "Planifiées",
-        "Faites",
-        "Payantes",
-        "Gratuites",
-        "Non faites",
-      ];
-      const table = document.createElement("table");
-      table.className = "stats-comparison-table";
-      const thead = document.createElement("thead");
-      const ligneEntete = document.createElement("tr");
-      enTetes.forEach((libelle) => {
-        const cellule = document.createElement("th");
-        cellule.textContent = libelle;
-        ligneEntete.appendChild(cellule);
-      });
-      thead.appendChild(ligneEntete);
-
-      const tbody = document.createElement("tbody");
-      intervenants.forEach((intervenant) => {
-        const ligne = document.createElement("tr");
-        const valeurs = [
-          obtenirNomIntervenantStatistiques(intervenant),
-          valeurStatistique(intervenant, "total_seances"),
-          valeurStatistique(intervenant, "seances_planifiees"),
-          valeurStatistique(intervenant, "seances_faites"),
-          valeurStatistique(intervenant, "seances_payantes"),
-          valeurStatistique(intervenant, "seances_gratuites"),
-          valeurStatistique(intervenant, "seances_non_faites"),
-        ];
-
-        valeurs.forEach((valeur, index) => {
-          const cellule = document.createElement("td");
-          cellule.dataset.label = enTetes[index];
-          if (index === 0) {
-            const nom = document.createElement("strong");
-            nom.textContent = String(valeur);
-            cellule.appendChild(nom);
-          } else if (index === 3) {
-            const badge = document.createElement("span");
-            badge.className = "badge-faite";
-            badge.textContent = String(valeur);
-            cellule.appendChild(badge);
-          } else {
-            cellule.textContent = String(valeur);
-          }
-          ligne.appendChild(cellule);
-        });
-
-        tbody.appendChild(ligne);
-      });
-
-      table.append(thead, tbody);
-      elements.statsAccountsTable.appendChild(table);
-    }
-  }
-
-  mettreAJourVisibiliteResultatsStatistiques();
-}
-
-function gererChangementFiltreStatistiques() {
-  etat.statistiquesDateDebut = String(elements.statsDateStart?.value || "").trim();
-  etat.statistiquesDateFin = String(elements.statsDateEnd?.value || "").trim();
-  masquerErreur(elements.statsFilterError);
-  masquerResultatsStatistiques();
-  restaurerBoutonCalculStatistiques();
-}
-
-function gererChangementModeStatistiquesGlobales() {
-  etat.statistiquesGlobales = Boolean(elements.statsGlobalToggle?.checked);
-  masquerErreur(elements.statsFilterError);
-  synchroniserModeGlobalStatistiques();
-  masquerResultatsStatistiques();
-  restaurerBoutonCalculStatistiques();
-}
-
-async function gererCalculStatistiques(event) {
-  event.preventDefault();
-  masquerErreur(elements.statsFilterError);
-
-  const globale = Boolean(elements.statsGlobalToggle?.checked);
-  const dateDebut = String(elements.statsDateStart?.value || "").trim();
-  const dateFin = String(elements.statsDateEnd?.value || "").trim();
-  const aujourdHui = obtenirDateLocaleIso();
-
-  if (!globale) {
-    if (!estDateIsoStatistiquesValide(dateDebut) || !estDateIsoStatistiquesValide(dateFin)) {
-      afficherErreur(elements.statsFilterError, "Saisissez une date de début et une date de fin valides.");
-      return;
-    }
-
-    if (dateDebut > dateFin) {
-      afficherErreur(elements.statsFilterError, "La date de début doit précéder la date de fin.");
-      return;
-    }
-
-    if (dateDebut > aujourdHui || dateFin > aujourdHui) {
-      afficherErreur(elements.statsFilterError, "La période ne peut pas inclure de date future.");
-      return;
-    }
-  }
-
-  etat.statistiquesGlobales = globale;
-  if (!globale) {
-    etat.statistiquesDateDebut = dateDebut;
-    etat.statistiquesDateFin = dateFin;
-  }
-
-  masquerResultatsStatistiques();
-  const versionRequete = etat.statistiquesRequeteVersion;
-
-  if (elements.statsCalculateButton) {
-    elements.statsCalculateButton.disabled = true;
-    elements.statsCalculateButton.dataset.loading = "true";
-    elements.statsCalculateButton.textContent = "Calcul...";
-  }
-
-  try {
-    const resultat = await recupererStatistiques(
-      globale
-        ? { globale: true }
-        : {
-            du: dateDebut,
-            au: dateFin,
-          }
-    );
-
-    if (versionRequete !== etat.statistiquesRequeteVersion) {
-      return;
-    }
-
-    etat.statistiques = resultat;
-    etat.statistiquesResultatsVisibles = true;
-    mettreAJourStatistiques();
-  } catch (erreur) {
-    if (versionRequete !== etat.statistiquesRequeteVersion) {
-      return;
-    }
-
-    if (erreur.status === 401) {
-      await gererDeconnexion();
-      return;
-    }
-
-    afficherErreur(
-      elements.statsFilterError,
-      erreur.message || "Le calcul des statistiques est impossible pour le moment."
-    );
-  } finally {
-    if (versionRequete === etat.statistiquesRequeteVersion) {
-      restaurerBoutonCalculStatistiques();
-    }
-  }
-}
-
 function mettreAJourResume() {
-  // Aujourd'hui reste vivant au fil des mises à jour de séances. Les
-  // statistiques, elles, doivent toujours être recalculées explicitement.
   mettreAJourVueAujourdhui();
-  masquerResultatsStatistiques();
 }
 
 function obtenirComptesAdministration() {
@@ -9378,15 +8914,6 @@ function mettreAJourPanneauAdministration() {
   );
 
   mettreAJourControlesAdministration();
-}
-
-function mettreAJourCarteCompte(cibles, statistiques) {
-  cibles.total.textContent = String(statistiques.total);
-  cibles.planned.textContent = String(statistiques.planifiees);
-  cibles.completed.textContent = String(statistiques.faites);
-  if (cibles.completedTrial) cibles.completedTrial.textContent = String(statistiques.faitesGratuites);
-  if (cibles.completedRegular) cibles.completedRegular.textContent = String(statistiques.faitesPayantes);
-  if (cibles.cancelled) cibles.cancelled.textContent = String(statistiques.nonFaites);
 }
 
 function afficherListeHistorique() {
@@ -10199,6 +9726,70 @@ function ouvrirFormulaireModification() {
   ouvrirModal(elements.seanceModal);
 }
 
+function dupliquerSeanceDepuisDashboard(info = {}) {
+  if (!window.matchMedia("(min-width: 721px) and (pointer: fine)").matches) {
+    ouvrirFormulaireDuplication();
+    return;
+  }
+  const source = etat.seanceSelectionnee && { ...etat.seanceSelectionnee };
+  if (etat.sectionActive !== "dashboard" || !peutDeplacerSeanceCalendrier(source) ||
+    etat.copieFantomeEnregistrementEnCours || !etat.calendrier) return;
+  etat.duplicationFantome?.annuler();
+  fermerMenusCalendrier();
+  fermerModal(elements.detailModal);
+  const evenement = etat.calendrier.getEvents().find(event => Number(event.extendedProps.seance?.id) === Number(source.id));
+  etat.duplicationFantome = commencerDuplicationFantome({
+    element: elements.calendar, calendrier: etat.calendrier, seance: source,
+    palette: evenement ? { backgroundColor: evenement.backgroundColor, borderColor: evenement.borderColor,
+      textColor: evenement.textColor } : {},
+    point: info.jsEvent || (Number.isFinite(info.clientX) ? info : undefined),
+    verifier: cible => verifierDestinationCopieFantome(source, cible),
+    confirmer: cible => enregistrerCopieFantome(source, cible),
+    annuler: erreur => { if (erreur) afficherToast(`Copie annulée : ${erreur}`, "warning"); },
+    terminer: () => { etat.duplicationFantome = null; },
+  });
+}
+
+function verifierDestinationCopieFantome(source, cible) {
+  if (etat.sectionActive !== "dashboard" || !peutDeplacerSeanceCalendrier(source)) return "Action non autorisée.";
+  const debut = convertirHeureCalendrierClientEnMinutes(cible.heure_debut);
+  const fin = convertirHeureCalendrierClientEnMinutes(cible.heure_fin, { fin: true });
+  const bornes = obtenirBornesCalendrierClient();
+  if (!Number.isFinite(debut) || !Number.isFinite(fin) || debut < bornes.debut || fin > bornes.fin || fin <= debut) {
+    return "La séance dépasse la plage du calendrier.";
+  }
+  const creneau = { ...cible, intervenantId: source.intervenant_id };
+  if (trouverSeanceConfidentielleChevauchanteLocale(creneau) || trouverSeanceChevauchanteLocale(creneau)) {
+    return "Ce Réalisateur a déjà une séance sur ce créneau.";
+  }
+  if (estJourIntegralementIndisponible(cible.date, source.intervenant_id) || trouverIndisponibiliteChevauchanteLocale(creneau)) {
+    return "Ce Réalisateur est indisponible sur ce créneau.";
+  }
+  return "";
+}
+
+async function enregistrerCopieFantome(source, cible) {
+  if (etat.copieFantomeEnregistrementEnCours) return;
+  etat.ignorerClicCopieJusqua = performance.now() + 350;
+  etat.copieFantomeEnregistrementEnCours = true;
+  try {
+    const copie = await ajouterSeance({
+      handler_id: source.handler_id, intervenant_id: source.intervenant_id,
+      etudiant: source.etudiant, parent: source.parent || "", matiere: source.matiere,
+      est_essai: Number(source.est_essai) === 1 ? "1" : "0", duree_minutes: Number(source.duree_minutes) || 60,
+      date: cible.date, heure_debut: cible.heure_debut, statut_seance: "planifiee", nombre_semaines: 1,
+    });
+    etat.seances = [...etat.seances.filter(seance => Number(seance.id) !== Number(copie.id)), copie];
+    rafraichirEvenementsCalendrier();
+    mettreAJourResume();
+    afficherToast("Séance dupliquée.", "success");
+    await Promise.allSettled([chargerSeances(), chargerHistorique(), chargerMonetisationSiAutorise()]);
+  } catch (erreur) {
+    if (erreur.status === 401) await gererDeconnexion();
+    else afficherToast(`Copie annulée : ${erreur.message || "emplacement interdit."}`, "error");
+  } finally { etat.copieFantomeEnregistrementEnCours = false; }
+}
+
 function ouvrirFormulaireDuplication() {
   if (!etat.seanceSelectionnee || etat.sectionActive !== "dashboard") {
     return;
@@ -10611,6 +10202,7 @@ function gererClicIndisponibilite(indisponibilite, info) {
 }
 
 function gererClicCreneauCalendrierSeance(selection = {}) {
+  if (etat.duplicationFantome || etat.copieFantomeEnregistrementEnCours || performance.now() < etat.ignorerClicCopieJusqua) return;
   const dateIsoSelectionnee = extraireDateIsoDepuisValeurCalendrier(selection?.date);
   const indisponibiliteJourComplet = dateIsoSelectionnee && !utilisateurEstHandler()
     ? estJourIntegralementIndisponible(dateIsoSelectionnee, etat.utilisateur?.id)
@@ -10774,6 +10366,7 @@ function ouvrirMenuActionsIndisponibilite(indisponibilite, info) {
 }
 
 function ouvrirMenuActionsSeance(seance, info) {
+  if (etat.duplicationFantome || etat.copieFantomeEnregistrementEnCours || performance.now() < etat.ignorerClicCopieJusqua) return;
   if (!seance || etat.sectionActive !== "dashboard") return;
   if (seanceEstMasqueePourConfidentialite(seance)) return;
   fermerMenusCalendrier();
@@ -10792,8 +10385,7 @@ function ouvrirMenuActionsSeance(seance, info) {
       if (action === "information") {
         ouvrirDetailSeance(actuelle);
       } else if (peutDeplacerSeanceCalendrier(actuelle)) {
-        if (action === "modifier") ouvrirFormulaireModification();
-        if (action === "dupliquer") ouvrirFormulaireDuplication();
+        if (action === "dupliquer") dupliquerSeanceDepuisDashboard(info);
         if (action === "supprimer") gererSuppressionSeance();
       }
     },
@@ -10841,7 +10433,6 @@ function mettreEnEtatActionsRapides() {
   elements.detailModal.querySelector(".detail-actions")?.classList.toggle("hidden", etat.sectionActive !== "dashboard");
 
   elements.editSeanceButton.disabled = actionsBloquees;
-  elements.duplicateSeanceButton.disabled = actionsBloquees;
   elements.deleteSeanceButton.disabled = actionsBloquees;
 
   elements.quickStatusButtons.forEach((bouton) => {

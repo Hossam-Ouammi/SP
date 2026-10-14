@@ -970,82 +970,6 @@ async function appliquerFiltreMonetisation(page, { du, au, intervenantIds, globa
   return reponse.json();
 }
 
-async function appliquerFiltreStatistiques(page, { du, au, globale = false }) {
-  await page.waitForSelector("#stats-filter-form");
-
-  if (globale) {
-    const estCoche = await page.$eval("#stats-global-toggle", (element) => element.checked);
-    if (!estCoche) {
-      await page.click("#stats-global-toggle");
-    }
-
-    const champsDesactives = await page.evaluate(() => ({
-      de: document.getElementById("stats-date-start")?.disabled === true,
-      a: document.getElementById("stats-date-end")?.disabled === true,
-    }));
-    assert(
-      champsDesactives.de && champsDesactives.a,
-      "Les dates doivent être désactivées lorsque les Statistiques globales sont cochées."
-    );
-  } else {
-    const estCoche = await page.$eval("#stats-global-toggle", (element) => element.checked);
-    if (estCoche) {
-      await page.click("#stats-global-toggle");
-    }
-
-    await page.$eval(
-      "#stats-date-start",
-      (element, valeur) => {
-        element.value = valeur;
-        element.dispatchEvent(new Event("input", { bubbles: true }));
-        element.dispatchEvent(new Event("change", { bubbles: true }));
-      },
-      du
-    );
-    await page.$eval(
-      "#stats-date-end",
-      (element, valeur) => {
-        element.value = valeur;
-        element.dispatchEvent(new Event("input", { bubbles: true }));
-        element.dispatchEvent(new Event("change", { bubbles: true }));
-      },
-      au
-    );
-  }
-
-  const reponsePromise = page
-    .waitForResponse(
-      (response) => {
-        const url = response.url();
-        return (
-          response.status() === 200 &&
-          url.includes("/api/statistiques?") &&
-          (globale ? url.includes("globale=1") && !url.includes("du=") && !url.includes("au=") : url.includes(`du=${du}`) && url.includes(`au=${au}`))
-        );
-      },
-      { timeout: 15000 }
-    )
-    .catch(() => null);
-
-  await page.click("#stats-calculate-button");
-  const reponse = await reponsePromise;
-  assert(reponse, "Le calcul Statistiques n'a pas appelé l'API attendue.");
-  await page.waitForFunction(() => {
-    const bouton = document.getElementById("stats-calculate-button");
-    const resultats = document.getElementById("stats-results");
-    return (
-      bouton &&
-      !bouton.disabled &&
-      bouton.textContent?.trim() === "Calculer" &&
-      resultats &&
-      !resultats.classList.contains("hidden") &&
-      resultats.hidden === false
-    );
-  });
-
-  return reponse.json();
-}
-
 async function sauvegarderHtmlReleve(client, query, filePath) {
   const response = await client.request("GET", `/api/monetisation/releve?${query}`);
   assert(response.status === 200, `releve html attendu=200 recu=${response.status}`);
@@ -1154,61 +1078,8 @@ async function run() {
         fullPage: true,
       });
 
-      await ouvrirSection(adminPage, "statistiques");
-      const statistiquesInitiales = await adminPage.evaluate(() => ({
-        resultatsMasques:
-          document.getElementById("stats-results")?.classList.contains("hidden") === true &&
-          document.getElementById("stats-results")?.hidden === true &&
-          document.getElementById("stats-results")?.hasAttribute("inert") === true,
-        datesActives:
-          document.getElementById("stats-date-start")?.disabled === false &&
-          document.getElementById("stats-date-end")?.disabled === false,
-        datesDefinies:
-          Boolean(document.getElementById("stats-date-start")?.value) &&
-          Boolean(document.getElementById("stats-date-end")?.value),
-        appelAutomatique: performance
-          .getEntriesByType("resource")
-          .some((entry) => entry.name.includes("/api/statistiques?")),
-      }));
-      assert(
-        statistiquesInitiales.resultatsMasques &&
-          statistiquesInitiales.datesActives &&
-          statistiquesInitiales.datesDefinies &&
-          !statistiquesInitiales.appelAutomatique,
-        "Les Statistiques doivent rester vides avant Calculer, avec une période prête à être choisie."
-      );
-
-      const statistiquesPeriode = await appliquerFiltreStatistiques(adminPage, {
-        du: "2026-04-01",
-        au: "2026-04-30",
-      });
-      assert(
-        Array.isArray(statistiquesPeriode?.statistiques?.intervenants),
-        "Le calcul Statistiques doit renvoyer les réalisateurs de la période."
-      );
-
-      await adminPage.$eval("#stats-date-end", (element) => {
-        element.value = "2026-04-29";
-        element.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-      const resultatsPerimes = await adminPage.$eval(
-        "#stats-results",
-        (element) => element.hidden === true && element.hasAttribute("inert")
-      );
-      assert(
-        resultatsPerimes,
-        "Une modification de période doit masquer les statistiques devenues périmées."
-      );
-
-      const statistiquesGlobales = await appliquerFiltreStatistiques(adminPage, {
-        globale: true,
-      });
-      assert(
-        statistiquesGlobales?.periode?.globale === true &&
-          statistiquesGlobales?.periode?.du === null &&
-          statistiquesGlobales?.periode?.au === null,
-        "Le mode global opérationnel ne doit pas transmettre de période datée."
-      );
+      assert.equal(await adminPage.$('[data-section-target="statistiques"]'), null, "Le menu Statistiques doit être retiré.");
+      assert.equal(await adminPage.$("#statistiques-section"), null);
 
       await ouvrirSection(adminPage, "monetisation");
       await adminPage.waitForFunction(() => {

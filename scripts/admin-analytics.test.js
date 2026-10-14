@@ -471,8 +471,7 @@ async function run() {
       "GET",
       "/api/statistiques?du=2020-01-01&au=2020-01-31"
     );
-    assertStatus(reponse, 200, "statistiques operationnelles Alpha");
-    assert.equal(reponse.json?.statistiques?.total_seances, 1);
+    assertStatus(reponse, 404, "API Statistiques opérationnelle retirée");
 
     reponse = await alpha.request(
       "GET",

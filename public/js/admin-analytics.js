@@ -16,7 +16,7 @@ function construireSuffixePeriode({ du, au } = {}) {
 }
 
 // This module deliberately targets only the explicit SuperAdmin endpoint.
-// Normal Handler analytics keep using their scoped operational routes.
+// Handler monetisation keeps using its scoped operational route.
 export async function recupererAnalysesGlobalesAdministration(periode = {}) {
   const suffixe = construireSuffixePeriode(periode);
   const [statistiques, monetisation] = await Promise.all([

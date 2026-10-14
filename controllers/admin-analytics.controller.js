@@ -1,11 +1,4 @@
-const {
-  listerSeancesScopees,
-  listerToutesLesSeances,
-} = require("../models/seance.model");
-const {
-  construireFiltreLectureSeances,
-  scopePeutGererIntervenant,
-} = require("../models/access-scope.model");
+const { listerToutesLesSeances } = require("../models/seance.model");
 const { convertirInstantEnDateHeureZonnee } = require("../utils/timezone");
 const { CENTRAL_CALENDAR_TIMEZONE } = require("../config/public-reservation.config");
 
@@ -31,23 +24,6 @@ function lireDateIso(valeur) {
     valeur: /^\d{4}-\d{2}-\d{2}$/.test(texte) && !Number.isNaN(date.getTime()) ? texte : null,
     invalide: !/^\d{4}-\d{2}-\d{2}$/.test(texte) || Number.isNaN(date.getTime()),
   };
-}
-
-// `globale=1` demande toutes les dates que le compte courant peut déjà lire.
-// Cela ne donne jamais accès au périmètre cross-Handler SuperAdmin, qui reste
-// réservé à sa route d'administration explicite.
-function lirePeriodeGlobale(valeur) {
-  const texte = String(valeur ?? "").trim();
-
-  if (!texte || texte === "0") {
-    return { valeur: false, invalide: false };
-  }
-
-  if (texte === "1") {
-    return { valeur: true, invalide: false };
-  }
-
-  return { valeur: false, invalide: true };
 }
 
 function premierJourDuMois(date = new Date()) {
@@ -114,37 +90,6 @@ function serialiserCompteurs(compteurs) {
   };
 }
 
-async function resoudreScopeStatistiques(req) {
-  const scopeLecture = construireFiltreLectureSeances(req.scope);
-  const intervenantId = normaliserIdentifiant(
-    req.query?.intervenant_id ?? req.query?.professeur_id
-  );
-
-  if (!intervenantId) {
-    return scopeLecture;
-  }
-
-  if (req.scope?.estHandler) {
-    const handlerId = normaliserIdentifiant(req.scope.utilisateurId);
-    if (intervenantId === handlerId) {
-      return { handlerIds: req.scope.handlerIds, intervenantId };
-    }
-    const autorise = await scopePeutGererIntervenant(req.scope, { handlerId, intervenantId });
-
-    if (!autorise) {
-      throw creerErreurHttp(404, "Intervenant introuvable.");
-    }
-
-    return { handlerIds: [handlerId], intervenantId };
-  }
-
-  if (Number(req.scope?.utilisateurId) !== intervenantId) {
-    throw creerErreurHttp(404, "Intervenant introuvable.");
-  }
-
-  return scopeLecture;
-}
-
 function verifierContexteAnalyseGlobaleSuperAdmin(req) {
   if (
     req.scope?.estSuperAdmin !== true ||
@@ -172,7 +117,7 @@ function lireFiltreIntervenantAnalyseGlobale(req) {
 
 function construireReponseStatistiques(
   seances,
-  { du, au, intervenantId = null, globale = false, periodeGlobale = false }
+  { du, au, intervenantId = null }
 ) {
   const global = initialiserCompteurs();
   const parIntervenant = new Map();
@@ -212,7 +157,7 @@ function construireReponseStatistiques(
     .sort((premier, second) => premier.libelle.localeCompare(second.libelle));
 
   const reponse = {
-    periode: periodeGlobale ? { du: null, au: null, globale: true } : { du, au },
+    periode: { du, au },
     statistiques: {
       ...serialiserCompteurs(global),
       professeurs_actifs: intervenants.length,
@@ -227,17 +172,15 @@ function construireReponseStatistiques(
     },
   };
 
-  if (globale) {
-    reponse.portee = {
-      type: "super_admin_globale",
-      intervenant_id: intervenantId,
-    };
-  }
+  reponse.portee = {
+    type: "super_admin_globale",
+    intervenant_id: intervenantId,
+  };
 
   return reponse;
 }
 
-async function recupererStatistiquesPourPortee(req, res, { globaleSuperAdmin = false } = {}) {
+async function calculerStatistiquesAdministration(req, res) {
   const filtreDu = lireDateIso(req.query?.du);
   const filtreAu = lireDateIso(req.query?.au);
 
@@ -257,13 +200,8 @@ async function recupererStatistiquesPourPortee(req, res, { globaleSuperAdmin = f
     return res.status(400).json({ message: "La date Du doit etre anterieure ou egale a la date Au." });
   }
 
-  const intervenantId = globaleSuperAdmin
-    ? lireFiltreIntervenantAnalyseGlobale(req)
-    : null;
-  const scope = globaleSuperAdmin ? null : await resoudreScopeStatistiques(req);
-  const seancesBrutes = globaleSuperAdmin
-    ? await listerToutesLesSeances()
-    : await listerSeancesScopees(scope);
+  const intervenantId = lireFiltreIntervenantAnalyseGlobale(req);
+  const seancesBrutes = await listerToutesLesSeances();
   const seances = seancesBrutes.filter((seance) => {
     const date = String(seance?.date || "");
     return (
@@ -278,81 +216,19 @@ async function recupererStatistiquesPourPortee(req, res, { globaleSuperAdmin = f
       du,
       au,
       intervenantId,
-      globale: globaleSuperAdmin,
     })
   );
-}
-
-async function recupererStatistiques(req, res, next) {
-  try {
-    const periodeGlobale = lirePeriodeGlobale(req.query?.globale);
-    const filtreDu = lireDateIso(req.query?.du);
-    const filtreAu = lireDateIso(req.query?.au);
-
-    if (periodeGlobale.invalide) {
-      return res.status(400).json({
-        message: "Le paramètre globale doit être égal à 1.",
-      });
-    }
-
-    if (filtreDu.invalide || filtreAu.invalide) {
-      return res.status(400).json({ message: "Les dates Du et Au doivent être au format YYYY-MM-DD." });
-    }
-
-    const bornesDateDemandees = req.query?.du !== undefined || req.query?.au !== undefined;
-
-    if (periodeGlobale.valeur && bornesDateDemandees) {
-      return res.status(400).json({
-        message: "Les dates Du et Au ne peuvent pas être utilisées avec une période globale.",
-      });
-    }
-
-    const au = periodeGlobale.valeur
-      ? null
-      : filtreAu.valeur || obtenirDateAujourdhui();
-    const du = periodeGlobale.valeur ? null : filtreDu.valeur || premierJourDuMois();
-    const aujourdHui = obtenirDateAujourdhui();
-
-    if (!periodeGlobale.valeur && au > aujourdHui) {
-      return res.status(400).json({ message: "La date Au ne peut pas être future." });
-    }
-
-    if (!periodeGlobale.valeur && du > au) {
-      return res.status(400).json({ message: "La date Du doit être antérieure ou égale à la date Au." });
-    }
-
-    const scope = await resoudreScopeStatistiques(req);
-    const seancesBrutes = await listerSeancesScopees(scope);
-    const seances = periodeGlobale.valeur
-      ? seancesBrutes
-      : seancesBrutes.filter((seance) => {
-          const date = String(seance?.date || "");
-          return date >= du && date <= au;
-        });
-    return res.json(
-      construireReponseStatistiques(seances, {
-        du,
-        au,
-        periodeGlobale: periodeGlobale.valeur,
-      })
-    );
-  } catch (error) {
-    return next(error);
-  }
 }
 
 async function recupererStatistiquesGlobalesAdministration(req, res, next) {
   try {
     verifierContexteAnalyseGlobaleSuperAdmin(req);
-    return await recupererStatistiquesPourPortee(req, res, {
-      globaleSuperAdmin: true,
-    });
+    return await calculerStatistiquesAdministration(req, res);
   } catch (error) {
     return next(error);
   }
 }
 
 module.exports = {
-  recupererStatistiques,
   recupererStatistiquesGlobalesAdministration,
 };

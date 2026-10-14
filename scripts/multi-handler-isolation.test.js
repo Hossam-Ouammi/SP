@@ -568,7 +568,8 @@ async function run() {
       "La période doit mémoriser tous les réalisateurs demandés."
     );
     assert.equal(response.json?.monetisation?.montant_total, 260);
-    assert.equal(response.json?.monetisation?.lignes?.length, 3);
+    assert.equal(Object.hasOwn(response.json.monetisation, "lignes"), false);
+    assert.equal(response.json.monetisation.equipes.reduce((total, equipe) => total + equipe.nombre_seances, 0), 3);
     assert.deepEqual(
       response.json?.monetisation?.intervenants?.map((intervenant) => Number(intervenant.intervenant_id)).sort(
         (premier, second) => premier - second
@@ -623,63 +624,12 @@ async function run() {
     response = await alpha.request("GET", "/api/monetisation?intervenant_id=invalide");
     assertStatus(response, 400, "validation identifiant réalisateur monétisation");
 
-    response = await alpha.request(
-      "GET",
-      "/api/statistiques?du=2020-01-01&au=2020-01-31"
-    );
-    assertStatus(response, 200, "statistiques renommées");
-    assert.equal(response.json?.statistiques?.seances_payantes, 3);
-    assert.equal(response.json?.statistiques?.seances_gratuites, 1);
-    assert.equal(response.json?.statistiques?.seances_non_faites, 1);
-    assert.equal(
-      Object.hasOwn(response.json?.statistiques || {}, "seances_reportees"),
-      false,
-      "Le métrique Reportées ne doit plus être exposé."
-    );
-    assert.equal(
-      Object.hasOwn(response.json?.statistiques || {}, "seances_annulees"),
-      false,
-      "Les annulations doivent être regroupées dans Non faites."
-    );
-
-    response = await alpha.request("GET", "/api/statistiques?globale=1");
-    assertStatus(response, 200, "statistiques globales de la portee Handler");
-    assert.deepEqual(
-      response.json?.periode,
-      { du: null, au: null, globale: true },
-      "La periode globale doit etre explicite et sans bornes de date."
-    );
-    assert.equal(
-      response.json?.statistiques?.total_seances,
-      7,
-      "La periode globale Handler doit inclure tout son historique."
-    );
-    assert.ok(
-      !response.json?.statistiques?.intervenants?.some(
-        (intervenant) => Number(intervenant.intervenant_id) === betaId
-      ),
-      "La periode globale Handler ne doit jamais inclure un autre espace."
-    );
-
-    response = await professeurAlpha.request("GET", "/api/statistiques?globale=1");
-    assertStatus(response, 200, "statistiques globales du Professeur");
-    assert.equal(
-      response.json?.statistiques?.total_seances,
-      3,
-      "Le Professeur ne doit agreger que ses propres seances."
-    );
-    assert.ok(
-      response.json?.statistiques?.intervenants?.every(
-        (intervenant) => Number(intervenant.intervenant_id) === professeurAlphaId
-      ),
-      "Le detail global du Professeur ne doit contenir aucun autre Realisateur."
-    );
-
-    response = await alpha.request(
-      "GET",
-      "/api/statistiques?globale=1&du=2020-01-01&au=2020-01-31"
-    );
-    assertStatus(response, 400, "refus du melange periode globale et dates");
+    for (const client of [alpha, professeurAlpha]) {
+      for (const query of ["", "?globale=1", "?du=2020-01-01&au=2020-01-31"]) {
+        response = await client.request("GET", "/api/statistiques" + query);
+        assertStatus(response, 404, "API Statistiques retirée");
+      }
+    }
 
     // A Handler must not create a session inside a second Handler's space,
     // and the retired availability-rules API is closed to every Handler.
@@ -1023,7 +973,8 @@ async function run() {
     assertStatus(response, 200, "monétisation Handler membre d'une autre équipe");
     const monetisationEquipes = response.json.monetisation;
     assert.equal(monetisationEquipes.montant_total, 370);
-    assert.equal(monetisationEquipes.lignes.length, 4);
+    assert.equal(Object.hasOwn(monetisationEquipes, "lignes"), false);
+    assert.equal(monetisationEquipes.equipes.reduce((total, equipe) => total + equipe.nombre_seances, 0), 4);
     const equipePropre = monetisationEquipes.equipes.find((equipe) => equipe.handler_id === alphaId);
     const equipeExterne = monetisationEquipes.equipes.find((equipe) => equipe.handler_id === betaId);
     assert.equal(monetisationEquipes.equipes.length, 2);
@@ -1036,9 +987,6 @@ async function run() {
     assert.equal(equipeExterne.seances_facturables, 1);
     assert.equal(equipeExterne.seances_essai_faites, 1);
     assert.equal(equipeExterne.nombre_seances, 2);
-    assert.ok(monetisationEquipes.lignes
-      .filter((ligne) => ligne.handler_id === betaId)
-      .every((ligne) => ligne.intervenant_id === alphaId && ligne.handler_nom === equipeExterne.handler_nom));
 
     response = await alpha.request("GET", `/api/monetisation?du=2021-02-01&au=2021-02-28&intervenant_id=${alphaId}`);
     assertStatus(response, 200, "filtre personnel garde les deux équipes");
@@ -1046,7 +994,13 @@ async function run() {
     assert.equal(response.json.monetisation.equipes.length, 2);
     response = await alpha.request("GET", `/api/monetisation?mode=global&intervenant_id=${alphaId}`);
     assertStatus(response, 200, "toutes les périodes excluent les séances futures");
-    assert.ok(!response.json.monetisation.lignes.some((ligne) => ligne.id === future.id));
+    assert.equal(Object.hasOwn(response.json.monetisation, "lignes"), false);
+    const avantSuppressionFuture = response.json.monetisation;
+    await executerComplement("DELETE FROM seances WHERE id = ?", [future.id]);
+    response = await alpha.request("GET", `/api/monetisation?mode=global&intervenant_id=${alphaId}`);
+    assert.equal(response.json.monetisation.montant_total, avantSuppressionFuture.montant_total);
+    assert.equal(response.json.monetisation.nombre_total_facturable, avantSuppressionFuture.nombre_total_facturable);
+    assert.deepEqual(response.json.monetisation.equipes, avantSuppressionFuture.equipes, "Une séance future ne modifie aucun total réalisé par équipe.");
 
     response = await professeurAlpha.request("GET", "/api/monetisation?du=2021-02-01&au=2021-02-28");
     assertStatus(response, 200, "monétisation professeur reste personnelle");
@@ -1101,7 +1055,7 @@ async function run() {
         await page.waitForFunction(() => !document.getElementById("monetisation-results").hidden);
         assert.equal(await page.$$eval("#monetisation-totals-by-team article", (cartes) => cartes.length), 2);
         assert.match(await page.$eval("#monetisation-totals-by-team", (element) => element.textContent), /Handler Beta Isolation.*170/s);
-        assert.equal(await page.$$eval("#monetisation-details tbody tr", (lignes) => lignes.length), 4);
+        assert.equal(await page.$("#monetisation-details"), null);
         for (const largeur of [1200, 375, 320]) {
           await page.setViewport({ width: largeur, height: 1000 });
           assert.ok(await page.$eval("#monetisation-results", (element) => element.scrollWidth <= element.clientWidth + 1), `Monétisation sans débordement à ${largeur}px`);
@@ -1122,7 +1076,7 @@ async function run() {
           };
           await clicSeance();
           assert.deepEqual(await page.$$eval("#seance-context-menu button", (boutons) => boutons.map((bouton) => bouton.textContent)),
-            ["Informations", "Modifier", "Dupliquer", "Supprimer"]);
+            ["Informations", "Dupliquer", "Supprimer"]);
           assert.ok(await page.$eval("#detail-modal", (element) => element.classList.contains("hidden")));
           assert.ok(await page.$eval("#seance-context-menu", (element) => {
             const rect = element.getBoundingClientRect();
@@ -1130,17 +1084,26 @@ async function run() {
           }), `Menu dans l'écran à ${largeur}px`);
           await page.click('[data-action="information"]');
           await page.waitForSelector("#detail-modal:not(.hidden)");
+          assert.deepEqual(await page.$$eval("#detail-modal .detail-actions button", (buttons) => buttons.map(button => button.textContent.trim())), ["Modifier", "Supprimer"]);
           assert.equal(await page.$eval("#detail-student", (element) => element.textContent), "Séance menu contextuel");
           await page.click('#detail-modal button[data-close-modal="detail-modal"]');
           await clicSeance();
           await page.select("#seance-context-menu select", String(seanceChevauchante.id));
-          await page.click('[data-action="modifier"]');
+          await page.click('#seance-context-menu [data-action="information"]');
+          await page.waitForSelector("#detail-modal:not(.hidden)");
+          await page.click('#edit-seance-button');
           await page.waitForSelector("#seance-modal:not(.hidden)");
           assert.equal(await page.$eval("#seance-form", (form) => form.dataset.mode), "modification");
           assert.equal(await page.$eval("#seance-id", (champ) => champ.value), String(seanceChevauchante.id));
           await page.click('#seance-modal button[data-close-modal="seance-modal"]');
           await clicSeance();
           await page.click('[data-action="dupliquer"]');
+          if (largeur >= 721) {
+            await page.waitForSelector(".calendar-duplicate-ghost");
+            assert.ok(await page.$eval("#seance-modal", (element) => element.classList.contains("hidden")));
+            await page.keyboard.press("Escape");
+            assert.equal(await page.$(".calendar-duplicate-ghost"), null);
+          } else {
           await page.waitForSelector("#seance-modal:not(.hidden)");
           assert.match(await page.$eval("#seance-modal-title", (element) => element.textContent), /Dupliquer/);
           assert.equal(await page.$eval("#seance-modal-subtitle", (element) => element.textContent), "");
@@ -1162,6 +1125,7 @@ async function run() {
           assert.equal(await page.$eval("#duplicate-session-count", (element) => element.textContent), "3");
           assert.ok(await page.$eval("#seance-form", (form) => form.scrollWidth <= form.clientWidth + 1));
           await page.click('#seance-modal button[data-close-modal="seance-modal"]');
+          }
           await clicSeance();
           const confirmation = new Promise((resolve) => page.once("dialog", async (dialog) => {
             assert.equal(dialog.type(), "confirm");
