@@ -136,6 +136,7 @@ button {
 }
 
 /* Aujourd'hui mobile : en-tête et cartes compacts sans réduire la lisibilité. */
+#aujourdhui-section #today-date-label { margin: 0; text-align: left; }
 .today-heading-primary {
   display: flex;
   align-items: center;
@@ -150,7 +151,7 @@ button {
   #aujourdhui-section .section-heading {
     flex-direction: row;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 8px;
     margin-bottom: 12px;
   }
@@ -169,7 +170,7 @@ button {
     min-width: 0;
     font-size: 0.76rem;
     line-height: 1.2;
-    text-align: right;
+    text-align: left;
     white-space: nowrap;
   }
 
@@ -2269,11 +2270,11 @@ button {
 }
 
 .fc .fc-timegrid-col.fc-day-today {
-  background: linear-gradient(180deg, rgba(29, 78, 216, 0.08), rgba(29, 78, 216, 0.03));
+  background: transparent;
 }
 
 .fc .fc-timegrid-col.fc-day-today .fc-timegrid-col-frame {
-  box-shadow: inset 2px 0 0 rgba(29, 78, 216, 0.22), inset -2px 0 0 rgba(29, 78, 216, 0.22);
+  box-shadow: none;
 }
 
 .fc .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion {
@@ -2941,6 +2942,17 @@ button {
 .time-select-row select:focus {
   outline: none;
   background: rgba(248, 251, 255, 0.7);
+}
+
+/* Center the selected hours and minutes in session/availability dialogs. */
+#seance-modal .time-select-row select,
+#unavailability-detail-modal .time-select-row select {
+  text-align: center;
+  text-align-last: center;
+}
+#unavailability-detail-modal #unavailability-modal-form .time-select-row select {
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .checkbox-options {
@@ -4504,49 +4516,95 @@ button {
 
 .toast-container {
   position: fixed;
-  top: 16px;
-  right: 16px;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 40;
   display: grid;
-  gap: 8px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  justify-items: center;
+  gap: 6px;
+  pointer-events: none;
 }
 
 .toast {
+  --toast-accent: #2563eb;
+  --toast-tint: #eff6ff;
+  position: relative;
   display: grid;
-  gap: 4px;
-  min-width: 220px;
-  max-width: 320px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.12);
+  gap: 2px;
+  width: max-content;
+  min-width: 0;
+  max-width: min(300px, calc(100vw - 24px));
+  min-height: 36px;
+  padding: 9px 13px 9px 38px;
+  border: 1px solid color-mix(in srgb, var(--toast-accent) 13%, white);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--toast-tint) 55%, white);
+  color: #253348;
+  font-size: .75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, .08), 0 1px 3px rgba(15, 23, 42, .03);
+  pointer-events: none;
+  animation: toast-appear .24s cubic-bezier(.2, .8, .3, 1.15) both;
 }
+
+.toast::before {
+  content: "i";
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--toast-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+.toast * { pointer-events: none; }
+@keyframes toast-appear {
+  from { opacity: 0; transform: translateY(-5px) scale(.96); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 
 .toast-title {
   display: block;
-  font-size: 0.95rem;
-  font-weight: 800;
+  font-size: .75rem;
+  font-weight: 700;
   line-height: 1.25;
 }
 
 .toast-message {
   display: block;
-  font-size: 0.9rem;
-  line-height: 1.45;
+  font-size: .73rem;
+  line-height: 1.4;
 }
 
 .toast.success {
-  border-color: #bfdbfe;
+  --toast-accent: #15856a;
+  --toast-tint: #edf9f3;
 }
+.toast.success::before { content: "✓"; }
 
 .toast.error {
-  border-color: #fecaca;
+  --toast-accent: #dc4d59;
+  --toast-tint: #fff0f1;
 }
+.toast.error::before { content: "!"; }
 
 .toast.warning {
-  border-color: #fde68a;
+  --toast-accent: #ac6c18;
+  --toast-tint: #fff8e8;
 }
+.toast.warning::before { content: "!"; }
 
 .reservation-public-body {
   --reservation-ink: #0f172a;
@@ -6130,14 +6188,15 @@ button {
   }
 
   .toast-container {
-    left: 10px;
-    right: 10px;
-    top: 10px;
+    left: 50%;
+    right: auto;
+    top: max(10px, env(safe-area-inset-top));
   }
 
   .toast {
+    width: max-content;
     min-width: 0;
-    max-width: none;
+    max-width: min(300px, calc(100vw - 24px));
   }
 
   .reservation-public-main {
@@ -7055,10 +7114,6 @@ button {
     -webkit-overflow-scrolling: touch;
   }
 
-  #unavailability-detail-modal.is-unavailability-form-open .detail-layout > .detail-card:first-child {
-    display: none;
-  }
-
   #unavailability-detail-modal .detail-card {
     gap: 12px;
     padding: 14px;
@@ -7165,14 +7220,6 @@ button {
 
 #unavailability-detail-modal.is-unavailability-confirmation-mode .detail-layout {
   display: block;
-}
-
-#unavailability-detail-modal.is-unavailability-creation-mode .detail-layout > .detail-card:first-child {
-  display: none;
-}
-
-#unavailability-detail-modal.is-unavailability-confirmation-mode .detail-layout > .detail-card:first-child {
-  display: grid;
 }
 
 #unavailability-detail-modal.is-unavailability-confirmation-mode #unavailability-form-panel {
@@ -8207,3 +8254,673 @@ input, textarea, [contenteditable="true"], [role="textbox"] {
 #seance-modal.is-seance-duplication #duplicate-weeks-field { display: grid; grid-template-columns: 1fr 84px; align-items: center; gap: 4px 10px; }
 #seance-modal.is-seance-duplication #duplicate-weeks-field input { padding: 6px 10px; }
 #seance-modal.is-seance-duplication #duplicate-weeks-field small { grid-column: 1 / -1; }
+
+/* One calendar, two explicit editing modes, and a compact workspace menu. */
+#app-view { position: relative; }
+#app-view .topbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; }
+.workspace-menu-toggle { display: grid; gap: 5px; place-content: center; width: 38px; height: 38px; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: #fff; cursor: pointer; }
+.workspace-menu-toggle span { display: block; width: 18px; height: 2px; border-radius: 2px; background: var(--text); }
+.workspace-menu-toggle:hover, .workspace-menu-toggle[aria-expanded="true"] { background: var(--surface-muted); border-color: var(--accent); }
+.workspace-menu { position: absolute; z-index: 80; top: 68px; left: 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; width: min(280px, calc(100% - 24px)); max-height: calc(100dvh - 100px); overflow-y: auto; padding: 8px; box-shadow: 0 12px 32px #16243b26; }
+.workspace-menu .nav-tab { width: 100%; justify-content: flex-start; }
+#app-view .workspace-menu #logout-button { grid-area: auto; width: 100%; min-width: 0; margin-top: 4px; border-color: var(--border); background: var(--surface-muted); color: var(--text); }
+.calendar-mode-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.calendar-mode-tabs { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-muted); gap: 3px; }
+.calendar-mode-tab { border: 1px solid transparent; border-radius: 9px; background: transparent; padding: 8px 12px; font-size: .85rem; font-weight: 650; color: var(--text-muted); cursor: pointer; }
+.calendar-mode-tab.is-active { background: #fff; color: var(--accent); border-color: #cddcfb; box-shadow: 0 1px 3px #16243b0d; }
+.dashboard-person-filter.is-disabled { color: #8a919e; }
+.dashboard-person-filter.is-disabled select { background: #f0f1f4; color: #838b97; cursor: not-allowed; opacity: .75; }
+#calendar[data-edit-mode="indisponibilites"] .seance-block { cursor: default; }
+#calendar[data-edit-mode="seances"] .indisponibilite-block { cursor: default; }
+@media (max-width: 720px) {
+  #app-view .topbar { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "menu title" "identity identity"; column-gap: 10px; }
+  #app-view .workspace-menu-toggle { grid-area: menu; }
+  #app-view .topbar-actions { display: none; }
+  #app-view .brand-title { font-size: 1.1rem; }
+  .workspace-menu { top: 58px; }
+  .calendar-mode-bar { gap: 8px; margin-bottom: 10px; }
+  .calendar-mode-tab { padding: 7px 9px; font-size: .78rem; }
+  #duplicate-unavailability-week { padding: 7px 10px; min-height: 32px; font-size: .73rem; }
+}
+
+/* Home and a playful, full-height navigation drawer. */
+#app-view .topbar { margin-bottom: 0; border-radius: var(--radius-lg); }
+.home-layout { display: grid; gap: 18px; }
+.home-layout .app-section { margin: 0; }
+.workspace-backdrop { position: fixed; inset: 0; z-index: 999; width: 100%; height: 100%; border: 0; background: rgba(17, 24, 39, .3); backdrop-filter: blur(3px); cursor: default; }
+.sidebar-open { overflow: hidden; }
+#app-view .workspace-menu { position: fixed; inset: 0 auto 0 0; z-index: 1000; width: min(292px, calc(100vw - 36px)); height: 100dvh; max-height: none; display: flex; flex-direction: column; padding: 20px 14px max(18px, env(safe-area-inset-bottom)); gap: 20px; border-radius: 0 26px 26px 0; border: 0; background: linear-gradient(160deg, #fff1f0 0, #fff 190px); box-shadow: 16px 0 60px #17243e26; animation: sidebar-arrive 180ms ease-out; }
+.sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 4px 14px; }
+.sidebar-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; color: var(--text); }
+.sidebar-brand small { display: block; margin-top: 4px; font-weight: 500; font-size: .72rem; color: var(--text-muted); }
+.sidebar-heading .sidebar-brand { flex: 1; min-width: 0; gap: 9px; }
+.sidebar-brand-text { min-width: 0; flex: 1; }
+.sidebar-heading .sidebar-brand-mark { width: 34px; height: 34px; flex-shrink: 0; font-size: 1.15rem; }
+.sidebar-heading .sidebar-close { flex-shrink: 0; align-self: flex-start; }
+.sidebar-identity { display: flex; align-items: center; gap: 7px; margin-top: 4px; padding: 0; border: 0; background: transparent; min-width: 0; font-size: .72rem; font-weight: 500; color: var(--text-muted); }
+.sidebar-identity strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; font-size: inherit; font-weight: 600; }
+.sidebar-identity > span { flex-shrink: 0; white-space: nowrap; padding: 0; border: 0; font-size: inherit; font-weight: inherit; color: inherit; }
+.sidebar-brand-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 14px; background: #ff6363; color: #fff; font-size: 1.3rem; transform: rotate(-7deg); box-shadow: 0 5px 12px #ff636333; }
+.sidebar-close { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 50%; background: #fff; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; }
+.sidebar-main { display: grid; gap: 8px; overflow-y: auto; min-height: 0; }
+.sidebar-footer { display: grid; gap: 8px; margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
+#app-view .workspace-menu .nav-tab { min-height: 48px; border-radius: 14px; gap: 12px; padding: 10px 14px; text-align: left; white-space: normal; transition: background 140ms ease, transform 140ms ease; }
+#app-view .workspace-menu .nav-tab:hover { background: #fff1f0; transform: translateX(3px); }
+#app-view .workspace-menu .nav-tab.is-active { background: #eff6ff; border-color: #cbdcfe; color: var(--accent); }
+.sidebar-icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+#app-view .workspace-menu #logout-button { display: flex; align-items: center; justify-content: flex-start; gap: 12px; min-height: 46px; padding: 10px 14px; border-radius: 14px; margin: 0; color: #1d4ed8; background: #eff6ff; border-color: #dbeafe; }
+#app-view .workspace-menu #logout-button:hover { background: #dbeafe; }
+.calendar-heading-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px; }
+.calendar-controls-row { display: flex; align-items: center; justify-content: flex-end; min-height: 44px; gap: 12px; }
+.calendar-controls-row .dashboard-person-filter { min-width: 0; }
+.calendar-duplicate-control { visibility: hidden; pointer-events: none; min-height: 42px; }
+.calendar-duplicate-control.is-visible { visibility: visible; pointer-events: auto; }
+@keyframes sidebar-arrive { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@media (max-width: 720px) {
+  #app-view .topbar { margin-bottom: 0; border-radius: 16px; }
+  .home-layout { gap: 12px; }
+  .calendar-heading-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .calendar-controls-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; height: 44px; }
+  .calendar-controls-row .dashboard-person-filter { display: block; width: 100%; }
+  .calendar-controls-row .dashboard-person-filter.hidden { display: none !important; }
+  .calendar-controls-row .dashboard-person-filter > span { display: none; }
+  .calendar-controls-row .dashboard-person-filter select { width: 100%; min-width: 0; height: 42px; padding: 7px; font-size: .72rem; }
+  #duplicate-unavailability-week { grid-column: 2; width: 100%; max-width: none; height: 42px; padding: 5px 7px; font-size: .65rem; line-height: 1.3; border-radius: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #app-view .workspace-menu { animation: none; }
+  #app-view .workspace-menu .nav-tab { transition: none; }
+}
+
+.sidebar-profile { position: relative; display: flex; align-items: center; gap: 12px; padding: 15px 12px; border: 1px solid #e1e9fa; border-radius: 18px; background: linear-gradient(135deg, #f0f6ff, #fff7f5); flex-shrink: 0; }
+.sidebar-profile-avatar { display: grid; place-items: center; width: 46px; height: 46px; flex-shrink: 0; border-radius: 16px; background: #fff; box-shadow: 0 3px 10px #304b7a0d; transform: rotate(-5deg); }
+.sidebar-profile-avatar svg { width: 32px; height: 32px; fill: none; stroke: #ff6363; stroke-width: 1.8; stroke-linecap: round; }
+.sidebar-profile-details { display: grid; gap: 4px; min-width: 0; }
+.sidebar-profile-details small { font-size: .65rem; color: var(--text-muted); }
+.sidebar-profile-details strong { font-size: .9rem; color: var(--text); overflow-wrap: anywhere; }
+.sidebar-profile-details > span { font-size: .69rem; color: #64748b; }
+.sidebar-profile-spark { position: absolute; top: 8px; right: 9px; font-size: .7rem; color: #ffb47b; }
+.home-view-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; padding: 5px; }
+.home-view-tab { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 8px 12px; border: 1px solid transparent; border-radius: 12px; background: transparent; color: var(--text-muted); font-size: .9rem; font-weight: 700; }
+.home-view-tab.is-active { color: var(--accent); background: #eff6ff; border-color: #cbdcfe; }
+.home-view-tab:hover { background: #f6f9ff; }
+/* Reserve horizontal swipes before the browser decides to pan. Do not apply
+   pan-y to Home/calendar ancestors: that would disable native week scrolling. */
+#aujourdhui-section,
+.home-view-tabs,
+#app-view .topbar,
+.calendar-heading-row,
+.calendar-duplicate-actions,
+.dashboard-public-link {
+  touch-action: pan-y;
+}
+.home-view-tab .nav-notification-badge { margin: 0; }
+#repeat-session-modal .modal-panel { max-width: 340px; padding: 18px; }
+#repeat-session-modal .modal-header { margin-bottom: 8px; }
+#repeat-session-modal #repeat-session-summary { margin: 0 0 12px; font-size: .78rem; }
+#repeat-session-modal .repeat-session-field { display: grid; grid-template-columns: minmax(0, 1fr) 72px; align-items: center; gap: 10px; margin-bottom: 12px; }
+#repeat-session-modal .form-actions { margin-top: 12px; flex-direction: row; }
+#repeat-session-modal .form-actions .button { width: auto; }
+body.is-copying-session-mobile { overflow: hidden; touch-action: none; }
+.calendar-duplicate-cancel { position: fixed; z-index: 2501; top: max(12px, env(safe-area-inset-top)); right: 12px; border: 1px solid #cbd5e1; border-radius: 12px; padding: 9px 14px; background: #fff; color: #1d4ed8; box-shadow: 0 4px 16px #0f172a22; }
+#dashboard-section .calendar-heading-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: space-between; width: 100%; }
+#dashboard-section .calendar-heading-row .calendar-controls-row { display: flex; justify-content: flex-end; align-items: center; margin-left: auto; min-width: 0; flex: 1 1 auto; }
+#dashboard-section .calendar-heading-row .dashboard-person-filter { display: inline-flex; justify-content: flex-end; align-items: center; width: auto; min-width: 0; flex: 0 1 auto; }
+#dashboard-section .calendar-heading-row .dashboard-person-filter select { width: 160px; max-width: 100%; min-width: 0; }
+.calendar-duplicate-actions { display: flex; justify-content: flex-end; align-items: center; min-height: 42px; margin-top: 12px; }
+.calendar-duplicate-actions #duplicate-unavailability-week { width: auto; max-width: 100%; height: auto; min-height: 38px; padding: 8px 12px; font-size: .75rem; }
+.calendar-heading-row { grid-template-columns: auto minmax(0, 1fr); }
+.calendar-heading-row .calendar-mode-tabs { white-space: nowrap; }
+#app-view .topbar { min-height: 80px; }
+@media (max-width: 720px) {
+  #calendar[data-calendar-zoom="true"] .fc-header-toolbar { display: none !important; }
+}
+@media (max-width: 720px) {
+  #app-view .topbar { grid-template-areas: "menu title"; min-height: 68px; }
+  #app-view { gap: 6px; }
+  #app-view .home-layout { gap: 6px; }
+  .home-view-tab { min-height: 38px; font-size: .8rem; }
+  .calendar-controls-row { grid-template-columns: minmax(0, 1fr); }
+  .calendar-heading-row { grid-template-columns: auto minmax(0, 1fr); gap: 6px; }
+  .calendar-heading-row .calendar-mode-tab { padding: 7px 6px; font-size: .7rem; }
+  .calendar-heading-row .calendar-controls-row { display: flex; height: 38px; min-height: 38px; }
+  .calendar-heading-row .dashboard-person-filter select { height: 38px; padding: 6px; font-size: .7rem; }
+  #dashboard-section .calendar-heading-row .dashboard-person-filter select { width: clamp(80px, 26vw, 160px); }
+}
+/* The view switch lives in the calendar's corner, not in the toolbar. */
+.calendar-zoom-cell { position: relative; }
+.calendar-zoom-cell > .calendar-zoom-toggle { position: absolute; inset: 0; display: flex; width: 100%; height: 100%; padding: 0; border-radius: 0; justify-content: center; align-items: center; }
+.calendar-zoom-cell > .calendar-zoom-toggle:focus-visible { outline: 2px solid #214ddd; outline-offset: -3px; }
+#calendar .fc-bg-event.indisponibilite-display-only { pointer-events: auto; }
+.calendar-zoom-toggle { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: #214ddd; cursor: pointer; }
+.calendar-zoom-toggle:hover { background: #eaf1ff; }
+.calendar-zoom-toggle svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.calendar-corner-month { font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; }
+.calendar-month-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: #f8fafc; }
+.calendar-month-title { font-size: .9rem; font-weight: 700; color: var(--text); text-transform: capitalize; }
+.calendar-month-heading .calendar-zoom-toggle { width: 30px; height: 30px; background: #fff; border: 1px solid #dbe5f4; }
+.fc[data-calendar-zoom="true"][data-calendar-view="dayGridMonth"] .fc-toolbar-title { visibility: hidden; }
+
+/* Personal availability uses a compact dialog for both details and editing. */
+#unavailability-detail-modal.modal {
+  place-items: center; align-items: center; justify-items: center;
+  padding: 12px; width: auto; height: auto; overflow: visible; background: transparent;
+}
+#unavailability-detail-modal.modal .modal-backdrop {
+  display: block; background: rgba(17, 24, 39, .44); backdrop-filter: blur(8px);
+}
+#unavailability-detail-modal.modal .modal-panel {
+  display: block; width: min(100%, 520px); max-width: 520px;
+  height: auto; min-height: 0; max-height: calc(100dvh - 24px);
+  margin: 0; padding: 16px; overflow: auto;
+  border: 1px solid var(--border); border-radius: 18px !important;
+  background: var(--surface); box-shadow: var(--shadow);
+}
+#unavailability-detail-modal.modal .modal-header { position: static; padding: 0 0 12px; background: transparent; }
+#unavailability-detail-modal.modal .detail-layout { display: grid; grid-template-columns: minmax(0, 1fr); padding: 0; gap: 10px; overflow: visible; }
+#unavailability-detail-modal.modal .detail-card { padding: 12px; gap: 10px; }
+#unavailability-detail-modal.modal .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#unavailability-detail-modal.modal .detail-actions .button { min-height: 36px; padding: 8px 12px; }
+
+#detail-modal .modal-panel { width: min(560px, 100%); padding: 18px; border-radius: 18px; }
+#detail-modal .modal-header { margin-bottom: 12px; gap: 10px; }
+#detail-modal .modal-header h3 { font-size: 1.05rem; overflow-wrap: anywhere; }
+#detail-modal .detail-card { padding: 0; border: 0; background: none; box-shadow: none; gap: 12px; }
+#detail-modal .detail-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+#detail-modal .detail-row { display: grid; align-content: start; justify-content: stretch; gap: 3px; padding: 9px 11px; border: 1px solid #edf0f5; border-radius: 10px; background: #f8fafc; min-width: 0; }
+#detail-modal .detail-row span { font-size: .7rem; line-height: 1.35; }
+#detail-modal .detail-row strong { text-align: left; font-size: .85rem; line-height: 1.35; overflow-wrap: anywhere; }
+#detail-modal .status-badge { padding: 5px 10px; font-size: .75rem; }
+#detail-modal .session-detail-audit { border-top: 1px solid var(--border); padding-top: 10px; }
+#detail-modal .session-detail-audit summary { color: var(--text-muted); font-size: .75rem; font-weight: 600; cursor: pointer; }
+#detail-modal .session-detail-audit[open] .detail-list { margin-top: 8px; }
+#detail-modal .detail-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+#detail-modal .detail-actions .button { min-height: 36px; padding: 8px 10px; font-size: .8rem; }
+@media (max-width: 720px) {
+  #detail-modal { padding: 10px; }
+  #detail-modal .modal-panel { padding: 14px; max-height: calc(100dvh - 20px); }
+  #detail-modal .detail-list { gap: 6px; }
+  #detail-modal .detail-row { padding: 8px; }
+}
+
+/* Compact calendar settings and visual team identities. */
+#calendar-settings-panel { width: 100%; min-width: 0; max-width: none; margin-inline: 0; padding: 16px; }
+#workspace-settings-card { padding: 0; border: 0; box-shadow: none; background: transparent; }
+#workspace-settings-card > .admin-card-head { padding: 0 0 12px; }
+#workspace-settings-card > .admin-card-body { padding: 0; gap: 14px; }
+#workspace-settings-card .stack-form { gap: 10px; }
+#workspace-settings-form .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px; }
+#workspace-settings-form input[type="time"] { width: 100%; min-width: 0; }
+#app-view #workspace-settings-form .field { min-width: 0; }
+#app-view #workspace-settings-form input[type="time"] { display: block; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-inline-size: 0; appearance: none; -webkit-appearance: none; }
+#workspace-settings-form input[type="time"]::-webkit-date-and-time-value { min-width: 0; text-align: left; }
+#workspace-settings-form input[type="time"]::-webkit-datetime-edit { min-width: 0; padding: 0; }
+#workspace-settings-form .form-actions { margin: 0; padding: 0; border: 0; justify-content: flex-end; }
+#calendrier-section .field { gap: 5px; }
+#calendrier-section .field > span { font-size: .75rem; }
+#calendrier-section input, #calendrier-section select { min-height: 38px; padding: 8px 10px; font-size: .8rem; }
+#calendrier-section .button { min-height: 36px; padding: 8px 12px; font-size: .78rem; }
+#public-calendar-settings { gap: 12px; padding-top: 12px; }
+#public-calendar-timezone-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+#public-calendar-timezone-form .form-actions { padding: 0; border: 0; }
+#public-calendar-timezone-error { grid-column: 1 / -1; }
+#public-calendar-team-links { gap: 8px; }
+#public-calendar-team-links input { border: 1px solid #e5eaf3; border-radius: 8px; background: #f8fafc; color: var(--text-muted); text-overflow: ellipsis; }
+#public-calendar-team-links .public-calendar-member-row { grid-template-columns: minmax(150px, .65fr) minmax(0, 1fr) auto; gap: 10px; padding: 12px; border: 1px solid #e7eaf2; border-radius: 14px; background: linear-gradient(120deg, #fff7f5, #fff 60%); }
+.public-calendar-person, .team-person-identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.public-calendar-avatar { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 11px; background: #ffe9e6; color: #d74f50; font-size: .8rem; font-weight: 800; }
+.public-calendar-person > div, .public-calendar-team-card > div { display: grid; gap: 3px; min-width: 0; }
+.public-calendar-person strong, .public-calendar-team-card strong { color: var(--text); font-size: .83rem; overflow-wrap: anywhere; }
+.public-calendar-person small, .public-calendar-team-card small { font-size: .68rem; color: var(--text-muted); }
+.public-calendar-person small.is-active { color: #047857; }
+.public-calendar-member-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+#public-calendar-memberships { gap: 8px; }
+#public-calendar-memberships h4 { margin: 0; font-size: .85rem; }
+.public-calendar-teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 8px; }
+.public-calendar-team-card { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid #e1e9f7; border-radius: 14px; background: linear-gradient(120deg, #f1f6ff, #fff); }
+.public-calendar-team-card .public-calendar-avatar { background: #e6efff; color: #265ac3; }
+#equipe-section .team-member-card { border-radius: 16px; border-left: 3px solid #ff8880; background: linear-gradient(110deg, #fff8f6, #fff 45%); }
+@media (max-width: 720px) {
+  #calendar-settings-panel { padding: 12px; }
+  #public-calendar-team-links .public-calendar-member-row { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px; }
+  #public-calendar-team-links .public-calendar-member-row > input { min-height: 34px; font-size: .72rem; }
+  .public-calendar-member-actions .button { flex: 1; }
+}
+
+/* Mon équipe: compact, friendly cards without changing management controls. */
+#equipe-section > .panel { display: grid; gap: 12px; width: 100%; padding: 16px; }
+#equipe-section .section-heading { margin: 0; }
+#equipe-section .section-heading h2 { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 1.1rem; }
+.team-title-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; background: #fff0ed; color: #ec6863; font-size: 1rem; }
+#equipe-section .admin-card { padding: 12px; border-radius: 15px; gap: 10px; min-width: 0; }
+#equipe-section .admin-card-head { margin: 0; padding: 0; }
+#equipe-section .user-form-title { display: flex; align-items: center; gap: 7px; margin: 0; font-size: .87rem; }
+.team-section-mark { display: inline-grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; border-radius: 8px; color: #5c71bc; background: #eef3ff; font-size: .9rem; }
+.team-section-mark svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+#equipe-section .team-requests-card .team-section-mark { color: #b97a32; background: #fff5df; }
+#equipe-section .team-subjects-card .team-section-mark { color: #9d69b3; background: #f6edff; }
+#equipe-section .team-tarification-card .team-section-mark { color: #238069; background: #eaf8f1; }
+#equipe-section .admin-user-list { gap: 8px; margin: 0; }
+#team-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(285px, 100%), 1fr)); align-items: start; }
+#equipe-section .team-member-card { grid-template-columns: minmax(0, 1fr); padding: 12px; gap: 10px; border-left-width: 1px; border-color: #efe6e4; background: linear-gradient(135deg, #fff7f4, #fff 60%); box-shadow: none; }
+#equipe-section .team-member-card:nth-child(even) { background: linear-gradient(135deg, #f2f6ff, #fff 60%); border-color: #e2e9f7; }
+#equipe-section .team-member-card:nth-child(even) .public-calendar-avatar { background: #e5edff; color: #4266c6; }
+#equipe-section .admin-user-head { flex-direction: row; align-items: center; gap: 8px; }
+#equipe-section .team-person-identity { gap: 8px; }
+#equipe-section .admin-user-name { font-size: .86rem; overflow-wrap: anywhere; }
+#equipe-section .admin-user-badges { flex: 0 0 auto; }
+#equipe-section .admin-status-badge { padding: 4px 7px; font-size: .63rem; }
+#equipe-section .public-calendar-avatar { width: 32px; height: 32px; border-radius: 11px; font-size: .74rem; }
+#equipe-section .team-member-form { width: 100%; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+#equipe-section .team-member-form .team-field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; font-size: .7rem; }
+#equipe-section .team-member-form .team-field > span { font-size: .7rem; font-weight: 500; color: var(--text-muted); }
+#equipe-section .team-member-form select { min-height: 32px; width: 100%; padding: 5px 8px; font-size: .75rem; }
+#equipe-section .team-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 0; border: 0; }
+#equipe-section .button { min-height: 34px; padding: 7px 8px; font-size: .72rem; }
+#equipe-section .team-actions .button { width: 100%; min-width: 0; white-space: normal; }
+#equipe-section .team-actions .button.danger { background: #fff4f3; color: #bf4848; border-color: #f5d5d0; }
+#equipe-section .admin-user-empty { margin: 0; padding: 8px 10px; border: 0; background: #f8fafc; border-radius: 10px; font-size: .76rem; text-align: left; }
+#equipe-section .team-request-card { padding: 10px; gap: 8px; background: #fffdf8; border-color: #f1e9d7; }
+#equipe-section .admin-user-email { font-size: .72rem; overflow-wrap: anywhere; }
+#equipe-section .team-request-card .admin-user-actions { gap: 6px; }
+#equipe-section .team-subject-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+#equipe-section .team-subject-form .field { min-width: 0; gap: 4px; }
+#equipe-section .team-subject-form .field > span { font-size: .7rem; }
+#equipe-section .team-subject-form input { min-height: 34px; padding: 7px 9px; font-size: .78rem; }
+#equipe-section .team-subject-list { grid-template-columns: repeat(auto-fit, minmax(min(255px, 100%), 1fr)); gap: 6px; }
+#equipe-section .team-subject-item { flex-direction: row; flex-wrap: wrap; align-items: center; min-height: 40px; padding: 7px 9px; gap: 6px; background: #faf8ff; border-color: #eee8f5; }
+#equipe-section .team-subject-name { font-size: .78rem; overflow-wrap: anywhere; }
+#equipe-section .team-subject-actions { gap: 5px; margin-left: auto; }
+#equipe-section .team-subject-action { min-height: 29px; padding: 5px 7px; font-size: .68rem; }
+#equipe-section .team-tarification-form { gap: 8px; min-width: 0; }
+#equipe-section .team-tarification-scroll { min-width: 0; max-width: 100%; }
+#equipe-section .team-tarification-table { min-width: 0; }
+#equipe-section .team-tarification-table th, #equipe-section .team-tarification-table td { padding: 8px; font-size: .74rem; }
+#equipe-section .team-tarification-table tbody th { min-width: 112px; position: sticky; left: 0; z-index: 1; }
+#equipe-section .team-tarification-table thead th:first-child { position: sticky; left: 0; z-index: 3; }
+#equipe-section .team-tarification-table td { min-width: 106px; }
+#equipe-section .team-tarification-table input[type="number"] { width: 64px; min-height: 32px; padding: 5px 6px; border: 1px solid #dce4f1; border-radius: 8px; background: #fff; color: var(--text); font-size: .77rem; }
+#equipe-section .team-tarification-actions { margin: 0; padding: 0; border: 0; justify-items: end; }
+@media (max-width: 720px) {
+  #equipe-section > .panel { padding: 12px; gap: 10px; }
+  #equipe-section .admin-card { padding: 10px; }
+  #equipe-section .team-member-card { padding: 10px; }
+  #equipe-section .team-request-card { grid-template-columns: minmax(0, 1fr); }
+  #equipe-section .team-request-card .admin-user-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Shared compact rhythm: revenue, history and settings. */
+:is(#monetisation-section, #historique-section, #utilisateur-section) .panel { padding: 16px; min-width: 0; }
+:is(#monetisation-section, #historique-section, #utilisateur-section) .section-heading { margin-bottom: 12px; gap: 8px; }
+:is(#monetisation-section, #historique-section, #utilisateur-section) .section-heading h2 { font-size: 1rem; }
+:is(#monetisation-section, #historique-section, #utilisateur-section) .field { gap: 5px; min-width: 0; }
+:is(#monetisation-section, #historique-section, #utilisateur-section) .field > span { font-size: .75rem; }
+:is(#monetisation-section, #historique-section, #utilisateur-section) .field-help,
+:is(#monetisation-section, #historique-section, #utilisateur-section) .section-note { font-size: .72rem; line-height: 1.45; margin-block: 4px; }
+:is(#monetisation-section, #historique-section, #utilisateur-section) .stack-form { gap: 10px; }
+:is(#monetisation-section, #historique-section, #utilisateur-section) .field input:not([type="checkbox"]):not([type="radio"]),
+:is(#monetisation-section, #historique-section, #utilisateur-section) .field select { min-height: 36px; padding: 7px 9px; font-size: .8rem; }
+:is(#monetisation-section, #historique-section, #utilisateur-section) .button { min-height: 35px; padding: 8px 11px; font-size: .77rem; }
+:is(#monetisation-section, #historique-section, #utilisateur-section) .form-actions { margin-top: 0; padding-top: 10px; gap: 7px; }
+#monetisation-section .monetisation-period-panel h2,
+#historique-section .history-panel-list h2,
+#admin-panel-title { display: flex; align-items: center; gap: 8px; }
+#monetisation-section .monetisation-period-panel h2::before,
+#historique-section .history-panel-list h2::before,
+#admin-panel-title::before { display: inline-grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 10px; font-size: 1rem; }
+#monetisation-section .monetisation-period-panel h2::before { content: "◇"; color: #26846d; background: #eaf8f1; }
+#historique-section .history-panel-list h2::before { content: "↺"; color: #8a62b2; background: #f4edff; }
+#admin-panel-title::before { content: "⚙"; color: #d16761; background: #fff0ed; }
+
+#monetisation-section .monetisation-period-panel { margin-bottom: 10px; }
+#monetisation-filter-form .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px; }
+#monetisation-filter-form input[type="date"] { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; appearance: none; -webkit-appearance: none; }
+#monetisation-filter-form input[type="date"]::-webkit-date-and-time-value { min-width: 0; text-align: left; }
+#monetisation-section .monetisation-global-toggle { gap: 7px; padding: 8px 10px; border-radius: 10px; background: #f8fafc; font-size: .78rem; }
+#monetisation-report-accounts-section { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; align-items: center; }
+#monetisation-report-accounts-note { text-align: right; margin: 0; font-size: .68rem; }
+#monetisation-report-accounts-dropdown { grid-column: 1 / -1; }
+#monetisation-report-accounts-dropdown summary { padding: 9px 11px; font-size: .78rem; border-radius: 10px; }
+#monetisation-section .monetisation-report-accounts-list { padding: 8px; gap: 6px; }
+#monetisation-section .monetisation-report-account-option { padding: 7px 9px; font-size: .76rem; }
+#monetisation-section .monetisation-results { display: grid; gap: 10px; }
+#monetisation-section .monetisation-overview-grid,
+#monetisation-section .monetisation-details-panel { margin-bottom: 0; }
+#monetisation-section .monetisation-card-primary { position: relative; overflow: hidden; min-height: 0; padding: 16px; gap: 5px; border-color: #d7ece4; background: linear-gradient(115deg, #eaf8f0, #f7fffc); }
+#monetisation-section .monetisation-card-primary::after { content: "dh"; position: absolute; right: 18px; top: 50%; transform: translateY(-50%) rotate(-10deg); color: #23876e; opacity: .12; font-size: 3rem; font-weight: 800; pointer-events: none; }
+#monetisation-section .stat-overview-label { font-size: .76rem; }
+#monetisation-section .stat-overview-value { font-size: 1.65rem; color: #176e58; }
+#monetisation-section .monetisation-details-panel h2 { font-size: .9rem; }
+#monetisation-section .monetisation-details-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 8px; }
+#monetisation-section .monetisation-account-card { min-width: 0; padding: 12px; gap: 9px; border-radius: 13px; background: linear-gradient(135deg, #f4f8ff, #fff 65%); }
+#monetisation-section .account-stats-header { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; margin: 0; }
+#monetisation-section .account-stats-header h3 { margin: 0; font-size: .85rem; overflow-wrap: anywhere; }
+#monetisation-section .account-stats-total { font-size: 1rem; flex-shrink: 0; }
+#monetisation-section .account-stats-list { gap: 4px; }
+#monetisation-section .stats-list-row { gap: 8px; padding-block: 5px; font-size: .73rem; }
+#monetisation-section .monetisation-results-actions { padding: 0; border: 0; }
+#monetisation-section .monetisation-download-button { width: auto; max-width: 100%; }
+
+#historique-section .history-layout { gap: 12px; }
+#historique-section .history-panel-list { gap: 0; }
+#historique-section .history-panel-list > .section-heading { flex-direction: row; align-items: center; justify-content: space-between; }
+#historique-section .history-count { min-width: 25px; height: 25px; padding: 4px 7px; font-size: .7rem; }
+#historique-section .history-list { gap: 7px; padding: 0 2px 2px 0; }
+#historique-section .history-item { padding: 10px 11px; gap: 4px; border-radius: 12px; box-shadow: none; }
+#historique-section .history-item-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: start; }
+#historique-section .history-item-main { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+#historique-section .history-item-title { font-size: .78rem; overflow-wrap: anywhere; }
+#historique-section .history-action-badge { min-height: 21px; padding: 3px 6px; font-size: .59rem; }
+#historique-section .history-item-time { max-width: 110px; font-size: .62rem; line-height: 1.4; text-align: right; }
+#historique-section .history-item-meta { font-size: .72rem; line-height: 1.35; overflow-wrap: anywhere; }
+:is(#historique-section, #history-detail-modal) .detail-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+:is(#historique-section, #history-detail-modal) .detail-row { display: grid; gap: 3px; min-width: 0; padding: 8px 9px; border: 1px solid #edf0f5; border-radius: 9px; background: #f8fafc; }
+:is(#historique-section, #history-detail-modal) .detail-row span { font-size: .68rem; }
+:is(#historique-section, #history-detail-modal) .detail-row strong { font-size: .77rem; text-align: left; overflow-wrap: anywhere; }
+:is(#historique-section, #history-detail-modal) .history-changes { gap: 8px; }
+:is(#historique-section, #history-detail-modal) .history-changes h3 { font-size: .85rem; }
+#history-detail-modal .modal-panel { width: min(600px, 100%); padding: 16px; }
+
+#utilisateur-section > .panel { padding: 16px; gap: 12px; }
+#utilisateur-section .section-heading { margin-bottom: 0; }
+#utilisateur-section .admin-overview-strip { gap: 10px; margin-bottom: 0; }
+#utilisateur-section :is(.admin-identity-card, .admin-guide-card, .admin-card) { min-width: 0; padding: 12px; border-radius: 14px; }
+#utilisateur-section .admin-identity-card { background: linear-gradient(125deg, #fff5f0, #fff 70%); border-color: #efe0db; }
+#utilisateur-section .admin-guide-card { gap: 5px; background: linear-gradient(125deg, #f4f0ff, #fff); border-color: #e8e0f3; }
+#utilisateur-section .admin-guide-title { font-size: .95rem; }
+#utilisateur-section .user-summary-value { font-size: 1.05rem; }
+#utilisateur-section .summary-label { font-size: .68rem; }
+#utilisateur-section .user-security-status { margin-block: 8px; padding: 8px 10px; font-size: .73rem; line-height: 1.4; }
+#utilisateur-section .admin-identity-stats { gap: 7px; margin-top: 8px; }
+#app-view #utilisateur-section .admin-identity-stats:not(.admin-identity-stats-single) { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+#utilisateur-section .admin-identity-stat { min-height: 0; padding: 8px; gap: 3px; border-radius: 10px; }
+#utilisateur-section .admin-identity-stat span { font-size: .65rem; }
+#utilisateur-section .admin-identity-stat strong { font-size: .78rem; }
+#utilisateur-section .admin-panel-layout { gap: 12px; }
+#utilisateur-section .admin-card-head { gap: 8px; margin-bottom: 10px; }
+#utilisateur-section .user-form-title { margin: 0; font-size: .9rem; }
+#utilisateur-section .admin-card-body { gap: 9px; }
+#utilisateur-section .user-notifications-card { margin-top: 0; }
+#push-settings-card .form-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#push-enable-button { grid-column: 1 / -1; }
+#utilisateur-section .admin-workbench-nav { gap: 6px; padding: 7px; border-radius: 12px; }
+#utilisateur-section .admin-workbench-tab { min-height: 34px; padding: 7px 10px; border-radius: 9px; font-size: .73rem; }
+#utilisateur-section .admin-status-badge { padding: 4px 7px; font-size: .65rem; }
+#utilisateur-section .admin-user-row { padding: 10px; gap: 8px; border-radius: 11px; }
+#utilisateur-section .admin-user-name { font-size: .85rem; }
+#utilisateur-section .security-notice { padding: 10px; font-size: .75rem; line-height: 1.45; }
+@media (max-width: 720px) {
+  :is(#monetisation-section, #historique-section, #utilisateur-section) .panel,
+  #utilisateur-section > .panel { padding: 12px; }
+  #monetisation-section .monetisation-card-primary { padding: 14px; }
+  #monetisation-section .monetisation-download-button { width: 100%; }
+  #historique-section .history-panel-list { max-height: calc(100dvh - 150px); }
+  #utilisateur-section :is(.admin-identity-card, .admin-guide-card, .admin-card) { padding: 10px; }
+  #utilisateur-section .admin-guide-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #utilisateur-section .admin-guide-title { margin: 0; font-size: .78rem; }
+}
+
+/* Settings are a short account overview and expandable tools, not a form wall. */
+#utilisateur-section > .panel { gap: 10px; }
+#utilisateur-section .admin-overview-strip { grid-template-columns: minmax(0, 1fr) !important; margin: 0; }
+#utilisateur-section .admin-identity-card { display: grid; gap: 7px; padding: 12px; background: linear-gradient(120deg, #fff5f1, #fff 75%); }
+#utilisateur-section .admin-identity-head { flex-direction: row; gap: 8px; align-items: center; justify-content: space-between; text-align: left; }
+#utilisateur-section .user-security-status { margin: 0; padding: 0; font-size: .71rem; }
+#utilisateur-section .settings-account-details > summary { font-size: .7rem; color: var(--text-muted); cursor: pointer; }
+#utilisateur-section .settings-account-details .admin-identity-stats { margin-top: 8px; }
+#utilisateur-section .admin-panel-layout,
+#utilisateur-section .admin-panel-layout.admin-panel-layout-workbench { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+#utilisateur-section .admin-panel-layout > :only-child { max-width: none; }
+#utilisateur-section :is(#user-password-form, #push-settings-card, #professor-public-calendar-card, #professor-teams-card, #team-membership-card) { padding: 0; margin: 0; overflow: hidden; }
+#utilisateur-section #admin-tools-panel { display: block; padding: 0; border: 1px solid var(--border); border-radius: 14px; background: #fff; min-width: 0; }
+#utilisateur-section .admin-panel-layout > #admin-tools-panel { order: 2; }
+.settings-disclosure { min-width: 0; }
+.settings-disclosure > summary { display: flex; align-items: center; gap: 10px; min-height: 62px; padding: 12px; list-style: none; cursor: pointer; border-radius: 14px; }
+.settings-disclosure > summary::-webkit-details-marker { display: none; }
+.settings-disclosure > summary::after { content: ""; width: 7px; height: 7px; margin-left: auto; margin-right: 5px; flex-shrink: 0; border-right: 1.6px solid #8894a6; border-bottom: 1.6px solid #8894a6; transform: rotate(45deg); }
+.settings-disclosure[open] > summary::after { transform: rotate(225deg); }
+.settings-disclosure > summary:hover { background: #f8fafc; }
+.settings-disclosure > summary:focus-visible { outline: 2px solid #7c9fe9; outline-offset: -3px; }
+.settings-disclosure-icon { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 11px; font-size: 1rem; color: #5772b5; background: #edf3ff; }
+.settings-disclosure-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+#settings-security .settings-disclosure-icon { color: #ca746b; background: #fff0ec; }
+#settings-notifications .settings-disclosure-icon { color: #9770b8; background: #f5edff; }
+.settings-summary-copy { display: grid; gap: 3px; min-width: 0; }
+.settings-summary-copy strong { font-size: .84rem; font-weight: 700; color: var(--text); }
+.settings-summary-copy small { font-size: .68rem; color: var(--text-muted); line-height: 1.35; }
+#utilisateur-section .settings-disclosure > .admin-card-body,
+#utilisateur-section .settings-disclosure > .settings-disclosure-body { padding: 0 12px 12px; }
+.settings-disclosure-body { display: grid; gap: 10px; min-width: 0; }
+#utilisateur-section .settings-disclosure[open] > summary { margin-bottom: 4px; }
+#utilisateur-section .settings-disclosure .admin-workbench-nav { grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); padding: 5px; gap: 4px; }
+#utilisateur-section .settings-disclosure .admin-workbench-tab { min-width: 0; min-height: 32px; padding: 6px; font-size: .71rem; }
+#utilisateur-section .settings-disclosure .user-security-status { margin-bottom: 8px; }
+@media (max-width: 720px) {
+  #utilisateur-section .settings-disclosure .admin-workbench-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #utilisateur-section .settings-disclosure .admin-workbench-tab { white-space: normal; }
+}
+/* Durable offline drafts are visually distinct from server-confirmed events. */
+.offline-status[hidden] { display: none !important; }
+.offline-status { grid-area: sync; justify-self: end; color: #64748b; font-size: .72rem; white-space: nowrap; }
+#app-view .topbar:has(.offline-status:not([hidden])) { grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "menu title sync actions"; }
+#app-view .topbar:has(.offline-status:not([hidden])) .workspace-menu-toggle { grid-area: menu; }
+#app-view .topbar:has(.offline-status:not([hidden])) .topbar-left { grid-area: title; }
+#app-view .topbar:has(.offline-status:not([hidden])) .brand-title { white-space: nowrap; }
+#app-view .topbar:has(.offline-status:not([hidden])) .topbar-actions { grid-area: actions; }
+@media (max-width: 720px) {
+  #app-view .topbar:has(.offline-status:not([hidden])) { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "menu title sync"; column-gap: 6px; padding-inline: 10px; }
+  #app-view .topbar:has(.offline-status:not([hidden])) .workspace-menu-toggle { width: 30px; height: 32px; padding: 6px; }
+  #app-view .topbar:has(.offline-status:not([hidden])) .brand-title { font-size: clamp(11px, 3.5vw, 15px); }
+  .offline-status { font-size: 10px; }
+  .offline-status .offline-indicator { gap: 3px; padding: 4px 0; }
+  .offline-status .offline-indicator svg { width: 12px; height: 12px; }
+}
+.offline-indicator { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid #f4d49a; border-radius: 8px; background: #fff7e6; color: #946014; font: inherit; font-weight: 650; cursor: pointer; box-shadow: 0 1px 2px #17243e08; }
+.offline-indicator:hover:not(:disabled) { filter: brightness(.97); }
+.offline-indicator:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.offline-indicator:disabled { opacity: 1; cursor: default; }
+.offline-indicator-icon { display: inline-flex; }
+.offline-indicator svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.offline-indicator [hidden] { display: none; }
+.offline-status.is-pending { color: #537099; }
+.offline-status.is-pending .offline-indicator { background: #eff6ff; border-color: #bfd6fa; color: #285da8; }
+.offline-status.is-pending .offline-indicator-icon { animation: offline-sync-spin 1.6s linear infinite; }
+.offline-status.has-conflict { color: #c33748; }
+.offline-status.has-conflict .offline-indicator { background: #fff0f1; border-color: #f4bbc2; color: #ba3042; }
+@media (max-width: 720px) {
+  .offline-status .offline-indicator { padding: 5px 5px; gap: 3px; }
+}
+@keyframes offline-sync-spin { to { transform: rotate(360deg); } }
+.offline-sync-dialog { box-sizing: border-box; width: min(440px, calc(100vw - 28px)); max-height: min(70dvh, 560px); margin: auto; padding: 18px; border: 1px solid #e2e8f0; border-radius: 18px; background: #fff; color: #334155; box-shadow: 0 20px 70px #17243e26; font-size: .8rem; }
+.offline-sync-dialog::backdrop { background: #17243e38; }
+.offline-sync-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.offline-sync-dialog-heading h2 { margin: 0; font-size: 1rem; }
+.offline-sync-dialog button { padding: 6px 9px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; color: inherit; font: inherit; cursor: pointer; }
+.offline-sync-dialog button:disabled { opacity: .5; cursor: default; }
+.offline-sync-dialog-heading button { flex-shrink: 0; font-size: 1.2rem; line-height: 1; }
+.offline-sync-dialog p { line-height: 1.5; margin: 12px 0; overflow-wrap: anywhere; }
+.offline-sync-dialog ul { list-style: none; margin: 0; padding: 0; }
+.offline-sync-dialog li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid #edf0f5; }
+.offline-sync-dialog li > span { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.offline-sync-dialog li strong { font-size: .78rem; }
+.offline-sync-dialog li small { color: #64748b; font-size: .74rem; }
+.offline-sync-dialog li button { flex-shrink: 0; font-size: .7rem; }
+.offline-sync-dialog.has-conflict h2, .offline-sync-dialog .has-error small { color: #c33748; }
+.offline-sync-dialog footer:has(button:not([hidden])) { display: flex; justify-content: flex-end; margin-top: 12px; }
+@media (prefers-reduced-motion: reduce) { .offline-status.is-pending .offline-indicator-icon { animation: none; } }
+.offline-calendar-pending { border-style: dashed !important; opacity: .8; }
+.offline-calendar-conflict { outline: 2px solid #e35260; outline-offset: -2px; }
+
+/* Creation only: keep every planning control, with a shorter form rhythm. */
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .modal-panel { width: min(780px, 100%); padding: 16px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .modal-header { position: static; gap: 10px; margin: 0 0 12px; padding: 0; align-items: center; border: 0; background: transparent; backdrop-filter: none; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .modal-header h3 { font-size: 1.05rem; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .seance-form { gap: 10px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .seance-form-layout { grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: 10px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .form-section { padding: 12px; min-width: 0; border-radius: 12px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .form-section-header { margin-bottom: 10px; gap: 8px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .form-section-header h4 { font-size: .8rem; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .form-section-accent > .form-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .form-grid-profile { grid-template-columns: minmax(0, 1fr); }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .identity-stack { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .field { gap: 4px; min-width: 0; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .field > span { font-size: .73rem; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .field input:not([type="checkbox"]):not([type="hidden"]),
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .field select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-height: 38px; padding: 7px 8px; font-size: 13px; font-weight: 400; line-height: 1.25; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) input::placeholder { font: inherit; opacity: 1; color: var(--text-muted); }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) input[type="date"] { appearance: none; -webkit-appearance: none; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .checkbox-options { gap: 6px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .checkbox-option { min-width: 0; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .checkbox-option input { width: 1px; height: 1px; margin: 0; padding: 0; border: 0; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .checkbox-options-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .checkbox-options-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .checkbox-option span { min-height: 38px; padding: 6px; font-size: .75rem; text-align: center; overflow-wrap: anywhere; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .subject-fieldset { padding-top: 0; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .time-select-row { border-radius: 9px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .time-select-row select { border: 0; border-radius: 0; padding: 6px 2px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) :is(#seance-duration-field, #seance-trial-field) { grid-column: 1 / -1; grid-template-columns: 85px minmax(0, 1fr); align-items: center; gap: 8px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .form-actions { flex-direction: row; padding-top: 10px; gap: 8px; }
+#seance-modal.is-seance-creation:not(.is-seance-duplication) .form-actions .button { min-height: 38px; padding: 8px 14px; font-size: .8rem; }
+@media (max-width: 720px) {
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) { padding: 10px; }
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .modal-panel { padding: 12px; border-radius: 16px; max-height: calc(100dvh - 20px); }
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .seance-form-layout { grid-template-columns: minmax(0, 1fr); }
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .seance-form-layout > .form-section { grid-column: auto; grid-row: auto; padding: 10px; }
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .field input:not([type="checkbox"]):not([type="hidden"]),
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .field select { min-height: 44px; font-size: 14px; }
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .checkbox-option span { min-height: 40px; }
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .form-actions .button { flex: 1; min-height: 44px; }
+}
+@media (max-width: 720px) {
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .identity-stack { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Avoid accidental double-tap zoom without removing deliberate pinch zoom. */
+html, body { touch-action: manipulation; }
+.calendar-paging-renderer { position: fixed !important; left: -100000px; top: 0; pointer-events: none; }
+.calendar-native-shell { position: relative; max-width: 100%; }
+.calendar-native-scroller {
+  margin-left: var(--calendar-native-axis); width: calc(100% - var(--calendar-native-axis)); height: 100%;
+  overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain; scrollbar-width: none; touch-action: pan-x pan-y;
+}
+.calendar-native-scroller::-webkit-scrollbar { display: none; }
+.calendar-native-track { display: flex; height: 100%; width: max-content; }
+.calendar-native-page { flex: none; height: 100%; overflow: hidden; scroll-snap-align: start; scroll-snap-stop: always; }
+.calendar-native-page[aria-hidden="true"] { pointer-events: none; }
+.calendar-native-axis { position: absolute; z-index: 5; top: 0; bottom: 0; left: 0; width: var(--calendar-native-axis); pointer-events: none; overflow: visible; background: #fff; border-right: 1px solid var(--fc-border-color, #e2e8f0); transform: none; transition: none; animation: none; }
+.calendar-native-hour { position: absolute; left: 0; width: 100%; display: flex; align-items: center; justify-content: center; white-space: nowrap; }
+.calendar-native-editing { overflow-x: hidden; scroll-snap-type: none; }
+.calendar-native-page-header { position: relative; overflow: hidden; }
+/* FullCalendar hides the table's outer collapsed borders. Draw inside the
+   wrapper so the day/hour boundary is painted, not discarded by the table. */
+.calendar-native-page-header::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-top: 1px solid var(--fc-border-color, #e2e8f0);
+  pointer-events: none;
+}
+.fc .fc-col-header-cell,
+.fc .fc-col-header .fc-timegrid-axis {
+  border-bottom-color: var(--fc-border-color, #e2e8f0);
+}
+.calendar-native-page-header > .fc-col-header { width: var(--calendar-native-header-width) !important; }
+.calendar-native-page > :is(.fc-timegrid-body, .fc-daygrid-body) { min-height: 0; }
+.calendar-native-page .fc-timegrid-slots > table, .calendar-native-page > .fc-daygrid-body > table { height: var(--calendar-native-slots-height) !important; }
+.calendar-native-corner { position: absolute; z-index: 4; top: 0; left: 0; width: var(--calendar-native-axis); background: #f7f9fb; border-right: 1px solid var(--fc-border-color, #e2e8f0); border-bottom: 1px solid var(--fc-border-color, #e2e8f0); }
+.fc[data-calendar-zoom="true"] .fc-view-harness { touch-action: pan-x pan-y; }
+/* Decide gesture ownership before touchstart, not after the long press. Empty
+   cells retain native week/page scrolling; editable events never pan or zoom. */
+.fc[data-calendar-mobile="true"] .fc-timegrid-event:is(.fc-event-draggable, .fc-event-resizable),
+.fc[data-calendar-mobile="true"] .fc-timegrid-event .fc-event-resizer {
+  touch-action: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+}
+/* Center hour labels within the private calendar's left-hand column. */
+.fc .fc-timegrid-slot-label {
+  position: relative;
+  border-top-color: transparent !important;
+  border-bottom-color: transparent !important;
+}
+.fc .fc-timegrid-slot-label-frame {
+  position: absolute;
+  inset: 0 0 auto;
+  transform: translateY(-50%);
+}
+/* The first hour has no preceding slot: keep it below the day header rather
+   than letting half its text spill into the corner cell. Native paging copies
+   this measured position, so both the original and fixed axis stay identical. */
+.fc .fc-timegrid-slots tr:first-child .fc-timegrid-slot-label-frame {
+  transform: none;
+}
+#calendar.fc .fc-timegrid-slot-label { text-align: center; }
+#calendar.fc .fc-timegrid-slot-label-frame { display: flex; justify-content: center; }
+#calendar.fc[data-calendar-mobile][data-calendar-view] .fc-timegrid-slot-label-cushion {
+  justify-content: center;
+  text-align: center;
+}
+/* Keep unavailable periods equally visible in both private calendar modes. */
+#calendar.fc .indisponibilite-event,
+#calendar.fc .fc-bg-event.calendar-availability-unavailable { opacity: .6; }
+/* Compact availability creation without changing edit/confirmation dialogs. */
+#unavailability-detail-modal.is-unavailability-creation-mode .modal-panel { width: min(100%, 480px); padding: 16px; }
+#unavailability-detail-modal.is-unavailability-creation-mode .modal-header { margin: 0 0 12px; padding: 0; gap: 10px; }
+#unavailability-detail-modal.is-unavailability-creation-mode .modal-header h3 { font-size: 1.05rem; }
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-form-panel { padding: 0; gap: 0; border: 0; background: transparent; }
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-form-title { display: none; }
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form { gap: 10px; }
+#unavailability-detail-modal.is-unavailability-creation-mode .field { min-width: 0; gap: 5px; }
+#unavailability-detail-modal.is-unavailability-creation-mode .field > span { font-size: .78rem; }
+#unavailability-detail-modal.is-unavailability-creation-mode .section-note { margin: 0; font-size: .75rem; line-height: 1.4; }
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form #unavailability-modal-time-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .field input:not([type="checkbox"]),
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .field select { width: 100%; min-width: 0; min-height: 44px; padding: 7px 10px; }
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .time-select-row { border-radius: 9px !important; }
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-date {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-inline-size: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-date::-webkit-date-and-time-value { min-width: 0; text-align: left; }
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-date::-webkit-datetime-edit { min-width: 0; padding: 0; }
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .time-select-row select { border: 0; padding: 7px 2px; }
+#unavailability-detail-modal.is-unavailability-creation-mode .checkbox-option input { width: 1px; height: 1px; margin: 0; padding: 0; border: 0; }
+#unavailability-detail-modal.is-unavailability-creation-mode .checkbox-option span { min-height: 40px; padding: 8px 10px; font-size: .8rem; }
+#unavailability-detail-modal.is-unavailability-creation-mode #unavailability-modal-form .form-actions { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 2px 0 0; padding: 0; }
+#unavailability-detail-modal.is-unavailability-creation-mode .form-actions .button { flex: 1; min-height: 44px; padding: 9px 10px; font-size: .8rem; }
+@media (max-width: 720px) {
+  #unavailability-detail-modal.is-unavailability-creation-mode .modal-panel { padding: 12px; }
+}
+@media (max-width: 720px), (pointer: coarse) {
+  /* iOS automatically zooms focused native controls below a 16px font. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea {
+    font-size: 16px !important;
+  }
+  /* Render regular 13px text while retaining the native 16px focus size on iOS. */
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .field input:not([type="checkbox"]):not([type="hidden"]),
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .field select {
+    zoom: .8125;
+    min-height: 54.154px;
+    padding: 8.615px 9.846px;
+    font-weight: 400;
+  }
+  #seance-modal.is-seance-creation:not(.is-seance-duplication) .time-select-row select { padding-inline: 2.462px; }
+  /* Availability time values use the same regular visual size as form text. */
+  #unavailability-detail-modal #unavailability-modal-form .time-select-row select {
+    zoom: .8125;
+    min-height: 54.154px;
+    padding: 8.615px 2.462px;
+    font-weight: 400;
+  }
+}

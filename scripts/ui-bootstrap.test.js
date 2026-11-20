@@ -338,7 +338,7 @@ assert.deepEqual(
 );
 
 const debutSectionDashboard = vueSource.indexOf('<section id="dashboard-section"');
-const finSectionDashboard = vueSource.indexOf('<section id="indisponibilites-section"', debutSectionDashboard);
+const finSectionDashboard = vueSource.indexOf('<section id="equipe-section"', debutSectionDashboard);
 assert.notEqual(debutSectionDashboard, -1, "La section Dashboard est introuvable.");
 assert.notEqual(finSectionDashboard, -1, "La fin de la section Dashboard est introuvable.");
 const sectionDashboard = vueSource.slice(debutSectionDashboard, finSectionDashboard);
@@ -370,8 +370,8 @@ assert.doesNotMatch(
 );
 assert.match(
   source,
-  /onSlotClick:\s*gererClicCreneauCalendrierSeance,[\s\S]*?onSelect:\s*gererSelectionCalendrierSeance,[\s\S]*?onEventClick:\s*ouvrirMenuActionsSeance/,
-  "Le Dashboard doit créer au clic/glissement et afficher le menu contextuel au clic sur une séance."
+  /onSlotClick:[\s\S]*?gererClicCreneauCalendrierIndisponibilite\(selection\)[\s\S]*?gererClicCreneauCalendrierSeance\(selection\)[\s\S]*?onSelect:[\s\S]*?if \(etat.sectionActive === "indisponibilites"\) gererSelectionCalendrierIndisponibilite\(selection\);[\s\S]*?onEventClick:\s*ouvrirMenuActionsSeance/,
+  "Le calendrier crée les séances au clic, réserve la sélection de plage aux indisponibilités et conserve le menu des séances."
 );
 assert.match(
   calendrierSource,
@@ -508,7 +508,7 @@ const debutAccesIndisponibilites = source.indexOf(
   "function utilisateurPeutVoirIndisponibilites()"
 );
 const finAccesIndisponibilites = source.indexOf(
-  "function mettreAJourEspaceIndisponibilites()",
+  "function utilisateurPeutVoirEquipe()",
   debutAccesIndisponibilites
 );
 assert.notEqual(debutAccesIndisponibilites, -1, "The unavailability access rule is missing.");

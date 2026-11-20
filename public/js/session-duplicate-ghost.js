@@ -15,10 +15,34 @@ export function commencerDuplicationFantome({ element, calendrier, seance, palet
   fantome.style.setProperty("--ghost-text", palette.textColor || "#244866");
   document.body.appendChild(fantome);
   document.body.classList.add("is-copying-session");
+  const mobile = innerWidth <= 720;
+  const scrollInitial = { x: scrollX, y: scrollY };
+  const styleInitial = document.body.getAttribute("style");
+  const overflowInitial = document.documentElement.style.overflow;
+  const boutonAnnuler = document.createElement("button");
+  let surfaceTactile = null;
+  if (mobile) {
+    // Touch events stay attached to their original DOM target. Calendar renders
+    // replace day/event nodes, so use a persistent contact surface above them.
+    surfaceTactile = document.createElement('div');
+    surfaceTactile.className = 'calendar-duplicate-touch-surface';
+    surfaceTactile.setAttribute('aria-hidden', 'true');
+    Object.assign(surfaceTactile.style, { position: 'fixed', inset: '0', zIndex: '2499', touchAction: 'none' });
+    document.body.appendChild(surfaceTactile);
+    aide.textContent = "Toucher ou glisser pour poser";
+    document.body.classList.add("is-copying-session-mobile");
+    Object.assign(document.body.style, { position: "fixed", top: `${-scrollY}px`, left: `${-scrollX}px`, width: "100%", overflow: "hidden" });
+    document.documentElement.style.overflow = "hidden";
+    boutonAnnuler.className = "calendar-duplicate-cancel";
+    boutonAnnuler.textContent = "Annuler";
+    document.body.appendChild(boutonAnnuler);
+    boutonAnnuler.addEventListener("click", abandonner);
+  }
   calendrier.unselect();
   let ferme = false;
   let position = point || { clientX: innerWidth / 2, clientY: innerHeight / 2 };
   let frame = null;
+  const navigationBords = calendrier.__navigationPendantDeplacement;
   const duree = Number(seance.duree_minutes) || 60;
   const minutes = heure => {
     const [h, m] = String(heure).split(":").map(Number);
@@ -26,12 +50,14 @@ export function commencerDuplicationFantome({ element, calendrier, seance, palet
   };
   const heure = valeur => `${String(Math.floor(valeur / 60)).padStart(2, "0")}:${String(valeur % 60).padStart(2, "0")}`;
   const navigation = cible => cible instanceof Element &&
-    cible.closest(".fc-prev-button, .fc-next-button, .fc-today-button, .fc-timeGridWeek-button, .fc-dayGridMonth-button");
+    cible.closest(".calendar-duplicate-cancel, .fc-prev-button, .fc-next-button, .fc-today-button");
+  const cibleSousPoint = (x, y) => document.elementsFromPoint(x, y).find(cible =>
+    cible !== surfaceTactile && !fantome.contains(cible));
 
   function destination() {
     const x = position.clientX, y = position.clientY;
     if (!element.isConnected || !element.getClientRects().length || x < 0 || y < 0 || x > innerWidth || y > innerHeight) return null;
-    const cible = document.elementFromPoint(x, y);
+    const cible = cibleSousPoint(x, y);
     if (!cible || !element.contains(cible) || cible.closest("button, .fc-toolbar, .fc-col-header, .fc-more-link")) return null;
     if (calendrier.view.type === "dayGridMonth") {
       const jour = cible.closest(".fc-daygrid-day[data-date]");
@@ -77,16 +103,32 @@ export function commencerDuplicationFantome({ element, calendrier, seance, palet
   }
   function mouvement(event) {
     position = { clientX: event.clientX, clientY: event.clientY };
+    navigationBords?.suivre(position);
     if (frame === null) frame = requestAnimationFrame(afficher);
   }
   function defilement() { if (frame === null) frame = requestAnimationFrame(afficher); }
-  function redimensionner() { if (innerWidth <= 720) abandonner(); else defilement(); }
+  function redimensionner() { defilement(); }
   function nettoyer() {
     if (ferme) return;
     ferme = true;
+    navigationBords?.arreter();
+    calendrier.off?.('datesSet', defilement);
     cancelAnimationFrame(frame);
     fantome.remove();
+    surfaceTactile?.remove();
     document.body.classList.remove("is-copying-session");
+    boutonAnnuler.remove();
+    if (mobile) {
+      document.body.classList.remove("is-copying-session-mobile");
+      if (styleInitial === null) document.body.removeAttribute("style");
+      else document.body.setAttribute("style", styleInitial);
+      document.documentElement.style.overflow = overflowInitial;
+      window.scrollTo(scrollInitial.x, scrollInitial.y);
+    }
+    document.removeEventListener("touchstart", toucher, true);
+    document.removeEventListener("touchmove", toucher, true);
+    document.removeEventListener("touchend", relacher, true);
+    document.removeEventListener("touchcancel", abandonner, true);
     document.removeEventListener("mousemove", mouvement);
     document.removeEventListener("mousedown", bloquer, true);
     document.removeEventListener("pointerdown", bloquer, true);
@@ -100,7 +142,20 @@ export function commencerDuplicationFantome({ element, calendrier, seance, palet
   function abandonner() { if (!ferme) { nettoyer(); annuler(); } }
   function bloquer(event) {
     if (navigation(event.target)) return;
+    if (event.pointerType === "touch") return;
     event.preventDefault(); event.stopImmediatePropagation();
+  }
+  function toucher(event) {
+    if (navigation(event.target)) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    if (event.touches.length !== 1) { abandonner(); return; }
+    mouvement(event.touches[0]);
+  }
+  function relacher(event) {
+    if (navigation(event.target)) return;
+    const touche = event.changedTouches[0];
+    if (touche) poser({ target: event.target, clientX: touche.clientX, clientY: touche.clientY,
+      preventDefault: () => event.preventDefault(), stopImmediatePropagation: () => event.stopImmediatePropagation() });
   }
   function poser(event) {
     if (navigation(event.target)) return;
@@ -118,6 +173,12 @@ export function commencerDuplicationFantome({ element, calendrier, seance, palet
     }
   }
   document.addEventListener("mousemove", mouvement);
+  if (mobile) {
+    document.addEventListener("touchstart", toucher, { passive: false, capture: true });
+    document.addEventListener("touchmove", toucher, { passive: false, capture: true });
+    document.addEventListener("touchend", relacher, { passive: false, capture: true });
+    document.addEventListener("touchcancel", abandonner, true);
+  }
   document.addEventListener("mousedown", bloquer, true);
   document.addEventListener("pointerdown", bloquer, true);
   document.addEventListener("click", poser, true);
@@ -125,6 +186,8 @@ export function commencerDuplicationFantome({ element, calendrier, seance, palet
   document.addEventListener("scroll", defilement, true);
   window.addEventListener("resize", redimensionner);
   window.addEventListener("blur", abandonner);
+  calendrier.on?.('datesSet', defilement);
+  navigationBords?.demarrer({ manuel: true, onNavigate: defilement });
   afficher();
   return { annuler: abandonner };
 }

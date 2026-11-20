@@ -27,7 +27,7 @@ function extract(name) {
     trouverSeanceChevauchanteLocale: () => false,
     estJourIntegralementIndisponible: () => false,
     trouverIndisponibiliteChevauchanteLocale: () => false,
-    ajouterSeance: async payload => { requests.push(payload); return { ...payload, id: 10 }; },
+    dupliquerSeance: async (id, payload) => { requests.push({ id, ...payload }); return { ...session, ...payload, est_essai: 0, id: 10 }; },
     rafraichirEvenementsCalendrier() {}, mettreAJourResume() {}, afficherToast() {},
     chargerSeances: async () => {}, chargerHistorique: async () => {}, chargerMonetisationSiAutorise: async () => {},
     gererDeconnexion: async () => {},
@@ -52,17 +52,15 @@ function extract(name) {
   context.dupliquerSeanceDepuisDashboard();
   options.terminer();
   await options.confirmer({ date: "2034-06-06", heure_debut: "12:30" });
-  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [{ handler_id: 2, intervenant_id: 4,
-    etudiant: "Élève", parent: "Parent", matiere: "Maths", est_essai: "1", duree_minutes: 90,
-    date: "2034-06-06", heure_debut: "12:30", statut_seance: "planifiee", nombre_semaines: 1 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [{ id: 9, date: "2034-06-06", heure_debut: "12:30" }]);
   assert.equal(context.etat.copieFantomeEnregistrementEnCours, false);
-  context.ajouterSeance = async () => { throw Object.assign(new Error("Conflit serveur"), { status: 400 }); };
+  context.dupliquerSeance = async () => { throw Object.assign(new Error("Conflit serveur"), { status: 400 }); };
   await context.enregistrerCopieFantome(session, { date: "2034-06-07", heure_debut: "12:30" });
   assert.equal(context.etat.seances.length, 2, "Un refus serveur n'ajoute aucune copie locale");
   assert.equal(context.etat.copieFantomeEnregistrementEnCours, false);
   desktop = false;
   context.dupliquerSeanceDepuisDashboard();
-  assert.equal(mobileForm, 1, "Le téléphone conserve la duplication par formulaire");
+  assert.equal(mobileForm, 0, "Le téléphone utilise aussi la copie fantôme");
   context.peutDeplacerSeanceCalendrier = () => false;
   desktop = true;
   context.dupliquerSeanceDepuisDashboard();

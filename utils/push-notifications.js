@@ -172,6 +172,16 @@ function construireDateMilieuJour(partiesDate) {
   );
 }
 
+function obtenirSeanceNotification(payload = {}) {
+  const seance = payload.seance;
+  if (!String(payload.action || "").startsWith("seance_") || !seance ||
+      !normaliserIdentifiant(seance.id) ||
+      normaliserIdentifiant(seance.handler_id) !== normaliserIdentifiant(payload.handlerId) ||
+      normaliserIdentifiant(seance.intervenant_id) !== normaliserIdentifiant(payload.intervenantId) ||
+      !normaliserIdentifiant(payload.handlerId) || !normaliserIdentifiant(payload.intervenantId)) return null;
+  return seance;
+}
+
 function construireMessagePushEvenement(payload = {}) {
   const acteur = normaliserTexte(payload.actorName) || "Quelqu'un";
   const messagesParAction = {
@@ -189,11 +199,45 @@ function construireMessagePushEvenement(payload = {}) {
     proposal_refused: `${acteur} a refusé une proposition de séance.`,
   };
 
+  const seance = obtenirSeanceNotification(payload);
+  if (seance) {
+    const verbes = {
+      seance_added: "a ajouté une séance",
+      seance_updated: "a modifié la séance",
+      seance_status_updated: "a changé le statut de la séance",
+      seance_deleted: "a supprimé la séance",
+    };
+    const etudiant = normaliserTexte(seance.etudiant);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(seance.date || "") ? new Date(`${seance.date}T12:00:00Z`) : null;
+    const dateLabel = date && Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat("fr-FR", { timeZone: PUSH_REMINDER_TIMEZONE, weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(date)
+      : "";
+    const heure = /^\d{2}:\d{2}$/.test(seance.heure_debut || "") ? seance.heure_debut : "";
+    const fin = /^\d{2}:\d{2}$/.test(seance.heure_fin || "") ? seance.heure_fin : "";
+    const autres = Number(payload.nombreSeances) > 1 ? ` (+${Number(payload.nombreSeances) - 1} autres séances)` : "";
+    return `${acteur} ${verbes[payload.action] || "a modifié la séance"}${etudiant ? ` avec ${etudiant}` : ""}${dateLabel ? ` le ${dateLabel}` : ""}${heure ? ` à ${heure}${fin ? `–${fin}` : ""}` : ""}${autres}.`;
+  }
   return (
     messagesParAction[payload.action] ||
     normaliserTexte(payload.message) ||
     "L'application a été mise à jour."
   );
+}
+
+function construireNotificationEvenement(payload = {}) {
+  const seance = obtenirSeanceNotification(payload);
+  return {
+    title: "Gestion Superprof",
+    body: construireMessagePushEvenement(payload),
+    icon: "/icons/icon-192.png",
+    badge: "/icons/badge-96.png",
+    tag: `event-${payload.action || "application"}${seance ? `-${seance.id}` : ""}`,
+    url: seance ? `/?seance=${Number(seance.id)}` : "/",
+    data: {
+      scope: payload.scope || "application",
+      action: payload.action || "application_updated",
+    },
+  };
 }
 
 function evenementDoitDeclencherPush(payload = {}) {
@@ -385,19 +429,7 @@ async function notifierEvenementApplicationPush(payload = {}) {
     return;
   }
 
-  const message = construireMessagePushEvenement(payload);
-  const notification = {
-    title: "Gestion des séances",
-    body: message,
-    icon: "/icons/icon-192.png",
-    badge: "/icons/badge-96.png",
-    tag: `event-${payload.action || "application"}`,
-    url: "/",
-    data: {
-      scope: payload.scope || "application",
-      action: payload.action || "application_updated",
-    },
-  };
+  const notification = construireNotificationEvenement(payload);
 
   const cacheScopes = creerCacheScopesPush();
 
@@ -422,7 +454,7 @@ async function notifierEvenementApplicationPush(payload = {}) {
       await envoyerNotificationAbonnement(abonnement, notification, {
         TTL: 300,
         urgency: "high",
-        topic: `evt-${String(payload.action || "app").slice(0, 28)}`,
+        topic: `evt-${String(payload.action || "app")}${obtenirSeanceNotification(payload) ? `-${Number(payload.seance.id)}` : ""}`.slice(0, 32),
       });
     }
   );
@@ -841,6 +873,7 @@ function demarrerPlanificateurRappelsPush() {
 }
 
 module.exports = {
+  construireNotificationEvenement,
   recupererClePubliqueVapid,
   notifierEvenementApplicationPush,
   envoyerNotificationTestAbonnement,

@@ -82,6 +82,65 @@ const puppeteer = require("puppeteer");
     // The source time (10:00) is forbidden in this test, even in month view.
     assert.equal(await page.evaluate(() => window.copies.length), 1);
     assert.equal(await page.$(".calendar-duplicate-ghost"), null);
+    await page.setViewport({ width: 390, height: 900 });
+    await page.evaluate(() => { cal.changeView("timeGridWeek", "2034-06-05"); });
+    await page.waitForFunction(() => document.getElementById("calendar").dataset.calendarMobile === "true");
+    const mobilePoint = await point("2034-06-06", "12:30");
+    const scrollAvant = await page.evaluate(() => scrollY);
+    await page.evaluate(() => window.startGhost());
+    assert.equal(await page.evaluate(() => document.body.style.position), "fixed");
+    const touch = await page.createCDPSession();
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: mobilePoint.x, y: mobilePoint.y, id: 1 }] });
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    assert.equal(await page.$(".calendar-duplicate-ghost"), null);
+    assert.equal(await page.evaluate(() => document.body.style.position), "");
+    assert.equal(await page.evaluate(() => scrollY), scrollAvant);
+    assert.equal(await page.evaluate(() => copies.length), 2, "Mobile placement creates exactly one copy");
+    await page.evaluate(() => window.startGhost());
+    await page.tap(".calendar-duplicate-cancel");
+    assert.equal(await page.$(".calendar-duplicate-ghost"), null);
+    assert.equal(await page.evaluate(() => document.body.style.position), "");
+    const mobileInterdit = await point("2034-06-06", "10:00");
+    await page.evaluate(() => window.startGhost());
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: mobileInterdit.x, y: mobileInterdit.y, id: 1 }] });
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    assert.equal(await page.evaluate(() => document.body.style.position), "");
+    assert.equal(await page.evaluate(() => copies.length), 2, "Forbidden mobile placement unlocks without writing");
+    for (const width of [1200, 390]) {
+      await page.setViewport({ width, height: 900 });
+      await page.evaluate(() => { cal.gotoDate('2034-06-05'); cal.updateSize(); });
+      await page.waitForSelector('[data-calendar-native-ready="true"]');
+      await page.evaluate(() => window.startGhost());
+      const edges = await page.evaluate(() => {
+        const r = (document.querySelector('.calendar-native-scroller') || document.querySelector('.fc-timegrid-body')).getBoundingClientRect();
+        const row = document.querySelector('.fc-timegrid-slot-lane[data-time="12:30:00"]').getBoundingClientRect();
+        return { left: { x: r.left + 5, y: row.top + 5 }, right: { x: Math.min(r.right, innerWidth) - 5, y: row.top + 5 } };
+      });
+      const beforeCopy = await page.evaluate(() => copies.length);
+      if (width > 720) await page.mouse.move(edges.right.x, edges.right.y);
+      else await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [edges.right] });
+      await page.waitForFunction(() => cal.view.currentStart.toISOString().startsWith('2034-06-12'));
+      assert.ok(await page.$('.calendar-duplicate-ghost'), 'Auto-navigation preserves the ghost');
+      // No extra movement: staying at the edge must advance another week.
+      await page.waitForFunction(() => cal.view.currentStart.toISOString().startsWith('2034-06-19'));
+      if (width > 720) await page.mouse.move(edges.left.x, edges.left.y);
+      else await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [edges.left] });
+      await page.waitForFunction(() => cal.view.currentStart.toISOString().startsWith('2034-06-12'));
+      assert.equal(await page.evaluate(() => copies.length), beforeCopy, 'No write during edge navigation');
+      const target = await point('2034-06-13', '12:30');
+      if (width > 720) {
+        await page.mouse.move(target.x, target.y);
+        await page.mouse.click(target.x, target.y);
+      } else {
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [target] });
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      }
+      assert.equal(await page.evaluate(() => copies.length), beforeCopy + 1);
+      assert.deepEqual(await page.evaluate(() => copies.at(-1)), { date: '2034-06-13', heure_debut: '12:30' });
+      assert.equal(await page.$('.calendar-duplicate-ghost'), null);
+      await new Promise(resolve => setTimeout(resolve, 1050));
+      assert.ok((await page.evaluate(() => cal.view.currentStart.toISOString())).startsWith('2034-06-12'), 'Drop stops the automatic navigator');
+    }
     assert.deepEqual(errors, []);
     console.log("session duplicate ghost: PASS (preview, colours, snapping, Escape, invalid/outside cancellation, week navigation)");
   } finally { await browser.close(); }

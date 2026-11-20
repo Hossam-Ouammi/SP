@@ -846,6 +846,7 @@ function transformerSeancePourClient(seance) {
 
   return {
     ...seanceTransformee,
+    offline_revision: require("../utils/offline-operations").revisionOffline("seances", seance),
     est_essai: Number(seance.est_essai) === 1,
     essai_label: Number(seance.est_essai) === 1 ? "Oui" : "Non",
     statut_seance: statutAffiche,
@@ -1149,6 +1150,70 @@ async function ajouterSeance(req, res) {
   });
 }
 
+async function copierSeance(req, res, repetition) {
+  if (!estIdentifiantValide(req.params.id)) {
+    throw creerErreurHttp(400, "Identifiant de séance invalide.");
+  }
+  const nombreSemaines = repetition ? Number(req.body.nombre_semaines ?? 1) : 1;
+  if (!Number.isInteger(nombreSemaines) || nombreSemaines < 1 || nombreSemaines > 52) {
+    throw creerErreurHttp(400, "Le nombre de semaines doit être compris entre 1 et 52.");
+  }
+  const copies = await executerTransactionImmediate(async () => {
+    const source = await trouverSeanceParIdScopee(req.params.id, construireScopeLectureSeances(req));
+    if (!source) throw creerErreurRessourceInaccessible();
+    const affectation = await resoudreAffectationSeance({
+      scope: req.scope, acteur: req.utilisateur, donneesSeance: source, seanceExistante: source,
+    });
+    const resultats = [];
+    for (let semaine = 1; semaine <= nombreSemaines; semaine += 1) {
+      const date = repetition
+        ? new Date(Date.parse(`${source.date}T12:00:00Z`) + semaine * 7 * 86400000).toISOString().slice(0, 10)
+        : req.body.date;
+      const donnees = await ajouterTarifSnapshotIntervenant({
+        ...preparerDonneesSeance({ ...source, date,
+          heure_debut: repetition ? source.heure_debut : req.body.heure_debut,
+          est_essai: 0, statut_seance: "planifiee" }),
+        ...affectation,
+      });
+      const erreurs = await validerDonneesSeance(donnees, req.utilisateur, { seanceExistante: source });
+      if (erreurs.length) throw creerErreurHttp(400, `${date} : ${erreurs.join(" ")} Aucune copie créée.`);
+      // Repetition outranks only the assigned person's unavailability, never
+      // an existing session. All writes and audit entries roll back together.
+      const ajustements = repetition ? await retirerPlageIndisponibilitesPersonnelles({
+        intervenantId: affectation.intervenant_id, date,
+        heureDebut: donnees.heure_debut, heureFin: donnees.heure_fin,
+      }) : [];
+      let copie;
+      try {
+        copie = await creerSeanceDepuisDonneesValidees({ donneesSeance: donnees,
+          acteur: req.utilisateur, utiliserTransaction: false, verifierIndisponibilite: true });
+      } catch (erreur) {
+        if (erreur.status === 400) erreur.message = `${date} : ${erreur.message} Aucune copie créée.`;
+        throw erreur;
+      }
+      for (const ajustement of ajustements) {
+        await creerEntreeHistorique({
+          seanceId: copie.id, seanceLibelle: construireLibelleSeance(copie),
+          actionType: "indisponibilite_modifiee", actionLabel: "Indisponibilité ajustée après répétition de séance",
+          acteurId: req.utilisateur.id, acteurNom: req.utilisateur.nom,
+          handlerId: affectation.handler_id, intervenantId: affectation.intervenant_id,
+          details: { type: "modification", changements: [{ champ: "creneau", label: "Créneau indisponible", avant: ajustement.avant, apres: ajustement.apres }] },
+        });
+      }
+      resultats.push(copie);
+    }
+    return resultats;
+  });
+  res.locals.realtimeScope = { handlerId: copies[0].handler_id, intervenantId: copies[0].intervenant_id };
+  return res.status(201).json({
+    message: repetition ? `${copies.length} séance(s) répétée(s).` : "Séance dupliquée.",
+    seance: transformerSeancePourClient(copies[0]), seances: copies.map(transformerSeancePourClient),
+  });
+}
+
+async function dupliquerSeance(req, res) { return copierSeance(req, res, false); }
+async function repeterSeance(req, res) { return copierSeance(req, res, true); }
+
 async function modifierSeance(req, res) {
   if (!estIdentifiantValide(req.params.id)) {
     return res.status(400).json({ message: "Identifiant de séance invalide." });
@@ -1391,6 +1456,7 @@ async function supprimerUneSeance(req, res) {
   };
 
   const photos = await recupererPhotosParSeance(req.params.id);
+  res.locals.pushSeance = transformerSeancePourClient(seance);
   const etatAvantSuppression = extraireEtatAuditSeance(seance);
   await executerTransactionImmediate(async () => {
     // Les anciennes propositions d'exception sont retirées : supprimer une
@@ -1438,6 +1504,8 @@ module.exports = {
   recupererOptionsSeances,
   recupererUneSeance,
   ajouterSeance,
+  dupliquerSeance,
+  repeterSeance,
   modifierSeance,
   deplacerSeance,
   redimensionnerSeance,

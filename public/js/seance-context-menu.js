@@ -49,7 +49,7 @@ export function creerMenuContextuelSeance({ id = "seance-context-menu", label = 
 
   function ouvrir({ seance, seances = [seance], info, peutModifier, onAction,
     libelleSelection = (selection) => selection.etudiant || "Séance",
-    actions = [["information", "Informations"], ["dupliquer", "Dupliquer"], ["supprimer", "Supprimer"]],
+    actions = [["information", "Informations"], ["dupliquer", "Dupliquer"], ["repeter", "Répéter"], ["supprimer", "Supprimer"]],
   }) {
     fermer();
     origine = info?.el || document.activeElement;

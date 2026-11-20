@@ -1,4 +1,5 @@
 import { envoyerRequete, viderTokenCsrf } from "./http.js";
+import { oublierDonneesOffline } from "./offline.js";
 
 export async function connecterUtilisateur(username, motDePasse, rememberDevice = false) {
   const resultat = await envoyerRequete("/api/auth/login", {
@@ -35,10 +36,15 @@ export async function changerMotDePasse(motDePasseActuel, nouveauMotDePasse) {
 }
 
 export async function deconnecterUtilisateur() {
-  await envoyerRequete("/api/auth/logout", {
-    method: "POST",
-  });
-  viderTokenCsrf();
+  let logoutRequired = false;
+  try {
+    await envoyerRequete("/api/auth/logout", { method: "POST" });
+  } catch (_) {
+    logoutRequired = true;
+  } finally {
+    await oublierDonneesOffline(logoutRequired);
+    viderTokenCsrf();
+  }
 }
 
 export async function recupererUtilisateurCourant() {

@@ -1,4 +1,5 @@
 const { diffuserMiseAJourApplication } = require("./realtime");
+const { executerAvecRecuOffline } = require("./offline-operations");
 const { notifierEvenementApplicationPush } = require("./push-notifications");
 
 function valeurBooleenneActive(valeur) {
@@ -146,9 +147,9 @@ function notifierMiseAJourApplication(controller, scope = "application") {
         };
       }
 
-      await controller(req, res, next);
+      await executerAvecRecuOffline(controller, req, res, next, scope);
 
-      if (res.statusCode < 400) {
+      if (res.statusCode < 400 && !res.locals?.offlineReplay) {
         const { handlerId, intervenantId } = determinerCibleTempsReel(req, res);
         const notificationPayload = {
           scope,
@@ -161,7 +162,12 @@ function notifierMiseAJourApplication(controller, scope = "application") {
         };
 
         diffuserMiseAJourApplication(notificationPayload);
-        notifierEvenementApplicationPush(notificationPayload).catch((error) => {
+        // Session details are private push content, never part of the SSE broadcast.
+        notifierEvenementApplicationPush({
+          ...notificationPayload,
+          seance: scope === "seances" ? (reponseJson?.seance || res.locals?.pushSeance || null) : null,
+          nombreSeances: scope === "seances" ? reponseJson?.seances?.length : undefined,
+        }).catch((error) => {
           console.error("Erreur notification push:", error);
         });
       }

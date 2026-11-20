@@ -60,13 +60,8 @@
     }
   });
 
-  // The application itself does not use an offline cache.  A browser can
-  // nevertheless retain a service worker from an older deployment which did.
-  // Refresh an already-installed worker on every normal page load so that an
-  // obsolete worker cannot indefinitely keep an old HTML/JS bundle in front
-  // of the current interface.  We deliberately do not register a worker for
-  // a first-time visitor here: push.js remains responsible for that opt-in
-  // workflow.
+  // Install the neutral offline shell without requesting notification access.
+  // Push permission remains a separate, explicit opt-in in push.js.
   if (!("serviceWorker" in navigator)) {
     return;
   }
@@ -119,7 +114,7 @@
   );
 
   navigator.serviceWorker
-    .getRegistration("/")
+    .register("/service-worker.js", { scope: "/", updateViaCache: "none" })
     .then(async (enregistrement) => {
       if (!enregistrement) {
         return;

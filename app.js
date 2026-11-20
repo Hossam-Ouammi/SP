@@ -185,6 +185,25 @@ app.get("/app-version", (req, res) => {
   return res.json({ version: VERSION_INSTANCE_APPLICATION });
 });
 
+// A neutral shell only: never cache an authenticated HTML response or login
+// feedback. Personal calendar data lives in the account-scoped IndexedDB store.
+app.get("/offline", (req, res) => {
+  appliquerNoCacheStatic(res);
+  res.render("index", { user: null, loginError: "", loginUsername: "" });
+});
+app.get("/offline-assets", (req, res) => {
+  appliquerNoCacheStatic(res);
+  const assets = ["/offline", "/manifest.webmanifest"];
+  for (const dossier of ["js", "css", "icons"]) {
+    for (const nom of fs.readdirSync(path.join(__dirname, "public", dossier))) {
+      if (/\.(js|css|png|ico|svg)$/.test(nom)) assets.push(`/${dossier}/${nom}`);
+    }
+  }
+  for (const plugin of ["core", "daygrid", "timegrid", "interaction"]) assets.push(`/vendor/@fullcalendar/${plugin}/index.global.js`);
+  assets.push("/vendor/@fullcalendar/core/locales-all.global.js");
+  res.json({ assets });
+});
+
 app.use("/uploads", (req, res) => {
   appliquerNoCacheStatic(res);
   return res.status(404).send("Fichier introuvable.");

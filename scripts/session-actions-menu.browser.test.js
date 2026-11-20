@@ -28,14 +28,14 @@ const puppeteer = require("puppeteer");
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await page.evaluate(() => window.open());
       assert.deepEqual(await page.$$eval("#seance-context-menu button", buttons => buttons.map(button => button.textContent)),
-        ["Informations", "Dupliquer", "Supprimer"]);
+        ["Informations", "Dupliquer", "Répéter", "Supprimer"]);
       assert.equal(await page.$('#seance-context-menu [data-action="modifier"]'), null);
       await page.click('#seance-context-menu [data-action="information"]');
       assert.equal(await page.$eval("#seance-context-menu", el => el.hidden), true);
       assert.deepEqual(await page.$$eval("#detail .detail-actions button", buttons => buttons.map(button => button.textContent.trim())), ["Modifier", "Supprimer"]);
       assert.equal(await page.$("#duplicate-seance-button"), null);
       await page.evaluate(() => window.open(false));
-      assert.deepEqual(await page.$$eval("#seance-context-menu button", buttons => buttons.map(button => button.disabled)), [false, true, true]);
+      assert.deepEqual(await page.$$eval("#seance-context-menu button", buttons => buttons.map(button => button.disabled)), [false, true, true, true]);
       await page.evaluate(() => window.open(true, { actions: [["modifier", "Modifier"], ["dupliquer", "Dupliquer"], ["supprimer", "Supprimer"]] }));
       assert.deepEqual(await page.$$eval("#seance-context-menu button", buttons => buttons.map(button => button.textContent)), ["Modifier", "Dupliquer", "Supprimer"],
         "Le menu des indisponibilités reste inchangé");

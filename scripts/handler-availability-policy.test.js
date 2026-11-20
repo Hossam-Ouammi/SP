@@ -621,6 +621,7 @@ async function run() {
             "jour_complet",
             "handler_id",
             "intervenant_id",
+            "offline_revision",
           ].includes(cle)
         )
       ),
@@ -1143,6 +1144,17 @@ async function run() {
       });
       assertStatus(response, 400, "Reject invalid week count");
     }
+    response = await professeurA.request("POST", "/api/indisponibilites", donneesIndisponibilite("2035-04-02", "09:00", "10:00"));
+    assertStatus(response, 201, "Create block for long extension example");
+    const extensionId = response.json.indisponibilite.id;
+    response = await handler.request("POST", "/api/seances", { ...donneesSeance("extension-preserves-session", "2035-04-02", "14:30", professeurAId), duree_minutes: 90 });
+    assertStatus(response, 201, "Create 14:30–16:00 session");
+    const seancePreservee = response.json.seance;
+    response = await professeurA.request("PATCH", `/api/indisponibilites/${extensionId}/plage`, { heure_debut: "09:00", heure_fin: "21:00" });
+    assertStatus(response, 200, "Extension passes around a 90-minute session");
+    assert.deepEqual(response.json.indisponibilites.map(i => [i.heure_debut, i.heure_fin]), [["09:00", "14:30"], ["16:00", "21:00"]]);
+    response = await professeurA.request("GET", "/api/seances");
+    assert.deepEqual(response.json.seances.find(s => s.id === seancePreservee.id), seancePreservee);
     console.log("handler availability policy test: PASS");
   } catch (error) {
     console.error("handler availability policy test: FAIL");

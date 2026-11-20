@@ -28,6 +28,19 @@ export async function modifierSeance(seanceId, donneesSeance) {
   return resultat.seance;
 }
 
+export async function dupliquerSeance(seanceId, destination) {
+  const resultat = await envoyerRequete(`/api/seances/${seanceId}/dupliquer`, {
+    method: "POST", body: JSON.stringify(destination),
+  });
+  return resultat.seance;
+}
+
+export async function repeterSeance(seanceId, nombreSemaines) {
+  return envoyerRequete(`/api/seances/${seanceId}/repeter`, {
+    method: "POST", body: JSON.stringify({ nombre_semaines: nombreSemaines }),
+  });
+}
+
 export async function supprimerSeance(seanceId) {
   return envoyerRequete(`/api/seances/${seanceId}`, {
     method: "DELETE",

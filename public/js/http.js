@@ -1,3 +1,5 @@
+import { requeteAvecOffline } from "./offline.js";
+
 let csrfToken = null;
 
 function mettreAJourTokenDepuisReponse(reponse) {
@@ -13,6 +15,7 @@ export function viderTokenCsrf() {
 }
 
 export async function envoyerRequete(url, options = {}) {
+  return requeteAvecOffline(url, options, async () => {
   const methode = String(options.method || "GET").toUpperCase();
   const corps =
     options.body instanceof FormData ||
@@ -56,4 +59,5 @@ export async function envoyerRequete(url, options = {}) {
   }
 
   return donnees;
+  });
 }

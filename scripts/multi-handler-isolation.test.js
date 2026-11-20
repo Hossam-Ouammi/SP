@@ -68,6 +68,23 @@ function attendre(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Responsive FullCalendar renders may replace an event between Puppeteer's
+// lookup and its click. Re-query only when the click never reached the node.
+async function cliquerEvenementCalendrier(page, selecteur, tactile) {
+  for (let tentative = 0; tentative < 3; tentative += 1) {
+    try {
+      await page.waitForSelector(selecteur, { visible: true, timeout: 5000 });
+      await page.$eval(selecteur, element => element.scrollIntoView({ block: "center" }));
+      if (tactile) await page.tap(selecteur);
+      else await page.click(selecteur);
+      return;
+    } catch (erreur) {
+      if (!/detached from document|Node is either not clickable|failed to find element|Waiting for selector/i.test(erreur.message) || tentative === 2) throw erreur;
+      await attendre(150);
+    }
+  }
+}
+
 async function obtenirPortLibre() {
   const serveur = net.createServer();
 
@@ -126,9 +143,10 @@ class SessionClient {
     }
   }
 
-  async request(method, pathname, body = undefined) {
+  async request(method, pathname, body = undefined, extraHeaders = {}) {
     const headers = {
       "x-requested-with": "XMLHttpRequest",
+      ...extraHeaders,
     };
     const cookie = this.cookieHeader();
 
@@ -1040,8 +1058,63 @@ async function run() {
         await browser.setCookie(...Array.from(alpha.cookies, ([name, value]) => ({ name, value, url: baseUrl })));
         await page.setViewport({ width: 1200, height: 1000 });
         // The app keeps its SSE connection open; networkidle0 never settles.
+        const notificationPage = await browser.newPage();
+        await notificationPage.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+        await notificationPage.goto(`${baseUrl}/?seance=${seanceMenu.id}`, { waitUntil: "domcontentloaded" });
+        await notificationPage.waitForFunction(() => document.documentElement.dataset.appReady === "true");
+        await notificationPage.waitForSelector('#detail-modal:not(.hidden)');
+        assert.equal(await notificationPage.$eval('#detail-student', el => el.textContent), 'Séance menu contextuel', 'Push link opens the actual information dialog');
+        assert.equal(new URL(notificationPage.url()).searchParams.has('seance'), false, 'Consumed notification does not reopen on refresh');
+        await notificationPage.close();
+        const loginContext = await browser.createBrowserContext();
+        const loginPage = await loginContext.newPage();
+        await loginPage.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+        await loginPage.goto(`${baseUrl}/?seance=${seanceMenu.id}`, { waitUntil: 'domcontentloaded' });
+        await loginPage.waitForFunction(() => document.documentElement.dataset.appReady === 'true');
+        await loginPage.waitForSelector('#login-view:not(.hidden)');
+        assert.equal(new URL(loginPage.url()).searchParams.get('seance'), String(seanceMenu.id));
+        await loginPage.type('#login-username', 'handler-alpha-isolation@example.test');
+        await loginPage.type('#login-password', 'Alpha!Handler2026');
+        await loginPage.click('#login-button');
+        await loginPage.waitForSelector('#detail-modal:not(.hidden)');
+        assert.equal(await loginPage.$eval('#detail-student', el => el.textContent), 'Séance menu contextuel');
+        await loginContext.close();
+        console.log('push session details browser: PASS (phone information dialog, active session and deferred login)');
+        if (process.env.SP_TEST_PUSH_LINK_ONLY === '1') return;
         await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
         await page.waitForFunction(() => !document.querySelector('[data-section-target="monetisation"]').classList.contains("hidden"));
+        // A second client changes the server while this calendar stays open.
+        await page.click('#home-calendar-tab');
+        await page.evaluate(() => document.querySelector('[data-calendar-mode="dashboard"]').click());
+        await page.waitForSelector(`#calendar .fc-timegrid-col [data-seance-id="${seanceMenu.id}"]`, { visible: true });
+        const liveTop = await page.$eval(`#calendar [data-seance-id="${seanceMenu.id}"]`, element => element.getBoundingClientRect().top - element.closest('.fc-timegrid-col').getBoundingClientRect().top);
+        let liveResponse = await alpha.request('PATCH', `/api/seances/${seanceMenu.id}/horaire`, { date: dateCourante, heure_debut: '10:00' });
+        assertStatus(liveResponse, 200, 'live move from another client');
+        await page.waitForFunction((id, top) => {
+          const element = document.querySelector(`#calendar [data-seance-id="${id}"]`);
+          return element && element.getBoundingClientRect().top - element.closest('.fc-timegrid-col').getBoundingClientRect().top > top + 10;
+        }, { timeout: 5000 }, seanceMenu.id, liveTop);
+        liveResponse = await alpha.request('PATCH', `/api/seances/${seanceMenu.id}/horaire`, { date: dateCourante, heure_debut: '09:00' });
+        assertStatus(liveResponse, 200, 'restore live fixture');
+        const liveRestored = (id, top) => {
+          const element = document.querySelector(`#calendar [data-seance-id="${id}"]`);
+          return element && Math.abs(element.getBoundingClientRect().top - element.closest('.fc-timegrid-col').getBoundingClientRect().top - top) < 2;
+        };
+        await page.waitForFunction(liveRestored, { timeout: 5000 }, seanceMenu.id, liveTop);
+        console.log('live calendar: PASS (second-client move visible without reload)');
+        await page.setOfflineMode(true);
+        await attendre(300);
+        liveResponse = await alpha.request('PATCH', `/api/seances/${seanceMenu.id}/horaire`, { date: dateCourante, heure_debut: '10:00' });
+        assertStatus(liveResponse, 200, 'mutation while other browser is offline');
+        await page.setOfflineMode(false);
+        await page.waitForFunction((id, top) => {
+          const element = document.querySelector(`#calendar [data-seance-id="${id}"]`);
+          return element && element.getBoundingClientRect().top - element.closest('.fc-timegrid-col').getBoundingClientRect().top > top + 10;
+        }, { timeout: 10000 }, seanceMenu.id, liveTop);
+        liveResponse = await alpha.request('PATCH', `/api/seances/${seanceMenu.id}/horaire`, { date: dateCourante, heure_debut: '09:00' });
+        assertStatus(liveResponse, 200, 'restore offline fixture');
+        await page.waitForFunction(liveRestored, { timeout: 5000 }, seanceMenu.id, liveTop);
+        console.log('live reconnection: PASS (missed mutation caught without reload)');
         await page.evaluate(() => document.querySelector('[data-section-target="monetisation"]').click());
         await page.waitForFunction(() => document.querySelectorAll('#monetisation-report-accounts input').length > 0);
         await page.evaluate(() => {
@@ -1065,18 +1138,17 @@ async function run() {
 
         for (const largeur of [1200, 375]) {
           await page.setViewport({ width: largeur, height: 1000, hasTouch: largeur < 600, isMobile: largeur < 600 });
-          await page.evaluate(() => document.querySelector('[data-section-target="dashboard"]').click());
+          await page.waitForFunction(() => document.documentElement.dataset.appReady === "true");
+          await page.evaluate(() => document.querySelector('[data-calendar-mode="dashboard"]').click());
           await page.waitForSelector("#calendar .fc-event-draggable");
           const clicSeance = async () => {
             const cible = `#calendar .fc-event-draggable[data-seance-id="${seanceMenu.id}"]`;
-            await page.$eval(cible, (element) => element.scrollIntoView({ block: "center" }));
-            if (largeur < 600) await page.tap(cible);
-            else await page.click(cible);
+            await cliquerEvenementCalendrier(page, cible, largeur < 600);
             await page.waitForSelector("#seance-context-menu:not([hidden])");
           };
           await clicSeance();
           assert.deepEqual(await page.$$eval("#seance-context-menu button", (boutons) => boutons.map((bouton) => bouton.textContent)),
-            ["Informations", "Dupliquer", "Supprimer"]);
+            ["Informations", "Dupliquer", "Répéter", "Supprimer"]);
           assert.ok(await page.$eval("#detail-modal", (element) => element.classList.contains("hidden")));
           assert.ok(await page.$eval("#seance-context-menu", (element) => {
             const rect = element.getBoundingClientRect();
@@ -1098,34 +1170,21 @@ async function run() {
           await page.click('#seance-modal button[data-close-modal="seance-modal"]');
           await clicSeance();
           await page.click('[data-action="dupliquer"]');
-          if (largeur >= 721) {
-            await page.waitForSelector(".calendar-duplicate-ghost");
-            assert.ok(await page.$eval("#seance-modal", (element) => element.classList.contains("hidden")));
-            await page.keyboard.press("Escape");
-            assert.equal(await page.$(".calendar-duplicate-ghost"), null);
-          } else {
-          await page.waitForSelector("#seance-modal:not(.hidden)");
-          assert.match(await page.$eval("#seance-modal-title", (element) => element.textContent), /Dupliquer/);
-          assert.equal(await page.$eval("#seance-modal-subtitle", (element) => element.textContent), "");
-          assert.deepEqual(await page.$$eval("#duplicate-summary-details .detail-row span", (labels) => labels.map((label) => label.textContent)), ["Étudiant", "Type"]);
-          assert.equal(await page.$$eval("#duplicate-summary-details .detail-row", (lignes) => lignes.length), 2);
-          assert.match(await page.$eval("#duplicate-summary-details", (element) => element.textContent), /ÉtudiantSéance menu contextuelTypePayante/);
-          assert.ok(await page.$eval("#duplicate-summary", (element) => element.getBoundingClientRect().height < 110), "Récapitulatif compact");
-          const champsVisibles = await page.$$eval("#seance-form input, #seance-form select", (champs) =>
-            champs.filter((champ) => champ.getClientRects().length > 0).map((champ) => champ.id));
-          for (const id of ["duplicate-weeks", "seance-handler", "seance-intervenant", "date", "heure-debut-hour-select", "heure-debut-minute-select"]) {
-            assert.ok(champsVisibles.includes(id), `Critère de planification visible : ${id}`);
-          }
-          assert.ok(!champsVisibles.includes("etudiant") && !champsVisibles.includes("parent"));
-          assert.ok(await page.$eval("#seance-subject-field", (element) => element.getClientRects().length > 0));
-          await page.$eval("#duplicate-weeks", (champ) => {
-            champ.value = "3";
-            champ.dispatchEvent(new Event("input", { bubbles: true }));
-          });
-          assert.equal(await page.$eval("#duplicate-session-count", (element) => element.textContent), "3");
-          assert.ok(await page.$eval("#seance-form", (form) => form.scrollWidth <= form.clientWidth + 1));
-          await page.click('#seance-modal button[data-close-modal="seance-modal"]');
-          }
+          await page.waitForSelector(".calendar-duplicate-ghost");
+          assert.ok(await page.$eval("#seance-modal", (element) => element.classList.contains("hidden")));
+          if (largeur < 721) {
+            assert.equal(await page.evaluate(() => document.body.style.position), "fixed");
+            await page.tap(".calendar-duplicate-cancel");
+            assert.equal(await page.evaluate(() => document.body.style.position), "");
+          } else await page.keyboard.press("Escape");
+          assert.equal(await page.$(".calendar-duplicate-ghost"), null);
+          await clicSeance();
+          await page.click('[data-action="repeter"]');
+          await page.waitForSelector("#repeat-session-modal:not(.hidden)");
+          assert.equal(await page.$eval("#repeat-session-weeks", element => element.value), "1");
+          assert.equal(await page.$$eval("#repeat-session-form input, #repeat-session-form select", champs => champs.length), 1);
+          assert.ok(await page.$eval("#repeat-session-modal .modal-panel", element => element.getBoundingClientRect().width <= 340));
+          await page.click('#repeat-session-modal button[data-close-modal="repeat-session-modal"]');
           await clicSeance();
           const confirmation = new Promise((resolve) => page.once("dialog", async (dialog) => {
             assert.equal(dialog.type(), "confirm");
@@ -1138,11 +1197,11 @@ async function run() {
           await page.keyboard.press("Escape");
           assert.ok(await page.$eval("#seance-context-menu", (element) => element.hidden));
           await clicSeance();
-          await page.evaluate(() => document.querySelector('[data-section-target="indisponibilites"]').click());
-          await page.waitForSelector("#unavailability-calendar .seance-display-only");
+          await page.evaluate(() => document.querySelector('[data-calendar-mode="indisponibilites"]').click());
+          await page.waitForSelector("#calendar .seance-display-only");
           assert.ok(await page.$eval("#seance-context-menu", (element) => element.hidden));
-          assert.equal(await page.$$eval("#unavailability-calendar .fc-event-draggable, #unavailability-calendar .seance-display-only .fc-event-resizer", (elements) => elements.length), 0);
-          const cible = `#unavailability-calendar .seance-display-only[data-seance-id="${seanceMenu.id}"]`;
+          assert.equal(await page.$$eval("#calendar .fc-event-draggable, #calendar .seance-display-only .fc-event-resizer", (elements) => elements.length), 0);
+          const cible = `#calendar .seance-display-only[data-seance-id="${seanceMenu.id}"]`;
           await page.$eval(cible, (element) => element.scrollIntoView({ block: "center" }));
           if (largeur < 600) await page.tap(cible);
           else await page.click(cible);
@@ -1155,10 +1214,11 @@ async function run() {
 
         for (const largeur of [1200, 375]) {
           await page.setViewport({ width: largeur, height: 1000, hasTouch: largeur < 600, isMobile: largeur < 600 });
+          await page.waitForFunction(() => document.documentElement.dataset.appReady === "true");
           for (const section of ["indisponibilites", "dashboard"]) {
-            await page.evaluate((nom) => document.querySelector(`[data-section-target="${nom}"]`).click(), section);
+            await page.evaluate((nom) => document.querySelector(`[data-calendar-mode="${nom}"]`).click(), section);
             if (section === "dashboard") await page.select("#dashboard-person-filter", String(alphaId));
-            const calendrier = section === "dashboard" ? "#calendar" : "#unavailability-calendar";
+            const calendrier = "#calendar";
             const cible = `${calendrier} [data-indisponibilite-id="${indisponibiliteMenu.id}"]`;
             await page.waitForSelector(cible);
             if (section === "dashboard") {
@@ -1172,27 +1232,49 @@ async function run() {
               continue;
             }
             const clicIndisponibilite = async () => {
-              await page.$eval(cible, (element) => element.scrollIntoView({ block: "center" }));
-              if (largeur < 600) await page.tap(cible);
-              else await page.click(cible);
+              try { await cliquerEvenementCalendrier(page, cible, largeur < 600); }
+              catch (error) {
+                console.log('Availability diagnostic', JSON.stringify(await page.evaluate(async () => ({
+                  ids: [...document.querySelectorAll('#calendar [data-indisponibilite-id]')].map(el => el.dataset.indisponibiliteId),
+                  modes: [...document.querySelectorAll('[data-calendar-mode]')].map(el => [el.dataset.calendarMode, el.className]),
+                  notices: document.querySelector('#toast-container')?.textContent,
+                  local: await (await import('/js/offline.js')).etatOffline(),
+                  server: await fetch('/api/dashboard/indisponibilites').then(r => r.json()),
+                }))));
+                throw error;
+              }
               await page.waitForSelector("#unavailability-context-menu:not([hidden])");
             };
             await clicIndisponibilite();
             assert.deepEqual(await page.$$eval("#unavailability-context-menu button", (boutons) => boutons.map((bouton) => bouton.textContent)),
-              ["Modifier", "Dupliquer", "Supprimer"]);
+              ["Dupliquer", "Supprimer"]);
             assert.ok(await page.$eval("#unavailability-detail-modal", (element) => element.classList.contains("hidden")));
-            await page.click('#unavailability-context-menu [data-action="modifier"]');
-            await page.waitForSelector("#unavailability-detail-modal:not(.hidden)");
-            assert.equal(await page.$eval("#unavailability-modal-form", (form) => form.dataset.mode), "modification");
-            assert.equal(await page.$eval("#unavailability-modal-form", (form) => Number(form.dataset.indisponibiliteId)), indisponibiliteMenu.id);
-            assert.equal(await page.$eval("#unavailability-modal-date", (champ) => champ.value), dateCourante);
-            await page.click('#unavailability-detail-modal button[data-close-modal="unavailability-detail-modal"]');
-            await clicIndisponibilite();
+            assert.equal(await page.$('#unavailability-context-menu [data-action="information"]'), null);
+            assert.equal(await page.$("#unavailability-detail-created-at"), null);
             await page.click('#unavailability-context-menu [data-action="dupliquer"]');
-            await page.waitForSelector("#unavailability-detail-modal:not(.hidden)");
-            assert.equal(await page.$eval("#unavailability-modal-form", (form) => form.dataset.mode), "duplication");
-            assert.equal(await page.$eval("#unavailability-modal-form", (form) => form.dataset.indisponibiliteId), "");
-            await page.click('#unavailability-detail-modal button[data-close-modal="unavailability-detail-modal"]');
+            await page.waitForSelector(".calendar-duplicate-ghost");
+            assert.ok(await page.$eval("#unavailability-detail-modal", element => element.classList.contains("hidden")));
+            const destination = await page.evaluate((date, horaire) => {
+              const col = document.querySelector(`#calendar .fc-timegrid-col[data-date="${date}"]`).getBoundingClientRect();
+              const ligne = document.querySelector(`#calendar .fc-timegrid-slot-lane[data-time="${horaire}:00"]`).getBoundingClientRect();
+              return { x: col.left + col.width / 2, y: ligne.top + ligne.height / 4 };
+            }, dateCourante, largeur < 600 ? "14:30" : "14:00");
+            const creationCopie = page.waitForResponse(r => r.url().endsWith("/api/indisponibilites") && r.request().method() === "POST");
+            if (largeur < 600) {
+              assert.equal(await page.evaluate(() => document.body.style.position), "fixed");
+              const touch = await page.createCDPSession();
+              await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ id: 1, x: destination.x, y: destination.y }] });
+              await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+            } else await page.mouse.click(destination.x, destination.y);
+            const copie = await creationCopie;
+            assert.equal(copie.status(), 201, await copie.text());
+            const demande = JSON.parse(copie.request().postData());
+            assert.equal(demande.heure_debut, largeur < 600 ? "14:30" : "14:00");
+            assert.equal(demande.heure_fin, largeur < 600 ? "15:00" : "14:30");
+            assert.equal(demande.jour_complet, 0);
+            assert.equal(await page.evaluate(() => document.body.style.position), "");
+            await page.waitForFunction(() => !document.querySelector(".calendar-duplicate-ghost"));
+            await new Promise(resolve => setTimeout(resolve, 500));
             await clicIndisponibilite();
             const confirmation = new Promise((resolve) => page.once("dialog", async (dialog) => {
               await dialog.dismiss(); resolve();
@@ -1207,51 +1289,38 @@ async function run() {
         assert.deepEqual(erreurs, [], "Aucune erreur JavaScript lors des clics sur une indisponibilité");
         console.log("unavailability: editable in Indisponibilités, display-only in Dashboard: PASS (PC and touch)");
 
-        // Keep identity/type fixed while applying the edited planning criteria.
-        await page.evaluate(() => document.querySelector('[data-section-target="dashboard"]').click());
+        // Repetition uses only a count; the server preserves source assignment.
+        await page.evaluate(() => document.querySelector('[data-calendar-mode="dashboard"]').click());
         const cibleCopie = `#calendar [data-seance-id="${seanceMenu.id}"]`;
         await page.$eval(cibleCopie, (element) => element.scrollIntoView({ block: "center" }));
         await page.click(cibleCopie);
-        await page.click('#seance-context-menu [data-action="dupliquer"]');
-        await page.waitForSelector("#duplicate-summary:not(.hidden)");
-        await page.select("#seance-handler", String(betaId));
-        const debutCopies = new Date(Date.parse(`${dateCourante}T12:00:00Z`) + 14 * 86400000).toISOString().slice(0, 10);
-        await page.$eval("#date", (champ, date) => {
-          champ.value = date;
-          champ.dispatchEvent(new Event("change", { bubbles: true }));
-        }, debutCopies);
-        await page.select("#heure-debut-hour-select", "14");
-        await page.click('.duration-checkbox[value="90"]');
-        await page.select("#seance-intervenant", String(alphaId));
-        await page.$eval("#duplicate-weeks", (champ) => {
+        await page.click('#seance-context-menu [data-action="repeter"]');
+        await page.waitForSelector("#repeat-session-modal:not(.hidden)");
+        const debutCopies = new Date(Date.parse(`${dateCourante}T12:00:00Z`) + 7 * 86400000).toISOString().slice(0, 10);
+        await page.$eval("#repeat-session-weeks", (champ) => {
           champ.value = "3";
           champ.dispatchEvent(new Event("input", { bubbles: true }));
         });
-        await page.$eval("#etudiant", (champ) => { champ.value = "Hidden field must not replace source"; });
-        const reponseCopie = page.waitForResponse((response) => response.url().endsWith("/api/seances") && response.request().method() === "POST");
-        await page.click("#save-seance-button");
+        const reponseCopie = page.waitForResponse((response) => response.url().endsWith(`/api/seances/${seanceMenu.id}/repeter`) && response.request().method() === "POST");
+        await page.click("#repeat-session-submit");
         const creation = await reponseCopie;
         assert.equal(creation.status(), 201, await creation.text());
         const demande = JSON.parse(creation.request().postData());
         assert.equal(demande.nombre_semaines, 3);
-        assert.equal(demande.intervenant_id, alphaId);
-        assert.equal(demande.handler_id, betaId);
-        assert.equal(demande.heure_debut, "14:00");
-        assert.equal(demande.duree_minutes, 90);
-        assert.equal(demande.date, debutCopies);
-        assert.equal(demande.etudiant, "Séance menu contextuel");
+        assert.deepEqual(demande, { nombre_semaines: 3 });
         response = await alpha.request("GET", "/api/seances");
         const copies = response.json.seances.filter((seance) => seance.etudiant === "Séance menu contextuel" && seance.id !== seanceMenu.id);
         assert.equal(copies.length, 3);
         copies.forEach((copie, index) => {
           assert.equal(copie.date, new Date(Date.parse(`${debutCopies}T12:00:00Z`) + index * 7 * 86400000).toISOString().slice(0, 10));
-          assert.equal(copie.heure_debut, "14:00");
-          assert.equal(copie.duree_minutes, 90);
-          assert.equal(copie.handler_id, betaId);
+          assert.equal(copie.heure_debut, "09:00");
+          assert.equal(copie.duree_minutes, 60);
+          assert.equal(copie.handler_id, alphaId);
           assert.equal(copie.intervenant_id, alphaId);
+          assert.ok(!copie.est_essai);
         });
         assert.deepEqual(erreurs, [], "Aucune erreur lors de la duplication simplifiée");
-        console.log("compact summary and editable duplication planning: PASS (three weekly copies)");
+        console.log("compact repetition dialog: PASS (three paid weekly copies)");
         // Raw SQL fixtures bypass the account-creation default; explicitly
         // enable this temporary account's public page for browser verification.
         await executerComplement("UPDATE utilisateurs SET calendrier_public_actif = 1 WHERE id = ?", [alphaId]);
@@ -1276,11 +1345,49 @@ async function run() {
         assert.ok(await publicPage.$eval("#reservation-public-calendar .fc-prev-button", (bouton) => bouton.disabled));
         assert.deepEqual(erreursPubliques, []);
         console.log("public calendar horizontal navigation: PASS (real page, two-week bounds)");
+        if (process.env.SP_TEST_OFFLINE === "1") {
+          await require('./offline-calendar.browser.test')({ browser, baseUrl, alpha, alphaId, date: dateCourante, sourceId: seanceMenu.id });
+        }
       } finally {
         await browser.close();
       }
     }
 
+    // Dedicated dates keep recurrence fixtures independent of revenue tests.
+    const sourceRepetition = await creerSeanceMonetisation({ handlerId: alphaId, intervenantId: alphaId,
+      marqueur: "Essai récurrent", date: "2045-06-06", estEssai: 1 }, executerComplement);
+    const lireComplement = sql => new Promise((resolve, reject) => baseComplementaire.all(sql, (erreur, lignes) => erreur ? reject(erreur) : resolve(lignes)));
+    await executerComplement(`INSERT INTO indisponibilites (date, heure_debut, heure_fin, jour_complet, raison, cree_par, handler_id, intervenant_id)
+      VALUES ('2045-06-13', '08:00', '12:00', 0, 'Priorité répétition', ?, ?, ?)`, [alphaId, alphaId, alphaId]);
+    response = await alpha.request("POST", `/api/seances/${sourceRepetition.id}/repeter`, { nombre_semaines: 3, est_essai: 1, intervenant_id: betaId });
+    assertStatus(response, 201, "répétition prioritaire sur indisponibilités");
+    assert.equal(response.json.seances.length, 3);
+    assert.deepEqual(response.json.seances.map(s => s.date), ["2045-06-13", "2045-06-20", "2045-06-27"]);
+    assert.ok(response.json.seances.every(s => !s.est_essai && Number(s.intervenant_id) === alphaId), "Copies payantes avec identité serveur");
+    assert.deepEqual(await lireComplement(`SELECT heure_debut, heure_fin FROM indisponibilites WHERE date = '2045-06-13' AND intervenant_id = ${alphaId} ORDER BY heure_debut`),
+      [{ heure_debut: "08:00", heure_fin: "09:00" }, { heure_debut: "10:00", heure_fin: "12:00" }]);
+    response = await alpha.request("POST", `/api/seances/${sourceRepetition.id}/dupliquer`, { date: "2045-06-14", heure_debut: "11:00", est_essai: 1 });
+    assertStatus(response, 201, "copie simple essai vers payante");
+    assert.ok(!response.json.seance.est_essai);
+    response = await alpha.request("POST", `/api/seances/${sourceRepetition.id}/dupliquer`, { date: "2045-06-13", heure_debut: "08:00" });
+    assertStatus(response, 400, "copie fantôme ne force pas les indisponibilités");
+    for (const nombre_semaines of [0, 53, 1.5]) {
+      response = await alpha.request("POST", `/api/seances/${sourceRepetition.id}/repeter`, { nombre_semaines });
+      assertStatus(response, 400, "compteur invalide");
+    }
+    response = await beta.request("POST", `/api/seances/${sourceRepetition.id}/repeter`, { nombre_semaines: 1 });
+    assertStatus(response, 404, "répétition non autorisée d'une autre équipe");
+    const sourceConflit = await creerSeanceMonetisation({ handlerId: alphaId, intervenantId: alphaId,
+      marqueur: "Atomicité répétition", date: "2045-07-04" }, executerComplement);
+    await creerSeanceMonetisation({ handlerId: alphaId, intervenantId: alphaId, marqueur: "Obstacle", date: "2045-07-18" }, executerComplement);
+    await executerComplement(`INSERT INTO indisponibilites (date, heure_debut, heure_fin, jour_complet, raison, cree_par, handler_id, intervenant_id)
+      VALUES ('2045-07-11', '08:00', '12:00', 0, 'Rollback', ?, ?, ?)`, [alphaId, alphaId, alphaId]);
+    const avantConflit = await lireComplement("SELECT * FROM indisponibilites WHERE date = '2045-07-11'");
+    response = await alpha.request("POST", `/api/seances/${sourceConflit.id}/repeter`, { nombre_semaines: 3 });
+    assertStatus(response, 400, "autre séance conserve la priorité");
+    assert.deepEqual(await lireComplement("SELECT * FROM indisponibilites WHERE date = '2045-07-11'"), avantConflit);
+    assert.equal((await lireComplement("SELECT * FROM seances WHERE date = '2045-07-11'")).length, 0, "Aucune série partielle");
+    console.log("paid duplicate/repeat: PASS (identity, unavailability split, conflict rollback, permissions, count)");
     console.log("multi-handler isolation test: PASS");
   } catch (error) {
     console.error("multi-handler isolation test: FAIL");

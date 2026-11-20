@@ -259,6 +259,7 @@ function construireLibelleIndisponibilite(indisponibilite) {
 function transformerIndisponibilitePourClient(indisponibilite) {
   return {
     ...indisponibilite,
+    offline_revision: require("../utils/offline-operations").revisionOffline("indisponibilites", indisponibilite),
     heure_fin:
       indisponibilite?.heure_fin === HEURE_FIN_MINUIT
         ? HEURE_DEBUT_JOUR_COMPLET
@@ -714,6 +715,9 @@ async function recupererIndisponibilitesCalendrierCentral(req, res) {
     indisponibilites: [
       ...indisponibilites.map((indisponibilite) => ({
         id: Number(indisponibilite.id),
+        ...(Number(indisponibilite.intervenant_id) === Number(req.utilisateur.id)
+          ? { offline_revision: require("../utils/offline-operations").revisionOffline("indisponibilites", indisponibilite) }
+          : {}),
         date: indisponibilite.date,
         heure_debut: indisponibilite.heure_debut,
         heure_fin:

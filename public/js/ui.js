@@ -1,3 +1,5 @@
+import { estHorsLigne as offlineEstHorsLigne, etatOffline } from "./offline.js";
+import { initialiserInterfaceOffline } from "./offline-status.js?v=20261106-offline-indicator";
 import {
   connecterUtilisateur,
   changerMotDePasse,
@@ -27,6 +29,8 @@ import {
   recupererSeances,
   recupererOptionsSeances,
   ajouterSeance,
+  dupliquerSeance,
+  repeterSeance,
   modifierSeance,
   deplacerSeance,
   redimensionnerSeance,
@@ -44,7 +48,7 @@ import {
   supprimerEntreeHistorique as supprimerEntreeHistoriqueApi,
   recupererMonetisation,
   telechargerReleveMonetisation,
-} from "./seances.js?v=20261013-remove-statistics";
+} from "./seances.js?v=20261014-repeat-copy";
 import {
   initialiserCalendrier,
   mettreAJourEvenements,
@@ -52,9 +56,9 @@ import {
   mettreAJourPlageHoraireCalendrier,
   creerPalettesDisponibiliteProfesseurs,
   creerPaletteMembrePlateforme,
-} from "./calendrier.js?v=20261013-touch-cleanup";
-import { creerMenuContextuelSeance } from "./seance-context-menu.js?v=20261013-session-actions";
-import { commencerDuplicationFantome } from "./session-duplicate-ghost.js?v=20261013-duplicate-ghost";
+} from "./calendrier.js?v=20261120-stable-height";
+import { creerMenuContextuelSeance } from "./seance-context-menu.js?v=20261014-repeat-copy";
+import { commencerDuplicationFantome } from "./session-duplicate-ghost.js?v=20261103-drag-contact";
 import {
   recupererEtatNotificationsPush,
   synchroniserNotificationsPushActuelles,
@@ -188,6 +192,8 @@ const etat = {
   cycleCompte: null,
   seances: [],
   seanceSourceDuplication: null,
+  seanceSourceRepetition: null,
+  repetitionEnCours: false,
   duplicationFantome: null,
   copieFantomeEnregistrementEnCours: false,
   ignorerClicCopieJusqua: 0,
@@ -222,8 +228,8 @@ const etat = {
   calendrier: null,
   filtreCalendrierPersonne: "global",
   filtreCalendrierForceMoiSansEquipe: false,
-  calendrierIndisponibilites: null,
-  vueIndisponibilitesActive: "declaration",
+  modeCalendrier: "dashboard",
+  homeVue: "aujourdhui",
   sectionActive: "aujourdhui",
   notificationsPush: {
     supported: false,
@@ -261,9 +267,13 @@ const vuesAdministration = {
   },
 };
 const vuesAdministrationValides = new Set(Object.keys(vuesAdministration));
-const vuesIndisponibilitesValides = new Set(["declaration"]);
 const connexionTempsReel = {
   source: null,
+  surveillance: null,
+  reprendre: null,
+  dernierSignalAt: 0,
+  derniereRepriseAt: 0,
+  delaiNouvelleTentative: 3000,
   synchronisationProgrammee: null,
   synchronisationEnCours: false,
   synchronisationEnAttente: false,
@@ -316,7 +326,18 @@ const elements = {
   dashboardPersonFilter: document.getElementById("dashboard-person-filter"),
   calendrierSection: document.getElementById("calendrier-section"),
   calendarSettingsPanel: document.getElementById("calendar-settings-panel"),
-  indisponibilitesSection: document.getElementById("indisponibilites-section"),
+  calendarModeTabs: Array.from(document.querySelectorAll("[data-calendar-mode]")),
+  repetitionModal: document.getElementById("repeat-session-modal"),
+  repetitionForm: document.getElementById("repeat-session-form"),
+  repetitionWeeks: document.getElementById("repeat-session-weeks"),
+  repetitionSummary: document.getElementById("repeat-session-summary"),
+  repetitionError: document.getElementById("repeat-session-error"),
+  repetitionSubmit: document.getElementById("repeat-session-submit"),
+  homeSection: document.getElementById("home-section"),
+  homeViewTabs: Array.from(document.querySelectorAll("[data-home-view]")),
+  workspaceMenu: document.getElementById("workspace-menu"),
+  workspaceBackdrop: document.getElementById("workspace-backdrop"),
+  sidebarClose: document.getElementById("sidebar-close"),
   equipeSection: document.getElementById("equipe-section"),
   utilisateurSection: document.getElementById("utilisateur-section"),
   monetisationSection: document.getElementById("monetisation-section"),
@@ -432,30 +453,9 @@ const elements = {
   adminUnavailabilityEnd: document.getElementById("admin-unavailability-end"),
   adminUnavailabilityError: document.getElementById("admin-unavailability-error"),
   adminUnavailabilityButton: document.getElementById("admin-unavailability-button"),
-  unavailabilityViewTabs: Array.from(document.querySelectorAll("[data-unavailability-view]")),
-  unavailabilityWorkbenchNav: document.getElementById("unavailability-workbench-nav"),
-  unavailabilityPanels: Array.from(document.querySelectorAll("[data-unavailability-panel]")),
-  unavailabilityDeclarationPanel: document.getElementById(
-    "unavailability-declaration-panel"
-  ),
-  unavailabilityCalendar: document.getElementById("unavailability-calendar"),
   unavailabilityDetailModal: document.getElementById("unavailability-detail-modal"),
   unavailabilityDetailTitle: document.getElementById("unavailability-detail-title"),
   unavailabilityDetailSubtitle: document.getElementById("unavailability-detail-subtitle"),
-  unavailabilityDetailBadge: document.getElementById("unavailability-detail-badge"),
-  unavailabilityDetailDate: document.getElementById("unavailability-detail-date"),
-  unavailabilityDetailTime: document.getElementById("unavailability-detail-time"),
-  unavailabilityDetailCreatedBy: document.getElementById(
-    "unavailability-detail-created-by"
-  ),
-  unavailabilityDetailCreatedAt: document.getElementById(
-    "unavailability-detail-created-at"
-  ),
-  editUnavailabilityButton: document.getElementById("edit-unavailability-button"),
-  duplicateUnavailabilityButton: document.getElementById(
-    "duplicate-unavailability-button"
-  ),
-  deleteUnavailabilityButton: document.getElementById("delete-unavailability-button"),
   unavailabilityFormPanel: document.getElementById("unavailability-form-panel"),
   unavailabilityFormTitle: document.getElementById("unavailability-form-title"),
   unavailabilityModalForm: document.getElementById("unavailability-modal-form"),
@@ -976,9 +976,19 @@ function obtenirIndisponibilitesPersonneCalendrierCentral(personneId) {
 function rendreFiltreCalendrierCentral() {
   const select = elements.dashboardPersonFilter;
   synchroniserFiltreCalendrierSelonEquipe();
-  const visible = utilisateurEstHandler() && obtenirProfesseursCalendrierCentral().length > 0;
+  const visible = utilisateurEstHandler() || utilisateurEstProfesseur();
   elements.dashboardPersonFilterField?.classList.toggle("hidden", !visible);
   if (!select || !visible) return;
+
+  const modePersonnel = etat.sectionActive === "indisponibilites";
+  const possedeProfesseurs = utilisateurEstHandler() && obtenirProfesseursCalendrierCentral().length > 0;
+  const desactive = modePersonnel || !possedeProfesseurs;
+  select.disabled = desactive;
+  elements.dashboardPersonFilterField.classList.toggle("is-disabled", desactive);
+  if (desactive) {
+    select.replaceChildren(new Option("Moi", String(etat.utilisateur.id)));
+    return;
+  }
 
   const valeurPrecedente = normaliserFiltreCalendrierCentral();
   select.replaceChildren(new Option("Vue globale", "global"));
@@ -1047,7 +1057,8 @@ function appliquerCouleursHandlersAuxSeancesPersonnelles(seances = []) {
 
 function mettreAJourFiltreCalendrierCentral() {
   if (elements.calendar) {
-    elements.calendar.dataset.centralCalendarMode = utilisateurEstHandler() ? "central" : "";
+    elements.calendar.dataset.centralCalendarMode = utilisateurEstHandler() && etat.sectionActive !== "indisponibilites" ? "central" : "";
+    elements.calendar.dataset.editMode = etat.sectionActive === "indisponibilites" ? "indisponibilites" : "seances";
   }
 }
 
@@ -1073,7 +1084,14 @@ function obtenirDonneesCalendrierIndisponibilitesPersonnelles() {
 function rafraichirEvenementsCalendrier() {
   synchroniserFiltreCalendrierSelonEquipe();
 
-  if (etat.calendrier) {
+  if (etat.calendrier && etat.sectionActive === "indisponibilites") {
+    const donneesPersonnelles = obtenirDonneesCalendrierIndisponibilitesPersonnelles();
+    mettreAJourEvenements(
+      etat.calendrier,
+      appliquerCouleursHandlersAuxSeancesPersonnelles(donneesPersonnelles.seances),
+      donneesPersonnelles.indisponibilites
+    );
+  } else if (etat.calendrier) {
     const filtre = normaliserFiltreCalendrierCentral();
     etat.filtreCalendrierPersonne = filtre;
     const personneId = filtre === "global" ? null : Number(filtre);
@@ -1103,14 +1121,6 @@ function rafraichirEvenementsCalendrier() {
     );
   }
 
-  if (etat.calendrierIndisponibilites) {
-    const donneesPersonnelles = obtenirDonneesCalendrierIndisponibilitesPersonnelles();
-    mettreAJourEvenements(
-      etat.calendrierIndisponibilites,
-      appliquerCouleursHandlersAuxSeancesPersonnelles(donneesPersonnelles.seances),
-      donneesPersonnelles.indisponibilites
-    );
-  }
 
   mettreAJourFiltreCalendrierCentral();
   rendreFiltreCalendrierCentral();
@@ -1118,7 +1128,10 @@ function rafraichirEvenementsCalendrier() {
 }
 
 function viderDonneesApplication() {
+  if (etat.calendrier) etat.calendrier.__fournirEvenementsApercu = null;
   etat.duplicationFantome?.annuler();
+  etat.seanceSourceRepetition = null;
+  fermerModal(elements.repetitionModal);
   arreterHorlogeCalendriers();
   etat.seances = [];
   etat.indisponibilites = [];
@@ -1148,9 +1161,10 @@ function viderDonneesApplication() {
   etat.historiqueSelection = null;
   etat.seanceSelectionnee = null;
   etat.indisponibiliteSelectionnee = null;
-  etat.vueIndisponibilitesActive = "declaration";
+  etat.modeCalendrier = "dashboard";
+  etat.homeVue = "aujourdhui";
 
-  if (etat.calendrier || etat.calendrierIndisponibilites) {
+  if (etat.calendrier) {
     rafraichirEvenementsCalendrier();
   }
 
@@ -1164,6 +1178,10 @@ function viderDonneesApplication() {
   rendreOptionsCatalogueSeance();
 }
 
+function estHorsLigne() {
+  return typeof offlineEstHorsLigne === "function" ? offlineEstHorsLigne() : globalThis.navigator?.onLine === false;
+}
+
 async function chargerDonneesApplication() {
   if (utilisateurDoitChangerMotDePasse()) {
     viderDonneesApplication();
@@ -1175,15 +1193,57 @@ async function chargerDonneesApplication() {
     chargerSeances(),
     chargerIndisponibilites(),
     chargerEquipeSiAutorise(),
-    chargerHistorique(),
-    chargerMonetisationSiAutorise(),
-    chargerAdministrationSiAutorise(),
+    ...(estHorsLigne() ? [] : [chargerHistorique(), chargerMonetisationSiAutorise(), chargerAdministrationSiAutorise()]),
     chargerReglagesEspaceSiAutorise(),
     chargerEquipesDisponiblesSiProfesseur(),
   ]);
+  await ouvrirSeanceDepuisNotification();
+}
+
+async function ouvrirSeanceDepuisNotification() {
+  if (!etat.utilisateur || utilisateurDoitChangerMotDePasse()) return;
+  const url = new URL(window.location.href);
+  const cible = url.searchParams.get("seance");
+  if (cible === null) return;
+  const effacerCible = () => {
+    url.searchParams.delete("seance");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  };
+  if (!/^[1-9]\d*$/.test(cible) || !Number.isSafeInteger(Number(cible))) {
+    effacerCible();
+    return;
+  }
+  try {
+    // Refresh through the scoped endpoint: a notification is not an access grant.
+    const seance = estHorsLigne()
+      ? etat.seances.find(item => Number(item.id) === Number(cible))
+      : (await envoyerRequete(`/api/seances/${cible}`)).seance;
+    if (!seance || Number(seance.id) !== Number(cible) || seanceEstMasqueePourConfidentialite(seance)) {
+      afficherToast("Cette séance a été supprimée ou n’est plus accessible.", "warning");
+      effacerCible();
+      return;
+    }
+    afficherSectionApplication("dashboard");
+    etat.calendrier?.gotoDate(seance.date);
+    await ouvrirDetailSeance(seance);
+    effacerCible();
+  } catch (erreur) {
+    if ([403, 404].includes(erreur.status)) {
+      afficherToast("Cette séance a été supprimée ou n’est plus accessible.", "warning");
+      effacerCible();
+    } else {
+      afficherToast(erreur.status === 401 ? "Connectez-vous pour consulter cette séance." : "Impossible de charger la séance pour le moment.", "warning");
+    }
+  }
 }
 
 async function initialiserApplication() {
+  window.addEventListener("sp-offline-auth-required", () => appliquerDeconnexionLocale("Reconnectez-vous au même compte pour synchroniser vos modifications."));
+  initialiserInterfaceOffline(() => {
+    if (!etat.utilisateur) return;
+    if (estHorsLigne()) Promise.allSettled([chargerSeances(), chargerIndisponibilites()]);
+    else programmerSynchronisationTempsReel();
+  });
   initialiserCycleCompteDepuisHash();
   appliquerConnexionMemorisee();
   synchroniserIdentifiantsFormulairesMotDePasse();
@@ -1219,6 +1279,8 @@ async function initialiserApplication() {
   } catch (erreur) {
     afficherConnexion({ preserveFeedback: true });
     afficherToast(erreur.message, "error");
+  } finally {
+    document.documentElement.dataset.appReady = "true";
   }
 }
 
@@ -2316,7 +2378,73 @@ async function gererCycleCompteAvecJeton(event) {
   }
 }
 
+function attacherGestesHome() {
+  const home = elements.homeSection;
+  if (!home || home.dataset.swipeAttached) return;
+  const zone = elements.appView || home;
+  home.dataset.swipeAttached = 'true';
+  let contact = null;
+  let ignorerClicJusqua = 0;
+  let dernierWheel = 0;
+  let sommeWheel = 0;
+  let wheelConsomme = false;
+  const disponible = () => ['aujourdhui', 'dashboard', 'indisponibilites'].includes(etat.sectionActive) &&
+    !navigationSecondaireOuverte && !etat.duplicationFantome && !obtenirModalesOuvertes().length;
+  const cibleAutorisee = cible => cible instanceof Element && zone.contains(cible) &&
+    !cible.closest('.fc, input, select, textarea, [contenteditable="true"], #workspace-menu, .modal') &&
+    (!cible.closest('button, a') || Boolean(cible.closest('.today-row, .home-view-tab')));
+  // With two sibling views either horizontal swipe reaches the other one.
+  // This supports natural tab swipes as well as the requested reverse gesture.
+  const destination = sens => !sens ? null : etat.homeVue === 'aujourdhui' ? etat.modeCalendrier || 'dashboard'
+    : etat.homeVue === 'calendrier' && utilisateurPeutVoirAujourdhui() ? 'aujourdhui' : null;
+  function ouvrir(section) {
+    ignorerClicJusqua = performance.now() + 450;
+    afficherSectionApplication(section);
+  }
+  zone.addEventListener('touchstart', event => {
+    contact = null;
+    if (event.touches.length !== 1 || !disponible() || !cibleAutorisee(event.target)) return;
+    const p = event.touches[0];
+    contact = { x: p.clientX, y: p.clientY, dx: 0, dy: 0, debut: performance.now(), vue: etat.homeVue, vertical: false };
+  }, { passive: true, capture: true });
+  zone.addEventListener('touchmove', event => {
+    if (!contact) return;
+    if (event.touches.length !== 1 || !disponible()) { contact = null; return; }
+    contact.dx = event.touches[0].clientX - contact.x;
+    contact.dy = event.touches[0].clientY - contact.y;
+    if (Math.abs(contact.dy) > 12 && Math.abs(contact.dy) >= Math.abs(contact.dx)) contact.vertical = true;
+    if (!contact.vertical && Math.abs(contact.dx) > 10 && Math.abs(contact.dx) > Math.abs(contact.dy) * 1.4 && destination(contact.dx)) {
+      if (event.cancelable) event.preventDefault();
+    }
+  }, { passive: false, capture: true });
+  zone.addEventListener('touchend', event => {
+    const geste = contact;
+    contact = null;
+    if (!geste || event.touches.length || !disponible() || geste.vertical || geste.vue !== etat.homeVue ||
+        performance.now() - geste.debut > 1200 || Math.abs(geste.dx) < 56 || Math.abs(geste.dx) < Math.abs(geste.dy) * 1.4) return;
+    const section = destination(geste.dx);
+    if (section) { event.preventDefault(); ouvrir(section); }
+  }, { passive: false, capture: true });
+  zone.addEventListener('touchcancel', () => { contact = null; }, { passive: true, capture: true });
+  zone.addEventListener('wheel', event => {
+    if (!disponible() || !cibleAutorisee(event.target) || event.ctrlKey || Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.4) return;
+    const maintenant = performance.now();
+    if (maintenant - dernierWheel > 300) { sommeWheel = 0; wheelConsomme = false; }
+    dernierWheel = maintenant;
+    if (wheelConsomme) { event.preventDefault(); return; }
+    sommeWheel += event.deltaX * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? home.clientWidth : 1);
+    const section = destination(sommeWheel);
+    if (!section) return;
+    event.preventDefault();
+    if (Math.abs(sommeWheel) >= 70) { wheelConsomme = true; ouvrir(section); }
+  }, { passive: false });
+  zone.addEventListener('click', event => {
+    if (performance.now() < ignorerClicJusqua) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+}
+
 function attacherEcouteurs() {
+  attacherGestesHome();
   elements.loginForm?.addEventListener("submit", gererConnexion);
   elements.dashboardPersonFilter?.addEventListener("change", () => {
     etat.filtreCalendrierPersonne = elements.dashboardPersonFilter.value || "global";
@@ -2348,11 +2476,6 @@ function attacherEcouteurs() {
   elements.adminViewTabs.forEach((bouton) => {
     bouton?.addEventListener("click", () => {
       afficherVueAdministration(bouton.dataset.adminView);
-    });
-  });
-  elements.unavailabilityViewTabs.forEach((bouton) => {
-    bouton?.addEventListener("click", () => {
-      afficherVueIndisponibilites(bouton.dataset.unavailabilityView);
     });
   });
   elements.adminGlobalAnalyticsForm?.addEventListener(
@@ -2465,19 +2588,6 @@ function attacherEcouteurs() {
     "submit",
     gererSoumissionIndisponibiliteModal
   );
-  elements.editUnavailabilityButton?.addEventListener(
-    "click",
-    ouvrirFormulaireModificationIndisponibilite
-  );
-  elements.duplicateUnavailabilityButton?.addEventListener(
-    "click",
-    ouvrirFormulaireDuplicationIndisponibilite
-  );
-  elements.deleteUnavailabilityButton?.addEventListener("click", async () => {
-    if (etat.indisponibiliteSelectionnee) {
-      await gererSuppressionIndisponibilite(etat.indisponibiliteSelectionnee.id);
-    }
-  });
   elements.cancelUnavailabilityFormButton?.addEventListener("click", () => {
     if (elements.unavailabilityModalForm?.dataset.mode === "creation") {
       fermerModal(elements.unavailabilityDetailModal);
@@ -2488,9 +2598,10 @@ function attacherEcouteurs() {
     masquerFormulaireIndisponibiliteModal();
   });
   elements.logoutButton?.addEventListener("click", gererDeconnexion);
+  elements.repetitionForm?.addEventListener("submit", gererRepetitionSeance);
   elements.navTabs.forEach((bouton) => {
     bouton?.addEventListener("click", () => {
-      afficherSectionApplication(bouton.dataset.sectionTarget);
+      afficherSectionApplication(bouton.dataset.sectionTarget === "dashboard" ? etat.modeCalendrier : bouton.dataset.sectionTarget);
       navigationSecondaireOuverte = false;
       synchroniserNavigationSecondaire();
     });
@@ -2498,6 +2609,55 @@ function attacherEcouteurs() {
   elements.navMoreToggle?.addEventListener("click", () => {
     navigationSecondaireOuverte = !navigationSecondaireOuverte;
     synchroniserNavigationSecondaire();
+    if (navigationSecondaireOuverte) elements.sidebarClose?.focus();
+  });
+  [elements.sidebarClose, elements.workspaceBackdrop].forEach((bouton) => {
+    bouton?.addEventListener("click", () => {
+      navigationSecondaireOuverte = false;
+      synchroniserNavigationSecondaire();
+      elements.navMoreToggle?.focus();
+    });
+  });
+  elements.calendarModeTabs.forEach((bouton) => {
+    bouton.addEventListener("click", () => afficherSectionApplication(bouton.dataset.calendarMode));
+  });
+  elements.homeViewTabs.forEach((bouton) => {
+    const choisir = () => afficherSectionApplication(bouton.dataset.homeView === "calendrier" ? etat.modeCalendrier : "aujourdhui");
+    bouton.addEventListener("click", choisir);
+    bouton.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const visibles = elements.homeViewTabs.filter((onglet) => !onglet.classList.contains("hidden"));
+      const index = visibles.indexOf(bouton);
+      const suivant = event.key === "Home" ? visibles[0] : event.key === "End" ? visibles.at(-1)
+        : visibles[(index + (event.key === "ArrowRight" ? 1 : -1) + visibles.length) % visibles.length];
+      suivant?.click(); suivant?.focus();
+    });
+  });
+  document.addEventListener("click", (event) => {
+    if (navigationSecondaireOuverte && !elements.workspaceMenu?.contains(event.target) &&
+        !elements.navMoreToggle?.contains(event.target)) {
+      navigationSecondaireOuverte = false;
+      synchroniserNavigationSecondaire();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Tab" && navigationSecondaireOuverte) {
+      const boutons = Array.from(elements.workspaceMenu.querySelectorAll("button:not([disabled])"))
+        .filter((bouton) => bouton.getClientRects().length > 0);
+      const premier = boutons[0];
+      const dernier = boutons.at(-1);
+      if (event.shiftKey && document.activeElement === premier) {
+        event.preventDefault(); dernier?.focus();
+      } else if (!event.shiftKey && document.activeElement === dernier) {
+        event.preventDefault(); premier?.focus();
+      }
+    }
+    if (event.key === "Escape" && navigationSecondaireOuverte) {
+      navigationSecondaireOuverte = false;
+      synchroniserNavigationSecondaire();
+      elements.navMoreToggle?.focus();
+    }
   });
   elements.addSeanceButton?.addEventListener("click", () => {
     ouvrirFormulaireCreation();
@@ -2574,6 +2734,7 @@ function afficherApplication() {
   elements.loginView.classList.add("hidden");
   elements.appView.classList.remove("hidden");
   elements.currentUserName.textContent = etat.utilisateur.nom;
+  elements.currentUserName.title = etat.utilisateur.nom;
   if (elements.currentUserPublicId) {
     elements.currentUserPublicId.textContent = `ID : ${etat.utilisateur.public_id || "-"}`;
   }
@@ -2584,7 +2745,6 @@ function afficherApplication() {
   mettreAJourVueAujourdhui();
   mettreAJourNavigationProtegee();
   mettreAJourFiltreCalendrierCentral();
-  mettreAJourEspaceIndisponibilites();
   mettreAJourCarteNotificationsPush();
   afficherSectionApplication(utilisateurDoitChangerMotDePasse() ? "utilisateur" : etat.sectionActive);
   demarrerConnexionTempsReel();
@@ -2592,6 +2752,16 @@ function afficherApplication() {
 }
 
 function fermerConnexionTempsReel() {
+  if (connexionTempsReel.surveillance) {
+    window.clearInterval(connexionTempsReel.surveillance);
+    connexionTempsReel.surveillance = null;
+  }
+  if (connexionTempsReel.reprendre) {
+    window.removeEventListener("online", connexionTempsReel.reprendre);
+    window.removeEventListener("focus", connexionTempsReel.reprendre);
+    document.removeEventListener("visibilitychange", connexionTempsReel.reprendre);
+    connexionTempsReel.reprendre = null;
+  }
   if (connexionTempsReel.synchronisationProgrammee) {
     window.clearTimeout(connexionTempsReel.synchronisationProgrammee);
     connexionTempsReel.synchronisationProgrammee = null;
@@ -2618,24 +2788,66 @@ function demarrerConnexionTempsReel() {
 
   const source = new window.EventSource("/api/realtime");
   connexionTempsReel.source = source;
+  connexionTempsReel.dernierSignalAt = Date.now();
+
+  // EventSource reconnects, but the server does not replay missed events.
+  // Always reconcile on connection, including after sleep/network loss.
+  source.addEventListener("connected", () => {
+    connexionTempsReel.dernierSignalAt = Date.now();
+    programmerSynchronisationTempsReel();
+  });
 
   source?.addEventListener("app-updated", (event) => {
+    connexionTempsReel.dernierSignalAt = Date.now();
     const payload = parserEvenementTempsReel(event);
     notifierMiseAJourTempsReel(payload);
     programmerSynchronisationTempsReel();
   });
 
-  source?.addEventListener("ping", () => {});
+  source?.addEventListener("ping", () => {
+    connexionTempsReel.dernierSignalAt = Date.now();
+  });
+
+  source.addEventListener("session-invalidated", () => {
+    // Recheck permissions and recreate the stream with the current scope.
+    fermerConnexionTempsReel();
+    programmerSynchronisationTempsReel();
+  });
+
+  connexionTempsReel.reprendre = (event) => {
+    if (document.visibilityState === "hidden" || Date.now() - connexionTempsReel.derniereRepriseAt < 500) return;
+    // Closing a native confirm dialog also fires focus. A healthy stream has
+    // already delivered changes; do not redraw underneath the next click.
+    if (event?.type === "focus" && source.readyState === window.EventSource.OPEN && Date.now() - connexionTempsReel.dernierSignalAt < 25000) return;
+    connexionTempsReel.derniereRepriseAt = Date.now();
+    programmerSynchronisationTempsReel();
+  };
+  window.addEventListener("online", connexionTempsReel.reprendre);
+  window.addEventListener("focus", connexionTempsReel.reprendre);
+  document.addEventListener("visibilitychange", connexionTempsReel.reprendre);
+  connexionTempsReel.surveillance = window.setInterval(() => {
+    if (document.visibilityState === "hidden" || navigator.onLine === false) return;
+    if (source.readyState !== window.EventSource.OPEN || Date.now() - connexionTempsReel.dernierSignalAt > 45000) {
+      // A blocked/broken SSE connection must not leave an apparently live UI.
+      programmerSynchronisationTempsReel();
+      if (source.readyState === window.EventSource.CLOSED || Date.now() - connexionTempsReel.dernierSignalAt > 45000) {
+        fermerConnexionTempsReel();
+        demarrerConnexionTempsReel();
+      }
+    }
+  }, 15000);
 
   source.onerror = () => {
     if (!etat.utilisateur) {
       fermerConnexionTempsReel();
+    } else if (navigator.onLine !== false) {
+      programmerSynchronisationTempsReel();
     }
   };
 }
 
 function programmerSynchronisationTempsReel() {
-  if (!etat.utilisateur || utilisateurDoitChangerMotDePasse()) {
+  if (!etat.utilisateur || utilisateurDoitChangerMotDePasse() || estHorsLigne()) {
     return;
   }
 
@@ -2648,7 +2860,7 @@ function programmerSynchronisationTempsReel() {
     synchroniserApplicationDepuisTempsReel().catch((erreur) => {
       console.error("Synchronisation temps réel impossible :", erreur);
     });
-  }, 350);
+  }, 50);
 }
 
 function appliquerDeconnexionLocale(message) {
@@ -2690,7 +2902,7 @@ async function synchroniserApplicationDepuisTempsReel() {
         ? Number(etat.seanceSelectionnee.id)
         : null;
 
-    await Promise.all([
+    const resultats = await Promise.allSettled([
       chargerOptionsSeancesDisponibles(),
       chargerSeances(
         seanceOuverteId
@@ -2706,6 +2918,23 @@ async function synchroniserApplicationDepuisTempsReel() {
       chargerAdministrationSiAutorise(),
       chargerReglagesEspaceSiAutorise(),
     ]);
+    const echec = resultats.find(resultat => resultat.status === "rejected");
+    if (echec) throw echec.reason;
+    connexionTempsReel.delaiNouvelleTentative = 3000;
+  } catch (erreur) {
+    if (erreur.status === 401) {
+      appliquerDeconnexionLocale("Votre session a expiré. Reconnectez-vous.");
+      return;
+    }
+    // Do not wait for another mutation (or a manual reload) after a failed read.
+    if (!connexionTempsReel.synchronisationProgrammee && etat.utilisateur) {
+      connexionTempsReel.synchronisationProgrammee = window.setTimeout(() => {
+        connexionTempsReel.synchronisationProgrammee = null;
+        programmerSynchronisationTempsReel();
+      }, connexionTempsReel.delaiNouvelleTentative || 3000);
+      connexionTempsReel.delaiNouvelleTentative = Math.min((connexionTempsReel.delaiNouvelleTentative || 3000) * 2, 30000);
+    }
+    throw erreur;
   } finally {
     connexionTempsReel.synchronisationEnCours = false;
 
@@ -2725,21 +2954,34 @@ function initialiserCalendrierSiNecessaire() {
     plageHoraire: obtenirPlageCalendrierEffective(),
     pasCreneauMinutes: obtenirPasCreneauCalendrierCentral(),
     timezoneCentrale: obtenirFuseauHoraireCalendrierCentral(),
-    onSlotClick: gererClicCreneauCalendrierSeance,
-    onSelect: gererSelectionCalendrierSeance,
+    onSlotClick: (selection) => etat.sectionActive === "indisponibilites"
+      ? gererClicCreneauCalendrierIndisponibilite(selection)
+      : gererClicCreneauCalendrierSeance(selection),
+    onSelect: (selection) => {
+      if (etat.sectionActive === "indisponibilites") gererSelectionCalendrierIndisponibilite(selection);
+    },
+    canSelectRange: () => etat.sectionActive === "indisponibilites",
     onEventClick: ouvrirMenuActionsSeance,
+    canInteractSeance: () => etat.sectionActive === "dashboard",
+    canInteractIndisponibilite: () => etat.sectionActive === "indisponibilites",
     onEventDrop: gererDeplacementSeanceCalendrier,
     onEventResize: (info) => gererDeplacementSeanceCalendrier(info, true),
-    canDragSeance: peutDeplacerSeanceCalendrier,
+    canDragSeance: (seance) => etat.sectionActive === "dashboard" && peutDeplacerSeanceCalendrier(seance),
+    onIndisponibiliteClick: gererClicIndisponibilite,
+    onIndisponibiliteResize: gererRedimensionnementIndisponibilite,
+    canResizeIndisponibilite: (indisponibilite) => etat.sectionActive === "indisponibilites" && peutRedimensionnerIndisponibilite(indisponibilite),
+    selectionMobileRapide: true,
+    navigationZoom: true,
     onDatesSet: () => {
+      if (etat.calendrier?.view.type === "dayGridMonth") etat.duplicationFantome?.annuler();
       fermerMenusCalendrier();
-      if (utilisateurEstHandler()) {
-        rafraichirEvenementsCalendrier();
-      }
+      rafraichirEvenementsCalendrier();
+      mettreAJourModesCalendrier();
     },
   });
 
   demarrerHorlogeCalendriers();
+  mettreAJourModesCalendrier();
   rafraichirEvenementsCalendrier();
 }
 
@@ -2772,15 +3014,15 @@ async function gererRedimensionnementIndisponibilite(info) {
 
 async function gererDuplicationSemaine() {
   const bouton = document.getElementById("duplicate-unavailability-week");
-  const vue = etat.calendrierIndisponibilites?.view;
-  if (!vue || vue.type !== "timeGridWeek" || bouton.disabled || !utilisateurPeutGererIndisponibilites() || utilisateurEstEnLectureSeule()) return;
+  const vue = etat.calendrier?.view;
+  if (etat.sectionActive !== "indisponibilites" || !vue || vue.type !== "timeGridWeek" || bouton.disabled || !utilisateurPeutGererIndisponibilites() || utilisateurEstEnLectureSeule()) return;
   bouton.disabled = true;
   try {
     const resultat = await dupliquerSemaineIndisponibilites(vue.currentStart.toISOString().slice(0, 10));
     await chargerIndisponibilites();
     afficherToast(resultat.message, "success");
   } catch (erreur) { afficherToast(erreur.message, "error"); }
-  finally { bouton.disabled = etat.calendrierIndisponibilites?.view.type !== "timeGridWeek"; }
+  finally { mettreAJourModesCalendrier(); }
 }
 
 function peutDeplacerSeanceCalendrier(seance) {
@@ -2802,7 +3044,7 @@ async function gererDeplacementSeanceCalendrier(info, redimensionnement = false)
   const date = debut && `${debut.getUTCFullYear()}-${String(debut.getUTCMonth() + 1).padStart(2, "0")}-${String(debut.getUTCDate()).padStart(2, "0")}`;
   const heureDebut = debut && `${String(debut.getUTCHours()).padStart(2, "0")}:${String(debut.getUTCMinutes()).padStart(2, "0")}`;
 
-  if (!peutDeplacerSeanceCalendrier(seance) || !date || !heureDebut || deplacementSeanceEnCours) {
+  if (etat.sectionActive !== "dashboard" || !peutDeplacerSeanceCalendrier(seance) || !date || !heureDebut || deplacementSeanceEnCours) {
     info.revert();
     return;
   }
@@ -2843,38 +3085,6 @@ async function gererDeplacementSeanceCalendrier(info, redimensionnement = false)
   }
 }
 
-function initialiserCalendrierIndisponibilitesSiNecessaire() {
-  if (
-    etat.calendrierIndisponibilites ||
-    !elements.unavailabilityCalendar ||
-    !utilisateurPeutGererIndisponibilites()
-  ) {
-    return;
-  }
-
-  etat.calendrierIndisponibilites = initialiserCalendrier(elements.unavailabilityCalendar, {
-    onIndisponibiliteResize: gererRedimensionnementIndisponibilite,
-    canResizeIndisponibilite: peutRedimensionnerIndisponibilite,
-    onDatesSet: ({ view }) => {
-      fermerMenusCalendrier();
-      const bouton = document.getElementById("duplicate-unavailability-week");
-      if (bouton) {
-        bouton.disabled = view.type !== "timeGridWeek" || !utilisateurPeutGererIndisponibilites() || utilisateurEstEnLectureSeule();
-        bouton.title = view.type !== "timeGridWeek" ? "Passez en vue Semaine pour dupliquer." : "Copier la semaine affichée, sans doublons.";
-        bouton.onclick = gererDuplicationSemaine;
-      }
-    },
-    plageHoraire: obtenirPlageCalendrierEffective(),
-    timezoneCentrale: obtenirFuseauHoraireCalendrierCentral(),
-    onSlotClick: gererClicCreneauCalendrierIndisponibilite,
-    onSelect: gererSelectionCalendrierIndisponibilite,
-    onIndisponibiliteClick: gererClicIndisponibilite,
-    selectionMobileRapide: true,
-  });
-
-  demarrerHorlogeCalendriers();
-  rafraichirEvenementsCalendrier();
-}
 
 function mettreAJourTailleCalendrier(calendrier) {
   if (!calendrier) {
@@ -2891,52 +3101,60 @@ function mettreAJourTailleCalendrier(calendrier) {
 }
 
 function rafraichirCalendrierSiVisible(sectionDemandee = etat.sectionActive) {
-  if (sectionDemandee === "dashboard") {
-    initialiserCalendrierSiNecessaire();
-    mettreAJourTailleCalendrier(etat.calendrier);
-    return;
-  }
+  if (!["dashboard", "indisponibilites"].includes(sectionDemandee)) return;
+  initialiserCalendrierSiNecessaire();
+  mettreAJourTailleCalendrier(etat.calendrier);
+}
 
-  if (
-    sectionDemandee !== "indisponibilites" ||
-    etat.vueIndisponibilitesActive !== "declaration" ||
-    !utilisateurPeutGererIndisponibilites()
-  ) {
-    return;
+function mettreAJourModesCalendrier() {
+  const mode = etat.sectionActive === "indisponibilites" ? "indisponibilites" : "dashboard";
+  const selectionPlage = mode === "indisponibilites";
+  if (etat.calendrier && etat.calendrier.getOption("selectable") !== selectionPlage) {
+    etat.calendrier.unselect();
+    etat.calendrier.setOption("selectable", selectionPlage);
   }
-
-  initialiserCalendrierIndisponibilitesSiNecessaire();
-  mettreAJourTailleCalendrier(etat.calendrierIndisponibilites);
+  elements.calendarModeTabs.forEach((bouton) => {
+    const actif = bouton.dataset.calendarMode === mode;
+    bouton.classList.toggle("is-active", actif);
+    bouton.setAttribute("aria-pressed", String(actif));
+    if (bouton.dataset.calendarMode === "indisponibilites") {
+      bouton.classList.toggle("hidden", !utilisateurPeutVoirIndisponibilites());
+    }
+  });
+  const bouton = document.getElementById("duplicate-unavailability-week");
+  if (bouton) {
+    bouton.classList.toggle("is-visible", mode === "indisponibilites");
+    bouton.setAttribute("aria-hidden", String(mode !== "indisponibilites"));
+    bouton.disabled = mode !== "indisponibilites" || etat.calendrier?.view.type !== "timeGridWeek" || !utilisateurPeutGererIndisponibilites() || utilisateurEstEnLectureSeule();
+    bouton.title = etat.calendrier?.view.type !== "timeGridWeek" ? "Passez en vue Semaine pour dupliquer." : "Copier la semaine affichée, sans doublons.";
+    bouton.onclick = gererDuplicationSemaine;
+  }
+  const vueMois = etat.calendrier?.view.type === "dayGridMonth";
+  elements.addSeanceButton?.classList.toggle("hidden", mode === "indisponibilites" || vueMois || !utilisateurPeutModifierDonnees());
+  if (elements.addSeanceButton) elements.addSeanceButton.disabled = vueMois || !utilisateurPeutModifierDonnees();
 }
 
 function synchroniserNavigationSecondaire() {
-  const ongletsSecondaires = elements.navTabs.filter((bouton) =>
-    bouton.classList.contains("nav-secondary")
-  );
-  const possedeDestinationVisible = ongletsSecondaires.some(
-    (bouton) => !bouton.classList.contains("hidden")
-  );
-
-  ongletsSecondaires.forEach((bouton) => {
-    bouton.classList.toggle("nav-secondary-collapsed", !navigationSecondaireOuverte);
-  });
-
-  if (elements.navMoreToggle) {
-    elements.navMoreToggle.classList.toggle("hidden", !possedeDestinationVisible);
-    elements.navMoreToggle.classList.toggle("is-expanded", navigationSecondaireOuverte);
-    elements.navMoreToggle.setAttribute(
-      "aria-expanded",
-      navigationSecondaireOuverte ? "true" : "false"
-    );
-    const libelle = navigationSecondaireOuverte
-      ? "Masquer les autres menus"
-      : "Afficher les autres menus";
-    elements.navMoreToggle.setAttribute("aria-label", libelle);
-    elements.navMoreToggle.title = libelle;
+  const ouvert = navigationSecondaireOuverte;
+  if (elements.workspaceMenu) {
+    elements.workspaceMenu.hidden = !ouvert;
+    elements.workspaceMenu.classList.toggle("hidden", !ouvert);
   }
+  if (elements.workspaceBackdrop) {
+    elements.workspaceBackdrop.hidden = !ouvert;
+    elements.workspaceBackdrop.classList.toggle("hidden", !ouvert);
+  }
+  document.body.classList.toggle("sidebar-open", ouvert);
+  elements.navMoreToggle?.setAttribute("aria-expanded", String(ouvert));
+  elements.navMoreToggle?.setAttribute("aria-label", ouvert ? "Fermer le menu" : "Ouvrir le menu");
 }
 
 function afficherSectionApplication(section) {
+  if (estHorsLigne() && !["home", "dashboard", "indisponibilites", "aujourdhui"].includes(section)) {
+    afficherToast("Cette rubrique nécessite Internet. Le calendrier reste utilisable hors ligne.", "warning");
+    section = "home";
+  }
+  if (section === "home") section = etat.homeVue === "calendrier" ? etat.modeCalendrier : "aujourdhui";
   if (section !== "dashboard") etat.duplicationFantome?.annuler();
   fermerMenusCalendrier();
   let sectionDemandee = section;
@@ -2956,6 +3174,12 @@ function afficherSectionApplication(section) {
   }
 
   etat.sectionActive = sectionDemandee;
+  if (["dashboard", "indisponibilites"].includes(sectionDemandee)) {
+    etat.modeCalendrier = sectionDemandee;
+    etat.homeVue = "calendrier";
+  } else if (sectionDemandee === "aujourdhui") {
+    etat.homeVue = "aujourdhui";
+  }
 
   if (
     sectionDemandee !== "historique" &&
@@ -2966,30 +3190,35 @@ function afficherSectionApplication(section) {
   }
 
   const cartes = {
-    aujourdhui: elements.todaySection,
-    dashboard: elements.dashboardSection,
+    home: elements.homeSection,
     calendrier: elements.calendrierSection,
-    indisponibilites: elements.indisponibilitesSection,
     equipe: elements.equipeSection,
     utilisateur: elements.utilisateurSection,
     monetisation: elements.monetisationSection,
     historique: elements.historiqueSection,
   };
 
+  const estHome = ["dashboard", "indisponibilites", "aujourdhui"].includes(sectionDemandee);
+  elements.todaySection.classList.toggle("hidden", !estHome || etat.homeVue !== "aujourdhui" || !utilisateurPeutVoirAujourdhui());
+  elements.dashboardSection.classList.toggle("hidden", !estHome || etat.homeVue !== "calendrier");
+  elements.homeViewTabs.forEach((onglet) => {
+    const actif = onglet.dataset.homeView === etat.homeVue;
+    onglet.classList.toggle("is-active", actif);
+    onglet.setAttribute("aria-selected", String(actif));
+    onglet.tabIndex = actif ? 0 : -1;
+    if (onglet.dataset.homeView === "aujourdhui") onglet.classList.toggle("hidden", !utilisateurPeutVoirAujourdhui());
+  });
   Object.entries(cartes).forEach(([cle, element]) => {
-    element.classList.toggle("hidden", cle !== sectionDemandee);
+    element.classList.toggle("hidden", cle !== (estHome ? "home" : sectionDemandee));
   });
 
   elements.navTabs.forEach((bouton) => {
-    const estActive = bouton.dataset.sectionTarget === sectionDemandee;
+    const estActive = bouton.dataset.sectionTarget === (estHome ? "home" : sectionDemandee);
     bouton.classList.toggle("is-active", estActive);
 
     if (estActive) {
       bouton.setAttribute("aria-current", "page");
-      // On mobile the workspace navigation intentionally scrolls horizontally.
-      // Keep the selected destination entirely readable instead of leaving its
-      // label clipped against an edge of the scroll container.
-      bouton.scrollIntoView({ block: "nearest", inline: "center" });
+      if (navigationSecondaireOuverte) bouton.scrollIntoView({ block: "nearest" });
     } else {
       bouton.removeAttribute("aria-current");
     }
@@ -3012,9 +3241,10 @@ function afficherSectionApplication(section) {
     );
   }
 
-  if (sectionDemandee === "indisponibilites") {
-    afficherVueIndisponibilites(etat.vueIndisponibilitesActive);
-    return;
+  if (["dashboard", "indisponibilites"].includes(sectionDemandee)) {
+    rafraichirEvenementsCalendrier();
+    mettreAJourModesCalendrier();
+    etat.calendrier?.unselect();
   }
 
   if (sectionDemandee === "equipe") {
@@ -3024,24 +3254,6 @@ function afficherSectionApplication(section) {
   rafraichirCalendrierSiVisible(sectionDemandee);
 }
 
-function afficherVueIndisponibilites(vueDemandee = "declaration") {
-  const vue = vuesIndisponibilitesValides.has(vueDemandee)
-    ? vueDemandee
-    : "declaration";
-
-  etat.vueIndisponibilitesActive = vue;
-
-  elements.unavailabilityViewTabs.forEach((bouton) => {
-    bouton.classList.toggle("is-active", bouton.dataset.unavailabilityView === vue);
-  });
-
-  elements.unavailabilityPanels.forEach((panneau) => {
-    panneau.classList.toggle("hidden", panneau.dataset.unavailabilityPanel !== vue);
-  });
-
-  mettreAJourEspaceIndisponibilites();
-  rafraichirCalendrierSiVisible("indisponibilites");
-}
 
 function rolesUtilisateurCourant() {
   return Array.isArray(etat.utilisateur?.scope?.roles) ? etat.utilisateur.scope.roles : [];
@@ -3145,15 +3357,6 @@ function utilisateurPeutGererIndisponibilites() {
   return utilisateurPeutVoirIndisponibilites();
 }
 
-function mettreAJourEspaceIndisponibilites() {
-  const peutGerer = utilisateurPeutGererIndisponibilites();
-
-  // This section is intentionally a single personal calendar: positive
-  // availability rules and exceptions are not part of it.
-  elements.unavailabilityWorkbenchNav?.classList.add("hidden");
-  elements.unavailabilityDeclarationPanel?.classList.toggle("hidden", !peutGerer);
-}
-
 function utilisateurPeutVoirEquipe() {
   return utilisateurEstHandler() && !utilisateurDoitChangerMotDePasse();
 }
@@ -3177,7 +3380,7 @@ function obtenirPlageCalendrierEffective() {
 function appliquerConfigurationCalendrier() {
   const plageHoraire = obtenirPlageCalendrierEffective();
   const fuseauHoraire = obtenirFuseauHoraireCalendrierCentral();
-  [etat.calendrier, etat.calendrierIndisponibilites].forEach((calendrier) => {
+  [etat.calendrier].forEach((calendrier) => {
     if (calendrier) {
       mettreAJourPlageHoraireCalendrier(calendrier, plageHoraire);
       mettreAJourHorlogeCalendrier(calendrier, fuseauHoraire);
@@ -3273,7 +3476,7 @@ function rendreCartesCalendrierPersonnel(reglages = {}, lien = "") {
 }
 
 function afficherLienPublicDashboard(reglages = etat.reglagesEspace) {
-  const filtre = utilisateurEstHandler()
+  const filtre = utilisateurEstHandler() && etat.sectionActive !== "indisponibilites"
     ? String(etat.filtreCalendrierPersonne || "global")
     : String(etat.utilisateur?.id || "");
   const estLienPersonnel =
@@ -3382,8 +3585,20 @@ function afficherReglagesEspace() {
       personnes.forEach((membre) => {
         const ligne = document.createElement("div");
         ligne.className = "admin-identity-stat public-calendar-member-row";
-        const texte = document.createElement("span");
-        texte.textContent = `${membre.nom || membre.public_id} :`;
+        const texte = document.createElement("div");
+        texte.className = "public-calendar-person";
+        const avatar = document.createElement("span");
+        avatar.className = "public-calendar-avatar";
+        avatar.setAttribute("aria-hidden", "true");
+        avatar.textContent = (membre.nom || "P").trim().split(/\s+/).slice(0, 2).map(mot => mot[0]).join("").toUpperCase();
+        const identite = document.createElement("div");
+        const nom = document.createElement("strong");
+        nom.textContent = membre.nom || membre.public_id;
+        const statut = document.createElement("small");
+        statut.className = membre.actif ? "is-active" : "is-inactive";
+        statut.textContent = `${membre.personnel ? "Votre calendrier" : "Professeur"} · ${membre.actif ? "Actif" : "Désactivé"}`;
+        identite.append(nom, statut);
+        texte.append(avatar, identite);
         const lienMembre = lienPublicAbsolu(membre.lien_public);
         const champLien = document.createElement("input");
         champLien.type = "url";
@@ -3405,6 +3620,7 @@ function afficherReglagesEspace() {
         basculer.type = "button";
         basculer.className = "button secondary";
         basculer.textContent = membre.actif ? "Désactiver" : "Activer";
+        basculer.disabled = !utilisateurPeutModifierDonnees();
         basculer.addEventListener("click", async () => {
           basculer.disabled = true;
           try {
@@ -3418,19 +3634,43 @@ function afficherReglagesEspace() {
           } catch (erreur) {
             afficherToast(erreur.message || "Impossible de mettre à jour ce lien.", "error");
           } finally {
-            basculer.disabled = false;
+            basculer.disabled = !utilisateurPeutModifierDonnees();
           }
         });
-        ligne.append(texte, champLien, copier, basculer);
+        const actions = document.createElement("div");
+        actions.className = "public-calendar-member-actions";
+        actions.append(copier, basculer);
+        ligne.append(texte, champLien, actions);
         elements.publicCalendarTeamLinks.appendChild(ligne);
       });
     }
   }
   if (elements.publicCalendarMemberships) {
     const equipes = Array.isArray(reglages.equipes) ? reglages.equipes : [];
-    elements.publicCalendarMemberships.textContent = equipes.length
-      ? `Mes équipes : ${equipes.map((equipe) => `${equipe.public_id} — ${equipe.nom}`).join(", ")}`
-      : "";
+    elements.publicCalendarMemberships.replaceChildren();
+    if (equipes.length) {
+      const titre = document.createElement("h4");
+      titre.textContent = "Mes équipes";
+      const liste = document.createElement("div");
+      liste.className = "public-calendar-teams";
+      for (const equipe of equipes) {
+        const carte = document.createElement("article");
+        carte.className = "public-calendar-team-card";
+        const avatar = document.createElement("span");
+        avatar.className = "public-calendar-avatar";
+        avatar.setAttribute("aria-hidden", "true");
+        avatar.textContent = (equipe.nom || "E").trim().split(/\s+/).slice(0, 2).map(mot => mot[0]).join("").toUpperCase();
+        const contenu = document.createElement("div");
+        const nom = document.createElement("strong");
+        nom.textContent = equipe.nom || "Équipe";
+        const id = document.createElement("small");
+        id.textContent = equipe.public_id || "";
+        contenu.append(nom, id);
+        carte.append(avatar, contenu);
+        liste.append(carte);
+      }
+      elements.publicCalendarMemberships.append(titre, liste);
+    }
   }
 }
 
@@ -3815,6 +4055,7 @@ function mettreAJourNavigationProtegee() {
     bouton.classList.remove("hidden");
   });
   synchroniserNavigationSecondaire();
+  mettreAJourModesCalendrier();
 }
 
 function reinitialiserFormulaireUtilisateur() {
@@ -3904,6 +4145,14 @@ function afficherVueAdministration(vueDemandee = "accounts") {
   }
 
   mettreAJourVisibiliteGroupesAdministration(vue);
+  if (vue === "password") {
+    const securite = document.getElementById("settings-security");
+    if (securite) securite.open = true;
+  }
+  if (vue === "notifications") {
+    const notifications = document.getElementById("settings-notifications");
+    if (notifications) notifications.open = true;
+  }
 
   if (vue === "analytics") {
     chargerAnalysesGlobalesAdministration();
@@ -3938,15 +4187,18 @@ function mettreAJourResumeCompteConnecte() {
     ? "Mot de passe temporaire détecté. Changez-le pour débloquer l'application."
     : lectureSeule
       ? "Compte sécurisé en lecture seule. Les modifications sont bloquées."
-      : estAdministrateur
-        ? "Compte sécurisé. Vous pouvez gérer votre accès depuis ce panneau."
-        : "Compte securise. Vous pouvez modifier votre mot de passe depuis cet espace.";
+      : "Compte sécurisé.";
   elements.passwordSecurityNotice.classList.toggle("hidden", !motDePasseAChanger);
   elements.userAdminAccess.textContent = utilisateurPeutVoirAdministration() ? "Oui" : "Non";
   elements.userLastLogin.textContent = etat.utilisateur?.dernier_login_at
     ? formatDateHeureSecondes(etat.utilisateur.dernier_login_at)
     : "Jamais";
-  elements.adminPanelTitle.textContent = estAdministrateur ? "Panneau admin" : "Espace utilisateur";
+  elements.adminPanelTitle.textContent = "Paramètres";
+  if (motDePasseAChanger) {
+    elements.userPasswordForm.classList.remove("hidden");
+    const securite = document.getElementById("settings-security");
+    if (securite) securite.open = true;
+  }
   elements.adminGuideTitle.textContent = estAdministrateur
     ? "Contrôle global"
     : "Espace utilisateur";
@@ -4040,9 +4292,17 @@ async function gererConnexion(event) {
   }
 }
 
-async function gererDeconnexion() {
+async function gererDeconnexion(event) {
+  const offline = await etatOffline().catch(() => ({ pending: 0 }));
+  if (offline.pending && event?.type !== "click") {
+    appliquerDeconnexionLocale("Reconnectez-vous au même compte pour synchroniser les modifications conservées sur cet appareil.");
+    return;
+  }
+  if (offline.pending && !window.confirm("Des modifications ne sont pas encore synchronisées. La déconnexion les supprimera de cet appareil. Continuer ?")) return;
   etat.duplicationFantome?.annuler();
   fermerMenusCalendrier();
+  navigationSecondaireOuverte = false;
+  synchroniserNavigationSecondaire();
   try {
     await deconnecterUtilisateur();
     etat.utilisateur = null;
@@ -4458,16 +4718,6 @@ function choisirIndisponibiliteResultat(resultat, donneesIndisponibilite = {}) {
   );
 }
 
-function definirActionsDetailIndisponibiliteVisibles(visible) {
-  [
-    elements.editUnavailabilityButton,
-    elements.duplicateUnavailabilityButton,
-    elements.deleteUnavailabilityButton,
-  ].forEach((bouton) => {
-    bouton?.classList.toggle("hidden", !visible);
-  });
-}
-
 function ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection = {}) {
   if (!utilisateurPeutGererIndisponibilites()) {
     afficherToast("Vous n'avez pas les droits pour gérer ces disponibilités.", "warning");
@@ -4486,19 +4736,6 @@ function ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection = {})
   etat.indisponibiliteSelectionnee = null;
 
   elements.unavailabilityDetailTitle.textContent = "Nouvelle indisponibilité";
-  elements.unavailabilityDetailBadge.textContent = selectionNormalisee.touteLaJournee
-    ? "Jour complet"
-    : "Indisponible";
-  elements.unavailabilityDetailDate.textContent =
-    selectionNormalisee.datesSelectionnees.length > 1
-      ? `${selectionNormalisee.datesSelectionnees.length} jours sélectionnés`
-      : formatDate(selectionNormalisee.date);
-  elements.unavailabilityDetailTime.textContent = selectionNormalisee.touteLaJournee
-    ? "Jour complet"
-    : `${selectionNormalisee.heureDebut} - ${selectionNormalisee.heureFin}`;
-  elements.unavailabilityDetailCreatedBy.textContent = etat.utilisateur?.nom || "Utilisateur";
-  elements.unavailabilityDetailCreatedAt.textContent = "-";
-  definirActionsDetailIndisponibiliteVisibles(false);
 
   controles.form.dataset.mode = "creation";
   controles.form.dataset.indisponibiliteId = "";
@@ -4527,42 +4764,6 @@ function ouvrirFormulaireCreationIndisponibiliteDepuisCalendrier(selection = {})
   );
   ouvrirModal(elements.unavailabilityDetailModal);
   controles.dateInput.focus();
-}
-
-function ouvrirDetailIndisponibilite(indisponibilite, options = {}) {
-  if (!indisponibilite || !elements.unavailabilityDetailModal) {
-    return;
-  }
-
-  const indisponibiliteLocale = trouverIndisponibiliteLocale(indisponibilite.id) || indisponibilite;
-  etat.indisponibiliteSelectionnee = indisponibiliteLocale;
-
-  elements.unavailabilityDetailTitle.textContent = estIndisponibiliteJourCompletClient(
-    indisponibiliteLocale
-  )
-    ? "Journée indisponible"
-    : "Créneau indisponible";
-  elements.unavailabilityDetailBadge.textContent = estIndisponibiliteJourCompletClient(
-    indisponibiliteLocale
-  )
-    ? "Jour complet"
-    : "Indisponible";
-  elements.unavailabilityDetailDate.textContent = formatDate(indisponibiliteLocale.date);
-  elements.unavailabilityDetailTime.textContent = construirePlageIndisponibilite(
-    indisponibiliteLocale
-  );
-  elements.unavailabilityDetailCreatedBy.textContent =
-    indisponibiliteLocale.cree_par_nom || "Utilisateur";
-  elements.unavailabilityDetailCreatedAt.textContent = indisponibiliteLocale.created_at
-    ? formatDateHeureSecondes(indisponibiliteLocale.created_at)
-    : "-";
-  definirActionsDetailIndisponibiliteVisibles(
-    utilisateurPeutGererIndisponibilites() &&
-      indisponibiliteAppartientAuRealisateurCourant(indisponibiliteLocale)
-  );
-  masquerFormulaireIndisponibiliteModal();
-  definirModeConfirmationIndisponibilite(Boolean(options.confirmation));
-  ouvrirModal(elements.unavailabilityDetailModal);
 }
 
 function ouvrirFormulaireModificationIndisponibilite() {
@@ -4597,20 +4798,47 @@ function ouvrirFormulaireDuplicationIndisponibilite() {
     return;
   }
 
-  const controles = obtenirControlesIndisponibiliteModal();
-  controles.form.dataset.mode = "duplication";
-  controles.form.dataset.indisponibiliteId = "";
-  elements.unavailabilityFormPanel?.classList.remove("hidden");
-  definirFormulaireIndisponibiliteModalOuvert(true);
-  definirModeCreationIndisponibiliteModal(false);
-  definirModeConfirmationIndisponibilite(false);
-  elements.unavailabilityFormTitle.textContent = "Dupliquer l'indisponibilité";
-  controles.button.textContent = "Créer la copie";
-  remplirFormulaireIndisponibiliteModal(etat.indisponibiliteSelectionnee, {
-    mode: "duplication",
+  if (!etat.calendrier || etat.calendrier.view.type !== "timeGridWeek" || etat.copieFantomeEnregistrementEnCours) return;
+  const source = { ...etat.indisponibiliteSelectionnee };
+  etat.duplicationFantome?.annuler();
+  fermerMenusCalendrier();
+  fermerModal(elements.unavailabilityDetailModal);
+  etat.duplicationFantome = commencerDuplicationFantome({
+    element: elements.calendar, calendrier: etat.calendrier,
+    seance: { ...source, etudiant: "Indisponibilité", duree_minutes: 30 },
+    palette: { backgroundColor: "#e8edf3", borderColor: "#a7b4c7", textColor: "#475569" },
+    verifier: cible => verifierDestinationCopieIndisponibilite(source, cible),
+    confirmer: cible => enregistrerCopieIndisponibilite(source, cible),
+    annuler: erreur => { if (erreur) afficherToast(`Copie annulée : ${erreur}`, "warning"); },
+    terminer: () => { etat.duplicationFantome = null; },
   });
-  definirSousTitreModalIndisponibilite("Choisissez une nouvelle date avant d'enregistrer.");
-  controles.dateInput.focus();
+}
+
+function verifierDestinationCopieIndisponibilite(source, cible) {
+  if (etat.sectionActive !== "indisponibilites" || !peutRedimensionnerIndisponibilite(source)) return "Action non autorisée.";
+  const debut = convertirHeureCalendrierClientEnMinutes(cible.heure_debut);
+  const fin = convertirHeureCalendrierClientEnMinutes(cible.heure_fin, { fin: true });
+  const bornes = obtenirBornesCalendrierClient();
+  if (debut < bornes.debut || fin > bornes.fin || fin - debut !== 30) return "La copie dépasse la plage du calendrier.";
+  const creneau = { ...cible, intervenantId: source.intervenant_id };
+  if (trouverSeanceConfidentielleChevauchanteLocale(creneau) || trouverSeanceChevauchanteLocale(creneau)) return "Une séance occupe ce créneau.";
+  if (estJourIntegralementIndisponible(cible.date, source.intervenant_id) || trouverIndisponibiliteChevauchanteLocale(creneau)) return "Ce créneau est déjà indisponible.";
+  return "";
+}
+
+async function enregistrerCopieIndisponibilite(source, cible) {
+  if (etat.copieFantomeEnregistrementEnCours || etat.sectionActive !== "indisponibilites" || !peutRedimensionnerIndisponibilite(source)) return;
+  etat.ignorerClicCopieJusqua = performance.now() + 350;
+  etat.copieFantomeEnregistrementEnCours = true;
+  try {
+    await creerIndisponibilite({ date: cible.date, heure_debut: cible.heure_debut,
+      heure_fin: calculerHeureFin(cible.heure_debut, 30), jour_complet: 0, raison: source.raison || "" });
+    await Promise.allSettled([chargerIndisponibilites(), chargerHistorique()]);
+    afficherToast("Indisponibilité de 30 minutes créée.", "success");
+  } catch (erreur) {
+    if (erreur.status === 401) await gererDeconnexion();
+    else afficherToast(`Copie annulée : ${erreur.message || "emplacement interdit."}`, "error");
+  } finally { etat.copieFantomeEnregistrementEnCours = false; }
 }
 
 async function gererSoumissionIndisponibiliteModal(event) {
@@ -4673,28 +4901,8 @@ async function gererSoumissionIndisponibiliteModal(event) {
     const resultatIndisponibilite = creation
       ? await creerIndisponibilite(donneesIndisponibilite)
       : await modifierIndisponibilite(indisponibiliteId, donneesIndisponibilite);
-    const indisponibiliteReference = choisirIndisponibiliteResultat(
-      resultatIndisponibilite,
-      donneesIndisponibilite
-    );
-
     await Promise.all([chargerIndisponibilites(), chargerHistorique()]);
-    const indisponibiliteActualisee = indisponibiliteReference
-      ? trouverIndisponibiliteLocale(indisponibiliteReference.id) || indisponibiliteReference
-      : null;
-
-    if (indisponibiliteActualisee) {
-      if (creation) {
-        fermerModal(elements.unavailabilityDetailModal);
-        elements.unavailabilityDetailModal?.getBoundingClientRect();
-      }
-
-      ouvrirDetailIndisponibilite(indisponibiliteActualisee, {
-        confirmation: creation,
-      });
-    } else {
-      fermerModal(elements.unavailabilityDetailModal);
-    }
+    fermerModal(elements.unavailabilityDetailModal);
 
     const nombreFragments = extraireIndisponibilitesDepuisResultat(
       resultatIndisponibilite
@@ -5587,6 +5795,7 @@ async function chargerIndisponibilites() {
 }
 
 async function chargerHistorique(options = {}) {
+  if (estHorsLigne()) return;
   if (etat.sectionActive !== "historique" && options.force !== true) {
     etat.historiqueARecharger = true;
     return;
@@ -5613,6 +5822,7 @@ async function chargerHistorique(options = {}) {
 }
 
 async function chargerMonetisationSiAutorise({ calculExplicite = false } = {}) {
+  if (estHorsLigne()) return false;
   // Les synchronisations automatiques servent à garder la liste des
   // réalisateurs à jour, mais ne doivent jamais réafficher un ancien relevé.
   // Seul le submit « Calculer » est autorisé à rendre les résultats visibles.
@@ -6018,7 +6228,12 @@ function creerCarteProfesseurEquipe(professeur) {
   nom.textContent = professeur.nom || "Professeur";
   // IDs and email addresses are deliberately not rendered in the team list.
   // They remain internal API identifiers used only by the action handlers.
-  identite.append(nom);
+  identite.className = "team-person-identity";
+  const avatar = document.createElement("span");
+  avatar.className = "public-calendar-avatar";
+  avatar.setAttribute("aria-hidden", "true");
+  avatar.textContent = (professeur.nom || "P").trim().split(/\s+/).slice(0, 2).map(mot => mot[0]).join("").toUpperCase();
+  identite.append(avatar, nom);
   const badges = document.createElement("div");
   badges.className = "admin-user-badges";
   badges.append(
@@ -6057,12 +6272,15 @@ function creerCarteProfesseurEquipe(professeur) {
   const reset = document.createElement("button");
   reset.type = "button";
   reset.className = "button secondary";
-  reset.textContent = "Reset password";
+  reset.textContent = "Réinitialiser";
+  reset.title = "Réinitialiser le mot de passe";
   reset.disabled = !modifiable || professeur.statut_compte !== "active";
   const retirer = document.createElement("button");
   retirer.type = "button";
   retirer.className = "button danger";
-  retirer.textContent = "Retirer de l'équipe";
+  retirer.textContent = "Retirer";
+  retirer.title = "Retirer de l'équipe";
+  retirer.setAttribute("aria-label", `Retirer ${professeur.nom || "ce professeur"} de l'équipe`);
   retirer.disabled = !modifiable;
   actions.append(enregistrer, reset, retirer);
   formulaire.appendChild(actions);
@@ -6324,9 +6542,9 @@ async function chargerEquipeSiAutorise() {
   try {
     const [equipe, demandesEquipe, tarificationEquipe, rattachements] = await Promise.all([
       recupererProfesseursEquipe(),
-      recupererDemandesCompte(),
+      estHorsLigne() ? Promise.resolve([]) : recupererDemandesCompte(),
       recupererTarificationEquipe(),
-      envoyerRequete("/api/team-memberships/requests/received"),
+      estHorsLigne() ? Promise.resolve({ demandes: [] }) : envoyerRequete("/api/team-memberships/requests/received"),
     ]);
     etat.equipe = equipe;
     etat.tarificationEquipe = normaliserTarificationEquipe(tarificationEquipe);
@@ -6359,6 +6577,7 @@ async function chargerEquipeSiAutorise() {
 }
 
 async function chargerAdministrationSiAutorise() {
+  if (estHorsLigne()) return;
   if (!utilisateurPeutVoirAdministration()) {
     etat.administration = null;
     etat.demandesAdministration = [];
@@ -6639,7 +6858,7 @@ function obtenirFuseauHoraireCalendrierCentral() {
 
 function actualiserHorlogeCalendriers() {
   const fuseauHoraire = obtenirFuseauHoraireCalendrierCentral();
-  [etat.calendrier, etat.calendrierIndisponibilites].forEach((calendrier) => {
+  [etat.calendrier].forEach((calendrier) => {
     mettreAJourHorlogeCalendrier(calendrier, fuseauHoraire);
   });
 }
@@ -9573,6 +9792,7 @@ function creerCarteInformationHistorique(ligne) {
 }
 
 function mettreAJourVisibiliteStatutSeance(mode) {
+  elements.seanceModal.classList.toggle("is-seance-creation", mode === "creation");
   elements.seanceForm.dataset.duplication = "false";
   elements.seanceModal.classList.remove("is-seance-duplication");
   etat.seanceSourceDuplication = null;
@@ -9727,10 +9947,6 @@ function ouvrirFormulaireModification() {
 }
 
 function dupliquerSeanceDepuisDashboard(info = {}) {
-  if (!window.matchMedia("(min-width: 721px) and (pointer: fine)").matches) {
-    ouvrirFormulaireDuplication();
-    return;
-  }
   const source = etat.seanceSelectionnee && { ...etat.seanceSelectionnee };
   if (etat.sectionActive !== "dashboard" || !peutDeplacerSeanceCalendrier(source) ||
     etat.copieFantomeEnregistrementEnCours || !etat.calendrier) return;
@@ -9773,12 +9989,7 @@ async function enregistrerCopieFantome(source, cible) {
   etat.ignorerClicCopieJusqua = performance.now() + 350;
   etat.copieFantomeEnregistrementEnCours = true;
   try {
-    const copie = await ajouterSeance({
-      handler_id: source.handler_id, intervenant_id: source.intervenant_id,
-      etudiant: source.etudiant, parent: source.parent || "", matiere: source.matiere,
-      est_essai: Number(source.est_essai) === 1 ? "1" : "0", duree_minutes: Number(source.duree_minutes) || 60,
-      date: cible.date, heure_debut: cible.heure_debut, statut_seance: "planifiee", nombre_semaines: 1,
-    });
+    const copie = await dupliquerSeance(source.id, { date: cible.date, heure_debut: cible.heure_debut });
     etat.seances = [...etat.seances.filter(seance => Number(seance.id) !== Number(copie.id)), copie];
     rafraichirEvenementsCalendrier();
     mettreAJourResume();
@@ -9788,6 +9999,47 @@ async function enregistrerCopieFantome(source, cible) {
     if (erreur.status === 401) await gererDeconnexion();
     else afficherToast(`Copie annulée : ${erreur.message || "emplacement interdit."}`, "error");
   } finally { etat.copieFantomeEnregistrementEnCours = false; }
+}
+
+function ouvrirRepetitionSeance() {
+  const source = etat.seanceSelectionnee;
+  if (etat.sectionActive !== "dashboard" || !peutDeplacerSeanceCalendrier(source) ||
+      etat.repetitionEnCours || etat.calendrier?.view.type === "dayGridMonth") return;
+  etat.seanceSourceRepetition = { ...source };
+  elements.repetitionWeeks.value = "1";
+  elements.repetitionSummary.textContent = `${source.etudiant} · ${source.heure_debut}–${source.heure_fin} · Payante`;
+  masquerErreur(elements.repetitionError);
+  elements.repetitionSubmit.disabled = false;
+  fermerMenusCalendrier();
+  ouvrirModal(elements.repetitionModal);
+  elements.repetitionWeeks.focus();
+  elements.repetitionWeeks.select();
+}
+
+async function gererRepetitionSeance(event) {
+  event.preventDefault();
+  const source = etat.seanceSourceRepetition;
+  if (!source || etat.repetitionEnCours || etat.sectionActive !== "dashboard" || !peutDeplacerSeanceCalendrier(source)) return;
+  masquerErreur(elements.repetitionError);
+  const semaines = Number(elements.repetitionWeeks.value);
+  if (!Number.isInteger(semaines) || semaines < 1 || semaines > 52) {
+    afficherErreur(elements.repetitionError, "Choisissez entre 1 et 52 semaines."); return;
+  }
+  etat.repetitionEnCours = true;
+  elements.repetitionSubmit.disabled = true;
+  try {
+    const resultat = await repeterSeance(source.id, semaines);
+    fermerModal(elements.repetitionModal);
+    etat.seanceSourceRepetition = null;
+    const rafraichissements = await Promise.allSettled([chargerSeances(), chargerIndisponibilites(), chargerHistorique(), chargerMonetisationSiAutorise()]);
+    afficherToast(resultat.message, "success");
+    if (rafraichissements.some(resultat => resultat.status === "rejected")) afficherToast("Séances enregistrées. Actualisez la page pour les afficher.", "warning");
+  } catch (erreur) {
+    afficherErreur(elements.repetitionError, erreur.message);
+  } finally {
+    etat.repetitionEnCours = false;
+    elements.repetitionSubmit.disabled = false;
+  }
 }
 
 function ouvrirFormulaireDuplication() {
@@ -9829,7 +10081,7 @@ function ouvrirFormulaireDuplication() {
     obtenirValeurCatalogueActiveOuDefaut(matieres, seanceSource.matiere, obtenirMatiereParDefaut())
   );
   definirValeurSelectionnee(elements.statutCheckboxes, "planifiee");
-  definirValeurSelectionnee(elements.essaiCheckboxes, seanceSource.est_essai ? "1" : "0");
+  definirValeurSelectionnee(elements.essaiCheckboxes, "0");
   definirDureeSelectionnee(seanceSource.duree_minutes || 60);
   elements.seanceForm.dataset.duplication = "true";
   elements.seanceModal.classList.add("is-seance-duplication");
@@ -9977,7 +10229,7 @@ async function gererSoumissionSeance(event) {
     Object.assign(donneesSeance, {
       etudiant: String(sourceDuplication.etudiant || "").trim(),
       parent: String(sourceDuplication.parent || "").trim(),
-      est_essai: sourceDuplication.est_essai ? "1" : "0",
+      est_essai: "0",
     });
   }
 
@@ -10332,6 +10584,7 @@ function fermerMenusCalendrier() {
 }
 
 function ouvrirMenuActionsIndisponibilite(indisponibilite, info) {
+  if (etat.duplicationFantome || etat.copieFantomeEnregistrementEnCours || performance.now() < etat.ignorerClicCopieJusqua) return;
   if (etat.sectionActive !== "indisponibilites" ||
     !indisponibilite || indisponibilite.est_seance_confidentielle) return;
   fermerMenusCalendrier();
@@ -10339,13 +10592,13 @@ function ouvrirMenuActionsIndisponibilite(indisponibilite, info) {
     id: "unavailability-context-menu", label: "Options de l'indisponibilité",
   });
   if (!info) {
-    const calendrier = elements.unavailabilityCalendar;
+    const calendrier = elements.calendar;
     info = { el: calendrier?.querySelector(`[data-indisponibilite-id="${Number(indisponibilite.id)}"]`) };
   }
   menuActionsIndisponibilite.ouvrir({
     seance: indisponibilite,
     info,
-    actions: [["modifier", "Modifier"], ["dupliquer", "Dupliquer"], ["supprimer", "Supprimer"]],
+    actions: [["dupliquer", "Dupliquer"], ["supprimer", "Supprimer"]],
     libelleSelection: (selection) => construirePlageIndisponibilite(selection),
     peutModifier: peutRedimensionnerIndisponibilite,
     onAction: (action, selection) => {
@@ -10355,12 +10608,7 @@ function ouvrirMenuActionsIndisponibilite(indisponibilite, info) {
       etat.indisponibiliteSelectionnee = actuelle;
       if (action === "supprimer") {
         gererSuppressionIndisponibilite(actuelle.id);
-      } else {
-        // Prepare the existing form only after the action has been chosen.
-        ouvrirDetailIndisponibilite(actuelle);
-        if (action === "modifier") ouvrirFormulaireModificationIndisponibilite();
-        if (action === "dupliquer") ouvrirFormulaireDuplicationIndisponibilite();
-      }
+      } else if (action === "dupliquer") ouvrirFormulaireDuplicationIndisponibilite();
     },
   });
 }
@@ -10386,6 +10634,7 @@ function ouvrirMenuActionsSeance(seance, info) {
         ouvrirDetailSeance(actuelle);
       } else if (peutDeplacerSeanceCalendrier(actuelle)) {
         if (action === "dupliquer") dupliquerSeanceDepuisDashboard(info);
+        if (action === "repeter") ouvrirRepetitionSeance();
         if (action === "supprimer") gererSuppressionSeance();
       }
     },
@@ -11102,6 +11351,9 @@ function definirBadge(element, type, texte) {
 }
 
 function afficherToast(message, type = "success", options = {}) {
+  if (type === "success" && estHorsLigne() && /séance|indisponibilit|durée|créneau/i.test(message)) {
+    message = "Enregistré sur cet appareil — en attente de synchronisation.";
+  }
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
 

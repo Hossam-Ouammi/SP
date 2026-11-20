@@ -1,0 +1,110 @@
+const assert = require('node:assert/strict');
+module.exports = async function testerOffline({ browser, baseUrl, alpha, alphaId, date, sourceId }) {
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const etat = () => page.evaluate(async () => (await import('/js/offline.js')).etatOffline());
+  const call = (method, path, body) => page.evaluate(async ({ method, path, body }) => {
+    const { envoyerRequete } = await import('/js/http.js');
+    return envoyerRequete(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
+  }, { method, path, body });
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    await page.evaluate(async () => {
+      const { connecterUtilisateur } = await import('/js/auth.js');
+      await connecterUtilisateur('handler-alpha-isolation@example.test', 'Alpha!Handler2026');
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !document.getElementById('app-view').classList.contains('hidden'));
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+    await page.waitForFunction(async () => (await import('/js/offline.js')).etatOffline().then(s => s.ready));
+    await call('GET', '/api/seances');
+    await page.setOfflineMode(true);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !document.getElementById('app-view').classList.contains('hidden'));
+    assert.equal((await etat()).offline, true);
+    await assert.rejects(call('PATCH', '/api/settings', { calendar_start_time: '01:00' }), /uniquement en ligne/);
+    const cacheSafety = await page.evaluate(async () => {
+      const cache = await caches.open('sp-shell-20261015-offline-v1');
+      return { paths: (await cache.keys()).map(request => new URL(request.url).pathname), html: await (await cache.match('/offline')).text() };
+    });
+    assert.ok(!cacheSafety.paths.some(path => path.startsWith('/api/')));
+    assert.ok(!cacheSafety.html.includes('handler-alpha-isolation@example.test'));
+    await page.click('#home-calendar-tab');
+    await page.waitForSelector(`#calendar [data-seance-id="${sourceId}"]`, { visible: true });
+    await call('PATCH', `/api/seances/${sourceId}/horaire`, { date, heure_debut: '10:00' });
+    await call('PATCH', `/api/seances/${sourceId}/duree`, { heure_debut: '10:00', duree_minutes: 90 });
+    const creation = await call('POST', '/api/seances', { etudiant: 'Brouillon offline', parent: '', matiere: 'Maths', compte: 'Cours', est_essai: false,
+      date, heure_debut: '18:00', duree_minutes: 60, statut_seance: 'planifiee', handler_id: alphaId, intervenant_id: alphaId });
+    assert.ok(creation.seance.id < 0);
+    await call('PATCH', `/api/seances/${creation.seance.id}/horaire`, { date, heure_debut: '18:30' });
+    await call('DELETE', `/api/seances/${creation.seance.id}`);
+    const indispo = await call('POST', '/api/indisponibilites', { date, heure_debut: '20:00', heure_fin: '20:30', jour_complet: 0 });
+    assert.ok(indispo.indisponibilite.id < 0);
+    await call('PATCH', `/api/indisponibilites/${indispo.indisponibilite.id}/plage`, { heure_debut: '20:00', heure_fin: '21:00' });
+    assert.equal((await etat()).pending, 7);
+    await page.setViewport({ width: 390, height: 900, hasTouch: true });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !document.getElementById('app-view').classList.contains('hidden'));
+    assert.equal((await etat()).pending, 7, 'queue survives offline reload');
+    const local = (await call('GET', '/api/seances')).seances;
+    assert.equal(local.find(row => row.id === sourceId).heure_debut, '10:00');
+    assert.equal(local.find(row => row.id === sourceId).duree_minutes, 90);
+    assert.ok(!local.some(row => row.etudiant === 'Brouillon offline'));
+    await page.click('#home-calendar-tab');
+    await page.waitForSelector(`#calendar [data-seance-id="${sourceId}"].offline-calendar-pending`, { visible: true });
+    assert.ok(await page.$eval('#offline-status', el => el.scrollWidth <= el.clientWidth + 1), 'offline indicator fits a phone');
+    await page.setOfflineMode(false);
+    await page.evaluate(() => import('/js/offline.js').then(module => module.synchroniserOffline()));
+    await page.waitForFunction(async () => (await import('/js/offline.js')).etatOffline().then(s => s.pending === 0), { timeout: 20000 });
+    let response = await alpha.request('GET', '/api/seances');
+    const synced = response.json.seances.find(row => row.id === sourceId);
+    assert.equal(synced.heure_debut, '10:00'); assert.equal(synced.duree_minutes, 90);
+    assert.ok(!response.json.seances.some(row => row.etudiant === 'Brouillon offline'), 'local create/edit/delete replayed in order');
+    response = await alpha.request('GET', '/api/dashboard/indisponibilites');
+    const disponible = response.json.indisponibilites.find(row => row.date === date && row.heure_debut === '20:00' && row.heure_fin === '21:00' && row.intervenant_id === alphaId);
+    assert.ok(disponible, 'local availability create/resize mapped to real IDs');
+    await alpha.request('DELETE', `/api/indisponibilites/${disponible.id}`);
+    response = await alpha.request('PATCH', `/api/seances/${sourceId}/duree`, { heure_debut: '10:00', duree_minutes: 60 });
+    assert.equal(response.status, 200, response.text);
+    response = await alpha.request('PATCH', `/api/seances/${sourceId}/horaire`, { date, heure_debut: '09:00' });
+    assert.equal(response.status, 200, response.text);
+    await call('GET', '/api/seances');
+    await page.setOfflineMode(true);
+    await call('PATCH', `/api/seances/${sourceId}/horaire`, { date, heure_debut: '10:00' });
+    response = await alpha.request('PATCH', `/api/seances/${sourceId}/horaire`, { date, heure_debut: '11:00' });
+    assert.equal(response.status, 200, response.text);
+    await page.setOfflineMode(false);
+    await page.evaluate(() => import('/js/offline.js').then(module => module.synchroniserOffline()));
+    assert.equal((await etat()).operations[0].status, 'conflict');
+    response = await alpha.request('GET', '/api/seances');
+    assert.equal(response.json.seances.find(row => row.id === sourceId).heure_debut, '11:00', 'conflict does not overwrite server');
+    await page.evaluate(async () => {
+      const module = await import('/js/offline.js');
+      const state = await module.etatOffline();
+      await module.abandonnerOperation(state.operations[0].id);
+    });
+    await alpha.request('PATCH', `/api/seances/${sourceId}/horaire`, { date, heure_debut: '09:00' });
+
+    // Simulate a lost response: retry the exact operation ID twice/concurrently.
+    const crypto = require('node:crypto');
+    const operation = crypto.randomUUID();
+    const body = { etudiant: 'Reçu idempotent', matiere: 'Maths', compte: 'Cours', est_essai: false, date: '2048-05-04', heure_debut: '10:00', duree_minutes: 60, statut_seance: 'planifiee', handler_id: alphaId, intervenant_id: alphaId };
+    const receipts = await Promise.all([1, 2].map(() => alpha.request('POST', '/api/seances', body, { 'X-Offline-Operation': operation })));
+    assert.equal(receipts[0].status, 201, receipts[0].text); assert.equal(receipts[1].status, 201, receipts[1].text);
+    assert.equal(receipts[0].json.seance.id, receipts[1].json.seance.id);
+    const tampered = await alpha.request('POST', '/api/seances', { ...body, heure_debut: '11:00' }, { 'X-Offline-Operation': operation });
+    assert.equal(tampered.status, 409);
+    await alpha.request('DELETE', `/api/seances/${receipts[0].json.seance.id}`);
+    await page.setOfflineMode(true);
+    await page.evaluate(() => import('/js/auth.js').then(module => module.deconnecterUtilisateur()));
+    assert.equal((await etat()).owner, null);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !document.getElementById('login-view').classList.contains('hidden'));
+    assert.equal((await etat()).pending, 0);
+    assert.deepEqual(errors, [], 'no browser JS exceptions');
+    console.log('offline calendar: PASS (shell, reload, move/resize, local create/edit/delete, availability, replay, conflicts, idempotency, logout)');
+  } finally { await context.close(); }
+};

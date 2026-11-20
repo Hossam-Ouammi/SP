@@ -20,7 +20,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/css/style.css?v=20261013-remove-statistics" />
+    <link rel="stylesheet" href="/css/style.css?v=20261106-sync-button" />
     <script defer src="/js/interaction-guards.js?v=20261010-gestures"></script>
   </head>
   <body>
@@ -166,70 +166,89 @@
 
       <section id="app-view" class="page app-page<%= user ? "" : " hidden" %>">
         <header class="topbar panel">
+          <aside id="offline-status" class="offline-status" hidden aria-live="polite">
+            <button type="button" class="offline-indicator" data-offline-toggle aria-haspopup="dialog" aria-controls="offline-status-dialog" aria-expanded="false">
+              <span class="offline-indicator-icon" data-offline-icon aria-hidden="true"></span>
+              <span data-offline-title>Hors ligne</span>
+              <svg class="offline-indicator-chevron" data-offline-chevron viewBox="0 0 20 20" aria-hidden="true" hidden><path d="m5 7 5 5 5-5"/></svg>
+            </button>
+          </aside>
+          <button id="nav-more-toggle" class="workspace-menu-toggle" type="button" aria-label="Ouvrir le menu" aria-expanded="false" aria-controls="workspace-menu">
+            <span></span><span></span><span></span>
+          </button>
           <div class="topbar-left">
             <h1 class="brand-title">Gestion <span class="superprof-wordmark">Superprof</span></h1>
-            <div class="topbar-meta">
-              <span class="user-pill user-pill-identity">
-                <span id="current-user-name">Utilisateur</span>
-                <small id="current-user-public-id">ID : -</small>
-              </span>
-            </div>
           </div>
 
           <div class="topbar-actions">
             <button id="add-seance-button" class="button primary" type="button">
               Ajouter
             </button>
-            <button id="logout-button" class="button secondary" type="button">
-              Déconnexion
-            </button>
           </div>
         </header>
 
-        <nav class="workspace-nav panel">
-          <button class="nav-tab hidden" type="button" data-section-target="aujourdhui">
-            Aujourd'hui <span id="today-count" class="nav-notification-badge hidden">0</span>
-          </button>
-          <button class="nav-tab" type="button" data-section-target="dashboard">
-            Dashboard
-          </button>
-          <button class="nav-tab hidden" type="button" data-section-target="indisponibilites">
-            Indisponibilités
+        <button id="workspace-backdrop" class="workspace-backdrop hidden" type="button" aria-label="Fermer le menu" tabindex="-1" hidden></button>
+        <nav id="workspace-menu" class="workspace-menu panel hidden" aria-label="Navigation principale" hidden>
+          <div class="sidebar-heading">
+            <div class="sidebar-brand">
+              <span class="sidebar-brand-mark" aria-hidden="true">S</span>
+              <div class="sidebar-brand-text">
+                <span>Votre espace</span>
+                <small>Gestion Superprof</small>
+                <div class="sidebar-identity"><strong id="current-user-name">Utilisateur</strong><span id="current-user-public-id">ID : -</span></div>
+              </div>
+            </div>
+            <button id="sidebar-close" class="sidebar-close" type="button" aria-label="Fermer le menu">×</button>
+          </div>
+          <div class="sidebar-main">
+          <button class="nav-tab" type="button" data-section-target="home">
+            <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10H3Z M9 20v-7h6v7"/></svg>
+            Home
           </button>
           <button class="nav-tab hidden" type="button" data-section-target="calendrier">
-            Calendrier
+            <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18 M12 3c5 5 5 13 0 18 M12 3c-5 5-5 13 0 18"/></svg>
+            Lien public
           </button>
           <button class="nav-tab hidden" type="button" data-section-target="equipe">
-            Équipe <span id="team-request-badge" class="nav-notification-badge hidden">0</span>
+            <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3 M16 5a3 3 0 0 1 0 6 M17 15a5 5 0 0 1 4 5"/></svg>
+            Mon équipe <span id="team-request-badge" class="nav-notification-badge hidden">0</span>
           </button>
-          <button
-            id="nav-more-toggle"
-            class="nav-more-toggle"
-            type="button"
-            aria-label="Afficher les autres menus"
-            aria-expanded="false"
-            title="Afficher les autres menus"
-          >
-            <span aria-hidden="true">→</span>
-          </button>
-          <button class="nav-tab nav-secondary nav-secondary-collapsed hidden" type="button" data-section-target="monetisation">
+          <button class="nav-tab hidden" type="button" data-section-target="monetisation">
+            <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 8h-4a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H9 M12 6v12"/></svg>
             Monétisation
           </button>
-          <button class="nav-tab nav-secondary nav-secondary-collapsed" type="button" data-section-target="utilisateur">
+          <button class="nav-tab" type="button" data-section-target="historique">
+            <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5v5h5 M3 10a9 9 0 1 1 1 8 M12 7v5l3 2"/></svg>
+            Historique
+          </button>
+          </div>
+          <div class="sidebar-footer">
+          <button class="nav-tab" type="button" data-section-target="utilisateur">
+            <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-1 3-3 1-3 3 2 2-2 2 3 3 3 1 1 3h4l1-3 3-1 3-3-2-2 2-2-3-3-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/></svg>
             <span id="user-nav-label">Paramètres</span>
             <span id="admin-request-badge" class="nav-notification-badge hidden">0</span>
           </button>
-          <button class="nav-tab nav-secondary nav-secondary-collapsed" type="button" data-section-target="historique">
-            Historique
-          </button>
+          <button id="logout-button" class="button secondary workspace-menu-logout" type="button"><svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6 M9 12h12 m-5-5 5 5-5 5"/></svg>Déconnexion</button>
+          </div>
         </nav>
 
-        <section id="aujourdhui-section" class="app-section">
+        <dialog id="offline-status-dialog" class="offline-sync-dialog" aria-labelledby="offline-dialog-title" aria-describedby="offline-dialog-text">
+          <header class="offline-sync-dialog-heading">
+            <h2 id="offline-dialog-title">Changements à synchroniser</h2>
+            <button type="button" data-offline-close aria-label="Fermer">×</button>
+          </header>
+          <p id="offline-dialog-text" data-offline-text></p>
+          <ul data-offline-operations></ul>
+          <footer><button type="button" data-offline-sync hidden>Réessayer la synchronisation</button></footer>
+        </dialog>
+        <section id="home-section" class="home-layout">
+          <nav class="home-view-tabs panel" role="tablist" aria-label="Vues de Home">
+            <button id="home-today-tab" class="home-view-tab is-active" data-home-view="aujourdhui" type="button" role="tab" aria-selected="true" aria-controls="aujourdhui-section">Aujourd'hui <span id="today-count" class="nav-notification-badge hidden">0</span></button>
+            <button id="home-calendar-tab" class="home-view-tab" data-home-view="calendrier" type="button" role="tab" aria-selected="false" aria-controls="dashboard-section" tabindex="-1">Calendrier</button>
+          </nav>
+        <section id="aujourdhui-section" class="app-section" role="tabpanel" aria-labelledby="home-today-tab">
           <section class="panel today-panel">
             <div class="section-heading section-heading-stack">
-              <div class="today-heading-primary">
-                <h2>Aujourd'hui</h2>
-              </div>
               <p id="today-date-label" class="section-note">-</p>
             </div>
 
@@ -237,19 +256,26 @@
           </section>
         </section>
 
-        <section id="dashboard-section" class="app-section hidden">
+        <section id="dashboard-section" class="app-section hidden" role="tabpanel" aria-labelledby="home-calendar-tab">
           <section class="panel calendar-panel">
-            <div class="section-heading">
-              <h2>Dashboard</h2>
+            <div class="section-heading calendar-heading-row">
+              <div class="calendar-mode-tabs" role="group" aria-label="Mode du calendrier">
+                <button class="calendar-mode-tab is-active" data-calendar-mode="dashboard" type="button" aria-pressed="true">Séances</button>
+                <button class="calendar-mode-tab" data-calendar-mode="indisponibilites" type="button" aria-pressed="false">Indisponibilités</button>
+              </div>
+              <div class="calendar-controls-row">
               <label id="dashboard-person-filter-field" class="dashboard-person-filter hidden">
                 <span>Afficher</span>
                 <select id="dashboard-person-filter" aria-label="Personne affichée dans le calendrier">
                   <option value="global">Vue globale</option>
                 </select>
               </label>
+              </div>
             </div>
-
             <div id="calendar"></div>
+            <div class="calendar-duplicate-actions">
+              <button id="duplicate-unavailability-week" class="button secondary calendar-duplicate-control" type="button" aria-hidden="true" disabled>Dupliquer vers la semaine prochaine</button>
+            </div>
             <div id="dashboard-public-link" class="dashboard-public-link hidden">
               <strong id="dashboard-public-link-label">Votre lien public :</strong>
               <a id="dashboard-public-link-value" href="#" target="_blank" rel="noopener"></a>
@@ -257,43 +283,29 @@
             </div>
           </section>
         </section>
-
-        <section id="indisponibilites-section" class="app-section hidden">
-          <section
-            id="unavailability-declaration-panel"
-            class="panel calendar-panel unavailability-workbench-panel"
-            data-unavailability-panel="declaration"
-          >
-            <div class="section-heading">
-              <h2>Indisponibilités</h2>
-              <button id="duplicate-unavailability-week" class="button secondary" type="button">Dupliquer vers la semaine prochaine</button>
-            </div>
-
-            <div id="unavailability-calendar"></div>
-          </section>
         </section>
 
         <section id="equipe-section" class="app-section hidden">
           <section class="panel admin-panel-shell">
             <div class="section-heading section-heading-stack">
               <div>
-                <h2>Équipe</h2>
+                <h2><span class="team-title-mark" aria-hidden="true">✦</span>Mon équipe</h2>
               </div>
             </div>
 
-            <article class="admin-card admin-directory-card">
+            <article class="admin-card admin-directory-card team-requests-card">
               <div class="admin-card-head">
                 <div>
-                  <h3 class="user-form-title">Demandes en attente</h3>
+                  <h3 class="user-form-title"><span class="team-section-mark" aria-hidden="true">◷</span>Demandes en attente</h3>
                 </div>
               </div>
               <div id="team-pending-requests" class="admin-user-list"></div>
             </article>
 
-            <article class="admin-card admin-directory-card">
+            <article class="admin-card admin-directory-card team-professors-card">
               <div class="admin-card-head">
                 <div>
-                  <h3 class="user-form-title">Professeurs</h3>
+                  <h3 class="user-form-title"><span class="team-section-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 4v2"/></svg></span>Professeurs</h3>
                 </div>
               </div>
               <div id="team-list" class="admin-user-list"></div>
@@ -302,7 +314,7 @@
             <article class="admin-card team-subjects-card">
               <div class="admin-card-head">
                 <div>
-                  <h3 class="user-form-title">Matières</h3>
+                  <h3 class="user-form-title"><span class="team-section-mark" aria-hidden="true">▤</span>Matières</h3>
                 </div>
               </div>
               <form id="team-subject-form" class="team-subject-form">
@@ -327,7 +339,7 @@
             <article class="admin-card team-tarification-card">
               <div class="admin-card-head">
                 <div>
-                  <h3 class="user-form-title">Tarifs par matière</h3>
+                  <h3 class="user-form-title"><span class="team-section-mark" aria-hidden="true">◇</span>Tarifs par matière</h3>
                 </div>
               </div>
               <form id="team-tarification-form" class="team-tarification-form">
@@ -353,9 +365,6 @@
 
               <div class="admin-card-body stack-form">
                 <form id="workspace-settings-form" class="stack-form" novalidate>
-                  <div>
-                    <h4 class="user-form-title">Dashboard</h4>
-                  </div>
                   <div class="form-grid">
                     <label class="field">
                       <span>Début de journée</span>
@@ -429,7 +438,7 @@
           <section class="panel admin-panel-shell">
             <div class="section-heading section-heading-stack">
               <div>
-                <h2 id="admin-panel-title">User admin</h2>
+                <h2 id="admin-panel-title">Paramètres</h2>
               </div>
             </div>
 
@@ -456,6 +465,8 @@
 
                 <p id="user-security-status" class="user-security-status">Compte sécurisé.</p>
 
+                <details class="settings-account-details">
+                  <summary>Informations du compte</summary>
                 <div class="admin-identity-stats">
                   <div class="admin-identity-stat">
                     <span>Outils sensibles</span>
@@ -466,9 +477,10 @@
                     <strong id="user-last-login">-</strong>
                   </div>
                 </div>
+                  </details>
               </article>
 
-              <article class="admin-guide-card">
+              <article class="admin-guide-card hidden" hidden>
                 <span class="summary-label">Vue rapide</span>
                 <strong id="admin-guide-title" class="admin-guide-title">Sécurité et contrôle</strong>
               </article>
@@ -478,13 +490,9 @@
               <form
                 id="user-password-form"
                 class="stack-form user-password-form admin-card admin-password-card"
-                data-admin-group="password"
               >
-                <div class="admin-card-head">
-                  <div>
-                    <h3 class="user-form-title">Sécurité du compte</h3>
-                  </div>
-                </div>
+                <details id="settings-security" class="settings-disclosure" name="settings-sections">
+                  <summary><span class="settings-disclosure-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Z"/><path d="m8 12 3 3 5-6"/></svg></span><span class="settings-summary-copy"><strong>Sécurité du compte</strong><small>Modifier votre mot de passe</small></span></summary>
 
                 <div class="admin-card-body stack-form">
                   <div id="password-security-notice" class="security-notice hidden">
@@ -534,9 +542,13 @@
                     </button>
                   </div>
                 </div>
+                </details>
               </form>
 
               <section id="admin-tools-panel" class="user-admin-shell hidden">
+                <details id="settings-administration" class="settings-disclosure" name="settings-sections">
+                  <summary><span class="settings-disclosure-icon" aria-hidden="true">▦</span><span class="settings-summary-copy"><strong>Administration</strong><small>Comptes, accès et outils</small></span></summary>
+                <div class="settings-disclosure-body">
                 <nav class="admin-workbench-nav" aria-label="Navigation admin">
                   <button
                     class="admin-workbench-tab is-active"
@@ -1045,6 +1057,8 @@
                     <div class="form-actions"><button id="admin-delete-user-button" class="button danger" type="submit">Supprimer définitivement</button></div>
                   </form>
                 </article>
+                </div>
+                </details>
               </section>
             </div>
 
@@ -1052,11 +1066,8 @@
               id="professor-public-calendar-card"
               class="admin-card user-notifications-card hidden"
             >
-              <div class="admin-card-head">
-                <div>
-                  <h3 class="user-form-title">Mon lien public personnel</h3>
-                </div>
-              </div>
+              <details class="settings-disclosure" name="settings-sections">
+                <summary><span class="settings-disclosure-icon" aria-hidden="true">↗</span><span class="settings-summary-copy"><strong>Mon lien public</strong><small>Partager et gérer votre calendrier</small></span></summary>
               <div class="admin-card-body stack-form">
                 <p class="user-security-status">
                   Votre lien public personnel est unique et permanent. Il indique uniquement si vous êtes disponible ou non disponible.
@@ -1082,30 +1093,30 @@
                   </div>
                 </div>
               </div>
+              </details>
             </article>
 
             <article
               id="professor-teams-card"
               class="admin-card hidden"
             >
-              <div class="admin-card-head">
-                <div>
-                  <h3 class="user-form-title">Mes équipes</h3>
-                </div>
-              </div>
+              <details class="settings-disclosure" name="settings-sections">
+                <summary><span class="settings-disclosure-icon" aria-hidden="true">▦</span><span class="settings-summary-copy"><strong>Mes équipes</strong><small>Consulter vos rattachements</small></span></summary>
               <div class="admin-card-body stack-form">
                 <p class="user-security-status">
                   Voici les Handlers et équipes auxquels vous appartenez actuellement :
                 </p>
                 <div id="professor-teams-list" class="stack-form"></div>
               </div>
+              </details>
             </article>
 
             <article
               id="team-membership-card"
               class="admin-card hidden"
             >
-              <div class="admin-card-head"><div><h3 class="user-form-title">Intégrer une nouvelle équipe</h3></div></div>
+              <details class="settings-disclosure" name="settings-sections">
+                <summary><span class="settings-disclosure-icon" aria-hidden="true">＋</span><span class="settings-summary-copy"><strong>Rejoindre une équipe</strong><small>Envoyer une demande de rattachement</small></span></summary>
               <form id="team-membership-form" class="admin-card-body stack-form">
                 <label class="field">
                   <span>ID de l'équipe / Handler</span>
@@ -1118,18 +1129,15 @@
                 <p id="team-membership-error" class="form-error hidden"></p>
                 <div class="form-actions"><button id="team-membership-submit" class="button primary" type="submit">Envoyer la demande</button></div>
               </form>
+              </details>
             </article>
 
             <article
               id="push-settings-card"
               class="admin-card user-notifications-card"
-              data-admin-group="notifications"
             >
-              <div class="admin-card-head">
-                <div>
-                  <h3 class="user-form-title">Notifications push</h3>
-                </div>
-              </div>
+              <details id="settings-notifications" class="settings-disclosure" name="settings-sections">
+                <summary><span class="settings-disclosure-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5ZM10 21h4M12 2v2"/></svg></span><span class="settings-summary-copy"><strong>Notifications</strong><small>Alertes et préférences de cet appareil</small></span></summary>
 
               <div class="admin-card-body stack-form">
                 <div class="admin-identity-stats">
@@ -1164,6 +1172,7 @@
                   </button>
                 </div>
               </div>
+              </details>
             </article>
           </section>
         </section>
@@ -1566,14 +1575,14 @@
                       id="etudiant"
                       name="etudiant"
                       type="text"
-                      placeholder="Nom de l'étudiant"
+                      placeholder="Prénom, nom"
                       required
                     />
                   </label>
 
                   <label class="field">
                     <span>Parent</span>
-                    <input id="parent" name="parent" type="text" placeholder="Nom du parent" />
+                    <input id="parent" name="parent" type="text" placeholder="Facultatif" />
                   </label>
                 </div>
 
@@ -1687,6 +1696,19 @@
       </div>
     </div>
 
+    <div id="repeat-session-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="repeat-session-title" aria-hidden="true" tabindex="-1">
+      <div class="modal-backdrop" data-close-modal="repeat-session-modal"></div>
+      <div class="modal-panel">
+        <div class="modal-header"><h3 id="repeat-session-title">Répéter la séance</h3><button class="icon-button" type="button" data-close-modal="repeat-session-modal" aria-label="Fermer">×</button></div>
+        <p id="repeat-session-summary" class="section-note"></p>
+        <form id="repeat-session-form">
+          <label class="field repeat-session-field"><span>Nombre de semaines</span><input id="repeat-session-weeks" type="number" min="1" max="52" step="1" value="1" inputmode="numeric" required /></label>
+          <p id="repeat-session-error" class="form-error hidden"></p>
+          <div class="form-actions"><button class="button secondary" type="button" data-close-modal="repeat-session-modal">Annuler</button><button id="repeat-session-submit" class="button primary" type="submit">Répéter</button></div>
+        </form>
+      </div>
+    </div>
+
     <div
       id="detail-modal"
       class="modal hidden"
@@ -1749,6 +1771,11 @@
                 <span>Séance d'essai</span>
                 <strong id="detail-trial">-</strong>
               </div>
+            </div>
+
+            <details class="session-detail-audit">
+              <summary>Suivi de la séance</summary>
+              <div class="detail-list">
               <div class="detail-row">
                 <span>Créée par</span>
                 <strong id="detail-created-by">-</strong>
@@ -1765,7 +1792,8 @@
                 <span>Mis à jour le</span>
                 <strong id="detail-updated-at">-</strong>
               </div>
-            </div>
+              </div>
+            </details>
 
             <div class="detail-actions">
               <button id="edit-seance-button" class="button primary" type="button">
@@ -1808,43 +1836,6 @@
         </div>
 
         <div class="detail-layout">
-          <section class="detail-card">
-            <div class="detail-badges">
-              <span id="unavailability-detail-badge" class="status-badge">Indisponible</span>
-            </div>
-
-            <div class="detail-list">
-              <div class="detail-row">
-                <span>Date</span>
-                <strong id="unavailability-detail-date">-</strong>
-              </div>
-              <div class="detail-row">
-                <span>Plage</span>
-                <strong id="unavailability-detail-time">-</strong>
-              </div>
-              <div class="detail-row">
-                <span>Créée par</span>
-                <strong id="unavailability-detail-created-by">-</strong>
-              </div>
-              <div class="detail-row">
-                <span>Créée le</span>
-                <strong id="unavailability-detail-created-at">-</strong>
-              </div>
-            </div>
-
-            <div class="detail-actions">
-              <button id="edit-unavailability-button" class="button primary" type="button">
-                Modifier
-              </button>
-              <button id="duplicate-unavailability-button" class="button secondary" type="button">
-                Dupliquer
-              </button>
-              <button id="delete-unavailability-button" class="button danger" type="button">
-                Supprimer
-              </button>
-            </div>
-          </section>
-
           <section id="unavailability-form-panel" class="detail-card hidden">
             <h4 id="unavailability-form-title">Modifier</h4>
             <form id="unavailability-modal-form" class="stack-form" novalidate>
@@ -1920,7 +1911,7 @@
       </div>
     </div>
 
-    <div id="toast-container" class="toast-container"></div>
+    <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-relevant="additions text"></div>
 
     <script src="/vendor/@fullcalendar/core/index.global.js"></script>
     <script src="/vendor/@fullcalendar/core/locales-all.global.js"></script>
@@ -1929,6 +1920,6 @@
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
     <script src="/js/service-worker-recovery.js?v=20260919-auto-refresh"></script>
     <script src="/js/login-lifecycle.js?v=20260911-account-request-dialog"></script>
-    <script type="module" src="/js/ui.js?v=20261014-remove-monetisation-details"></script>
+    <script type="module" src="/js/ui.js?v=20261120-stable-height"></script>
   </body>
 </html>

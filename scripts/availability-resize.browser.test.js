@@ -50,6 +50,7 @@ const puppeteer = require("puppeteer");
       await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [centre] });
       await page.waitForFunction(() => document.querySelector(".fc-event-selected"));
       await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      assert.equal(await page.evaluate(() => window.clicked), 0, 'Long press selects resize handles without opening the click menu');
       const handle = await page.$eval(".fc-event-selected .fc-event-resizer-end", el => {
         const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, height: r.height };
       });
@@ -62,6 +63,10 @@ const puppeteer = require("puppeteer");
       await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
       await page.waitForFunction(() => window.changes.length === 2);
       assert.equal(await page.evaluate(() => window.changes[1]), 240);
+      assert.equal(await page.evaluate(() => window.clicked), 0, 'Resizing does not also open the menu');
+      await page.waitForFunction(() => performance.now() >= (window.cal.__clicEditionIgnoreJusqua || 0));
+      await page.tap('.fc-event-resizable');
+      assert.equal(await page.evaluate(() => window.clicked), 1, 'A separate short tap still opens the availability menu');
       await page.close();
     }
     console.log("availability resize browser test: PASS");

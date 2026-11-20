@@ -5,6 +5,8 @@ const {
   recupererOptionsSeances,
   recupererUneSeance,
   ajouterSeance,
+  dupliquerSeance,
+  repeterSeance,
   modifierSeance,
   deplacerSeance,
   redimensionnerSeance,
@@ -33,6 +35,8 @@ router.get("/", recupererToutesLesSeances);
 router.get("/options", recupererOptionsSeances);
 router.get("/:id", recupererUneSeance);
 router.post("/", verifierModeEcritureAutorise, notifierMiseAJourApplication(ajouterSeance, "seances"));
+router.post("/:id/dupliquer", verifierModeEcritureAutorise, notifierMiseAJourApplication(dupliquerSeance, "seances"));
+router.post("/:id/repeter", verifierModeEcritureAutorise, notifierMiseAJourApplication(repeterSeance, "seances"));
 router.put(
   "/:id",
   verifierModeEcritureAutorise,

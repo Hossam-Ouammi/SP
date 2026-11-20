@@ -1,4 +1,4 @@
-import { attacherNavigationSemaines } from "./calendrier.js?v=20261013-touch-cleanup";
+import { attacherNavigationSemaines } from "./calendrier.js?v=20261120-stable-height";
 
 const publicCalendarOffsetMinutes = Number(
   document.body?.dataset?.publicCalendarOffsetMinutes || 0
@@ -340,8 +340,14 @@ function mettreAJourCalendrier() {
   }
 
   const creneaux = Array.isArray(etat.planning?.creneaux) ? etat.planning.creneaux : [];
+  etat.calendrier.__fournirEvenementsApercu = async cible => {
+    const semaine = cible.view.currentStart.toISOString().slice(0, 10);
+    const resultat = await recupererPlanningPartage(semaine);
+    return construireEvenementsPublics(resultat?.planning?.creneaux || []);
+  };
   etat.calendrier.batchRendering(() => {
     etat.calendrier.removeAllEvents();
+    etat.calendrier.removeAllEventSources();
     etat.calendrier.addEventSource(construireEvenementsPublics(creneaux));
   });
 
@@ -525,7 +531,7 @@ function programmerSynchronisationRapide() {
   etat.synchronisationProgrammee = window.setTimeout(() => {
     etat.synchronisationProgrammee = null;
     chargerPlanning(etat.planning.week_start, { silencieux: true }).catch(() => {});
-  }, 350);
+  }, 50);
 }
 
 function lancerSynchronisationAutomatique() {
@@ -609,7 +615,7 @@ function lancerSynchronisationTempsReel() {
     }
   });
 
-  source.addEventListener("connected", () => {});
+  source.addEventListener("connected", programmerSynchronisationRapide);
   source.addEventListener("ping", () => {});
   source.addEventListener("session-invalidated", () => {
     rendreCalendrierPublicIndisponible();

@@ -235,7 +235,7 @@ assert.match(
   /id="admin-account-requests-list"/,
   "Les demandes de compte doivent rester visibles pour validation Admin."
 );
-assert.match(sourceUi, /reset\.textContent\s*=\s*"Reset password"/);
+assert.match(sourceUi, /reset\.textContent\s*=\s*"Réinitialiser"/);
 assert.match(
   sourceUi,
   /envoyerLienResetProfesseur\(/,

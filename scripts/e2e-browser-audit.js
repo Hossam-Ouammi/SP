@@ -545,6 +545,19 @@ async function verifierLienReinitialisationAvecSession(page, client) {
 }
 
 async function ouvrirSection(page, section) {
+  if (["dashboard", "aujourdhui", "indisponibilites"].includes(section)) {
+    await ouvrirSection(page, "home");
+    if (section === "aujourdhui") await page.click("#home-today-tab");
+    else {
+      await page.click("#home-calendar-tab");
+      await page.click(`[data-calendar-mode="${section}"]`);
+    }
+    return;
+  }
+  if (await page.$(`#workspace-menu [data-section-target="${section}"]`)) {
+    if (await page.$eval("#workspace-menu", element => element.hidden)) await page.click("#nav-more-toggle");
+    await page.waitForFunction(() => getComputedStyle(document.getElementById("workspace-menu")).transform === "none");
+  }
   await page.waitForSelector(`[data-section-target="${section}"]`);
   await page.click(`[data-section-target="${section}"]`);
   await page.waitForFunction(
@@ -559,7 +572,7 @@ async function ouvrirSection(page, section) {
 
 async function verifierNavigationInteractive(page, profil) {
   const sectionsVisibles = await page.$$eval(
-    ".workspace-nav [data-section-target]",
+    "#app-view [data-section-target]",
     (boutons) =>
       boutons
         .filter((bouton) => {
@@ -1167,10 +1180,11 @@ async function run() {
       await appliquerSessionPage(mobilePage, admin);
       await attendreApplicationChargee(mobilePage);
       await ouvrirSection(mobilePage, "monetisation");
+      await mobilePage.click("#nav-more-toggle");
       const ongletMobileActifVisible = await mobilePage.evaluate(() => {
-        const navigation = document.querySelector(".workspace-nav");
+        const navigation = document.querySelector("#workspace-menu");
         const onglet = document.querySelector(
-          '.workspace-nav [data-section-target="monetisation"].is-active'
+          '#workspace-menu [data-section-target="monetisation"].is-active'
         );
         if (!navigation || !onglet) {
           return false;
