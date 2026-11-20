@@ -1,5 +1,6 @@
 const OFFLINE_CACHE = "sp-shell-20261015-offline-v1";
-// Shell revision 20261106-offline-indicator: refresh the neutral offline HTML
+const SUPERPROF_MARK = "/superprof-official-mark.svg";
+// Shell revision 20261120-desktop-brand: refresh the neutral offline HTML
 // and static assets on install without touching the account's IndexedDB queue.
 self.addEventListener("install", event => {
   event.waitUntil((async () => {
@@ -7,7 +8,7 @@ self.addEventListener("install", event => {
     if (!response.ok) throw new Error("Offline asset manifest unavailable");
     const { assets } = await response.json();
     const cache = await caches.open(OFFLINE_CACHE);
-    await cache.addAll(assets.map(url => new Request(url, { cache: "reload", credentials: "omit" })));
+    await cache.addAll([...assets, SUPERPROF_MARK].map(url => new Request(url, { cache: "reload", credentials: "omit" })));
     await self.skipWaiting();
   })());
 });
@@ -24,7 +25,7 @@ self.addEventListener("fetch", event => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || request.method !== "GET" || url.pathname.startsWith("/api/")) return;
   const navigation = request.mode === "navigate" && ["/", "/offline", "/index.html"].includes(url.pathname);
-  const asset = /^\/(js|css|icons|vendor)\//.test(url.pathname) || url.pathname === "/manifest.webmanifest";
+  const asset = /^\/(js|css|icons|vendor)\//.test(url.pathname) || url.pathname === "/manifest.webmanifest" || url.pathname === SUPERPROF_MARK;
   if (!navigation && !asset) return;
   event.respondWith((async () => {
     try {

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" class="desktop-sidebar-compact">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -20,7 +20,14 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/css/style.css?v=20261106-sync-button" />
+    <script>
+      try {
+        if (localStorage.getItem("sp-desktop-sidebar-compact") === "false") {
+          document.documentElement.classList.remove("desktop-sidebar-compact");
+        }
+      } catch (_) { /* Use the default layout when storage is unavailable. */ }
+    </script>
+    <link rel="stylesheet" href="/css/style.css?v=20261120-desktop-brand" />
     <script defer src="/js/interaction-guards.js?v=20261010-gestures"></script>
   </head>
   <body>
@@ -175,8 +182,10 @@
           </aside>
           <button id="nav-more-toggle" class="workspace-menu-toggle" type="button" aria-label="Ouvrir le menu" aria-expanded="false" aria-controls="workspace-menu">
             <span></span><span></span><span></span>
+            <svg class="desktop-sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16M5.5 8h1M5.5 12h1"/></svg>
           </button>
           <div class="topbar-left">
+            <img class="topbar-brand-mark" src="/superprof-official-mark.svg?v=20260920-refined" width="30" height="30" alt="" />
             <h1 class="brand-title">Gestion <span class="superprof-wordmark">Superprof</span></h1>
           </div>
 
@@ -188,7 +197,7 @@
         </header>
 
         <button id="workspace-backdrop" class="workspace-backdrop hidden" type="button" aria-label="Fermer le menu" tabindex="-1" hidden></button>
-        <nav id="workspace-menu" class="workspace-menu panel hidden" aria-label="Navigation principale" hidden>
+        <nav id="workspace-menu" class="workspace-menu panel" aria-label="Navigation principale">
           <div class="sidebar-heading">
             <div class="sidebar-brand">
               <span class="sidebar-brand-mark" aria-hidden="true">S</span>
@@ -203,32 +212,32 @@
           <div class="sidebar-main">
           <button class="nav-tab" type="button" data-section-target="home">
             <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10H3Z M9 20v-7h6v7"/></svg>
-            Home
+            <span class="sidebar-nav-label">Home</span>
           </button>
           <button class="nav-tab hidden" type="button" data-section-target="calendrier">
             <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18 M12 3c5 5 5 13 0 18 M12 3c-5 5-5 13 0 18"/></svg>
-            Lien public
+            <span class="sidebar-nav-label"><span class="sidebar-mobile-label">Lien public</span><span class="sidebar-desktop-label">Calendrier public</span></span>
           </button>
           <button class="nav-tab hidden" type="button" data-section-target="equipe">
             <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3 M16 5a3 3 0 0 1 0 6 M17 15a5 5 0 0 1 4 5"/></svg>
-            Mon équipe <span id="team-request-badge" class="nav-notification-badge hidden">0</span>
+            <span class="sidebar-nav-label">Mon équipe</span> <span id="team-request-badge" class="nav-notification-badge hidden">0</span>
           </button>
           <button class="nav-tab hidden" type="button" data-section-target="monetisation">
             <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 8h-4a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H9 M12 6v12"/></svg>
-            Monétisation
+            <span class="sidebar-nav-label">Monétisation</span>
           </button>
           <button class="nav-tab" type="button" data-section-target="historique">
             <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5v5h5 M3 10a9 9 0 1 1 1 8 M12 7v5l3 2"/></svg>
-            Historique
+            <span class="sidebar-nav-label">Historique</span>
           </button>
           </div>
           <div class="sidebar-footer">
           <button class="nav-tab" type="button" data-section-target="utilisateur">
             <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-1 3-3 1-3 3 2 2-2 2 3 3 3 1 1 3h4l1-3 3-1 3-3-2-2 2-2-3-3-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/></svg>
-            <span id="user-nav-label">Paramètres</span>
+            <span id="user-nav-label" class="sidebar-nav-label">Paramètres</span>
             <span id="admin-request-badge" class="nav-notification-badge hidden">0</span>
           </button>
-          <button id="logout-button" class="button secondary workspace-menu-logout" type="button"><svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6 M9 12h12 m-5-5 5 5-5 5"/></svg>Déconnexion</button>
+          <button id="logout-button" class="button secondary workspace-menu-logout" type="button"><svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6 M9 12h12 m-5-5 5 5-5 5"/></svg><span class="sidebar-nav-label">Déconnexion</span></button>
           </div>
         </nav>
 
@@ -1920,6 +1929,6 @@
     <script src="/vendor/@fullcalendar/interaction/index.global.js"></script>
     <script src="/js/service-worker-recovery.js?v=20260919-auto-refresh"></script>
     <script src="/js/login-lifecycle.js?v=20260911-account-request-dialog"></script>
-    <script type="module" src="/js/ui.js?v=20261120-stable-height"></script>
+    <script type="module" src="/js/ui.js?v=20261120-sidebar-first-paint"></script>
   </body>
 </html>

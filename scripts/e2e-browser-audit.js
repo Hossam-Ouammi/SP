@@ -555,7 +555,7 @@ async function ouvrirSection(page, section) {
     return;
   }
   if (await page.$(`#workspace-menu [data-section-target="${section}"]`)) {
-    if (await page.$eval("#workspace-menu", element => element.hidden)) await page.click("#nav-more-toggle");
+    if (await page.$eval("#workspace-menu", element => getComputedStyle(element).display === "none")) await page.click("#nav-more-toggle");
     await page.waitForFunction(() => getComputedStyle(document.getElementById("workspace-menu")).transform === "none");
   }
   await page.waitForSelector(`[data-section-target="${section}"]`);

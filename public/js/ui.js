@@ -284,6 +284,7 @@ const horlogeCalendriers = {
   timer: null,
 };
 let navigationSecondaireOuverte = false;
+const sidebarDesktopMedia = window.matchMedia('(min-width: 1024px)');
 
 
 
@@ -2607,6 +2608,13 @@ function attacherEcouteurs() {
     });
   });
   elements.navMoreToggle?.addEventListener("click", () => {
+    if (sidebarDesktopMedia.matches) {
+      const sidebarDesktopCompacte = document.documentElement.classList.toggle('desktop-sidebar-compact');
+      try { localStorage.setItem('sp-desktop-sidebar-compact', String(sidebarDesktopCompacte)); } catch (_) { /* Keep the in-memory choice. */ }
+      synchroniserNavigationSecondaire();
+      requestAnimationFrame(() => etat.calendrier?.updateSize());
+      return;
+    }
     navigationSecondaireOuverte = !navigationSecondaireOuverte;
     synchroniserNavigationSecondaire();
     if (navigationSecondaireOuverte) elements.sidebarClose?.focus();
@@ -2618,6 +2626,12 @@ function attacherEcouteurs() {
       elements.navMoreToggle?.focus();
     });
   });
+  sidebarDesktopMedia.addEventListener('change', () => {
+    navigationSecondaireOuverte = false;
+    synchroniserNavigationSecondaire();
+    requestAnimationFrame(() => etat.calendrier?.updateSize());
+  });
+  synchroniserNavigationSecondaire();
   elements.calendarModeTabs.forEach((bouton) => {
     bouton.addEventListener("click", () => afficherSectionApplication(bouton.dataset.calendarMode));
   });
@@ -3135,18 +3149,21 @@ function mettreAJourModesCalendrier() {
 }
 
 function synchroniserNavigationSecondaire() {
-  const ouvert = navigationSecondaireOuverte;
-  if (elements.workspaceMenu) {
-    elements.workspaceMenu.hidden = !ouvert;
-    elements.workspaceMenu.classList.toggle("hidden", !ouvert);
-  }
+  const desktop = sidebarDesktopMedia.matches;
+  const sidebarDesktopCompacte = document.documentElement.classList.contains('desktop-sidebar-compact');
+  const tiroirOuvert = !desktop && navigationSecondaireOuverte;
   if (elements.workspaceBackdrop) {
-    elements.workspaceBackdrop.hidden = !ouvert;
-    elements.workspaceBackdrop.classList.toggle("hidden", !ouvert);
+    elements.workspaceBackdrop.hidden = !tiroirOuvert;
+    elements.workspaceBackdrop.classList.toggle("hidden", !tiroirOuvert);
   }
-  document.body.classList.toggle("sidebar-open", ouvert);
-  elements.navMoreToggle?.setAttribute("aria-expanded", String(ouvert));
-  elements.navMoreToggle?.setAttribute("aria-label", ouvert ? "Fermer le menu" : "Ouvrir le menu");
+  document.body.classList.toggle("sidebar-open", tiroirOuvert);
+  elements.navMoreToggle?.setAttribute("aria-expanded", String(desktop ? !sidebarDesktopCompacte : tiroirOuvert));
+  elements.navMoreToggle?.setAttribute("aria-label", desktop ? sidebarDesktopCompacte ? 'Afficher les noms des menus' : 'Afficher uniquement les icônes' : tiroirOuvert ? "Fermer le menu" : "Ouvrir le menu");
+  elements.workspaceMenu?.querySelectorAll('.nav-tab, #logout-button').forEach(bouton => {
+    if (!desktop) { bouton.removeAttribute('aria-label'); bouton.removeAttribute('title'); return; }
+    const nom = bouton.querySelector('.sidebar-desktop-label')?.textContent.trim() || bouton.querySelector('.sidebar-nav-label')?.textContent.trim() || bouton.textContent.trim();
+    if (nom) { bouton.title = nom; bouton.setAttribute('aria-label', nom); }
+  });
 }
 
 function afficherSectionApplication(section) {

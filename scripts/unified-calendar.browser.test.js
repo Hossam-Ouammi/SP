@@ -187,31 +187,36 @@ const puppeteer = require("puppeteer");
       await page.keyboard.press("Escape");
       await page.evaluate(() => testUI.etat.calendrier.trigger("dateClick", { date: new Date("2034-06-05T16:00:00Z"), dateStr: "2034-06-05T16:00:00", allDay: false }));
       assert.equal(await page.evaluate(() => calls.at(-1)), "seance");
-      await page.click("#nav-more-toggle");
+      if (await page.$eval("#nav-more-toggle", el => el.getAttribute("aria-expanded") === "false")) {
+        await page.click("#nav-more-toggle");
+      }
       await page.waitForFunction(() => getComputedStyle(document.getElementById("workspace-menu")).transform === "none");
-      assert.equal(await page.$eval("#workspace-menu", el => el.hidden), false);
+      assert.equal(await page.$eval("#workspace-menu", el => getComputedStyle(el).display), "flex");
       assert.ok(await page.$('#workspace-menu [data-section-target="home"]'));
       assert.equal(await page.$('#workspace-menu [data-section-target="aujourdhui"]'), null);
       assert.equal(await page.$('#workspace-menu [data-section-target="dashboard"]'), null);
       assert.ok(await page.$('.sidebar-footer [data-section-target="utilisateur"]'));
       assert.ok(await page.$("#workspace-menu #logout-button"));
       assert.equal(await page.$eval("#workspace-menu", el => getComputedStyle(el).position), "fixed");
-      assert.ok(await page.evaluate(() => {
+      assert.ok(await page.evaluate((desktop) => {
         const name = document.getElementById("current-user-name").getBoundingClientRect();
         const id = document.getElementById("current-user-public-id").getBoundingClientRect();
-        const brand = document.querySelector(".sidebar-brand small").getBoundingClientRect();
+        const brand = document.querySelector(".sidebar-brand small");
         const sidebar = document.getElementById("workspace-menu");
-        return Math.abs((name.top + name.bottom) / 2 - (id.top + id.bottom) / 2) < 1 && name.top > brand.bottom && sidebar.scrollWidth <= sidebar.clientWidth + 1;
-      }), "Name and ID share one line beneath Gestion Superprof without overflow");
-      assert.ok(await page.evaluate(() => {
-        const brand = getComputedStyle(document.querySelector(".sidebar-brand small"));
+        return Math.abs((name.top + name.bottom) / 2 - (id.top + id.bottom) / 2) < 1 &&
+          (desktop ? getComputedStyle(brand).display === "none" : name.top > brand.getBoundingClientRect().bottom) &&
+          sidebar.scrollWidth <= sidebar.clientWidth + 1;
+      }, width >= 1024), "Name and ID share one line without overflow");
+      assert.ok(await page.evaluate((desktop) => {
+        const sidebarSubtitle = getComputedStyle(document.querySelector(".sidebar-brand small"));
         const name = getComputedStyle(document.getElementById("current-user-name"));
         const id = getComputedStyle(document.getElementById("current-user-public-id"));
         const row = getComputedStyle(document.querySelector(".sidebar-identity"));
-        return name.fontSize === brand.fontSize && id.fontSize === brand.fontSize && name.fontFamily === brand.fontFamily &&
-          name.color === brand.color && id.color === brand.color && Number(name.fontWeight) > Number(id.fontWeight) &&
+        return name.fontSize === id.fontSize && name.fontFamily === id.fontFamily &&
+          (desktop || name.fontSize === sidebarSubtitle.fontSize && name.color === sidebarSubtitle.color && id.color === sidebarSubtitle.color) &&
+          Number(name.fontWeight) > Number(id.fontWeight) &&
           row.borderTopWidth === "0px" && id.borderLeftWidth === "0px" && row.backgroundColor === "rgba(0, 0, 0, 0)";
-      }), "Identity matches the brand subtitle, without borders; only the name is bolder");
+      }, width >= 1024), "Identity keeps consistent typography and no borders");
       const footerBottom = await page.$eval("#logout-button", el => el.getBoundingClientRect().bottom);
       assert.ok(footerBottom > 820 && footerBottom <= 900, "Settings and logout stay at the bottom of the sidebar");
       if (width === 390 && process.env.SP_CALENDAR_SCREENSHOT) {
@@ -219,16 +224,16 @@ const puppeteer = require("puppeteer");
         await page.screenshot({ path: process.env.SP_CALENDAR_SCREENSHOT });
       }
       await page.keyboard.press("Escape");
-      assert.equal(await page.$eval("#workspace-menu", el => el.hidden), true);
+      assert.equal(await page.$eval("#workspace-menu", el => getComputedStyle(el).display === "none"), width < 1024);
       await page.evaluate(() => testUI.afficherSectionApplication("monetisation"));
       assert.equal(await page.$eval("#home-section", el => el.classList.contains("hidden")), true);
-      await page.click("#nav-more-toggle");
+      if (width < 1024) await page.click("#nav-more-toggle");
       await page.waitForFunction(() => getComputedStyle(document.getElementById("workspace-menu")).transform === "none");
       await page.click('[data-section-target="home"]');
       assert.equal(await page.$eval("#home-section", el => el.classList.contains("hidden")), false);
       assert.equal(await page.$eval("#aujourdhui-section", el => el.classList.contains("hidden")), true);
       assert.equal(await page.$eval("#dashboard-section", el => el.classList.contains("hidden")), false);
-      assert.equal(await page.$eval("#workspace-menu", el => el.hidden), true);
+      assert.equal(await page.$eval("#workspace-menu", el => getComputedStyle(el).display === "none"), width < 1024);
       assert.ok(await page.$eval("#app-view", el => el.scrollWidth <= el.clientWidth + 1), `No overflow at ${width}px`);
     }
     await page.evaluate(() => {
